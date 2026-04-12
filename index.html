@@ -479,6 +479,12 @@ function getWorkboardItems() {
 
 function renderWorkboard() {
   const items = getWorkboardItems();
+  // Also get completed counts per service for stats
+  const allRounds = [];
+  STATE.customerPrograms.forEach(cp => {
+    cp.rounds.forEach(r => { allRounds.push(r); });
+  });
+
   let filtered = items;
   if (filterService !== 'all') filtered = filtered.filter(i => i.serviceType === filterService);
   if (searchTerm) {
@@ -489,6 +495,19 @@ function renderWorkboard() {
   const overdueItems = filtered.filter(i => i.overdue);
   const dueItems = filtered.filter(i => i.due && !i.overdue);
   const upcomingItems = filtered.filter(i => i.upcoming);
+
+  // Per-service stats
+  const svcStats = {};
+  SERVICE_TYPES.forEach(s => { svcStats[s] = { total: 0, completed: 0, pending: 0 }; });
+  STATE.customerPrograms.forEach(cp => {
+    cp.rounds.forEach(r => {
+      if (svcStats[r.serviceType]) {
+        svcStats[r.serviceType].total++;
+        if (r.status === 'completed') svcStats[r.serviceType].completed++;
+        else if (r.status === 'pending') svcStats[r.serviceType].pending++;
+      }
+    });
+  });
 
   document.getElementById('page-workboard').innerHTML = `
     <h1>Work Board</h1>
@@ -501,7 +520,10 @@ function renderWorkboard() {
     <div class="search-bar"><input placeholder="Filter by customer, round, service..." value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderWorkboard()"></div>
     <div class="filter-pills">
       <button class="${filterService==='all'?'active':''}" onclick="filterService='all';renderWorkboard()">All</button>
-      ${SERVICE_TYPES.map(s => `<button class="${filterService===s?'active':''}" onclick="filterService='${s}';renderWorkboard()">${s}</button>`).join('')}
+      ${SERVICE_TYPES.filter(s => svcStats[s].total > 0).map(s => {
+        const st = svcStats[s];
+        return `<button class="${filterService===s?'active':''}" onclick="filterService='${s}';renderWorkboard()">${s} <span style="opacity:.7;font-size:9px">${st.completed}/${st.total}</span></button>`;
+      }).join('')}
     </div>
     ${overdueItems.length ? `<div class="section-label" style="color:var(--overdue)">⚠ Overdue (${overdueItems.length})</div>${overdueItems.map(i => workCardHtml(i,'overdue')).join('')}` : ''}
     ${dueItems.length ? `<div class="section-label" style="color:var(--accent)">● Due Now (${dueItems.length})</div>${dueItems.map(i => workCardHtml(i,'due')).join('')}` : ''}
@@ -667,9 +689,12 @@ function renderCustomerDetail(el) {
       <div class="card" style="margin-bottom:12px">
         <div class="flex-between mb-8">
           <div><span style="font-weight:700;font-size:14px">${escHtml(cp.programName)}</span> <span style="font-size:12px;color:var(--text-dim)">(${cp.year})</span></div>
-          <button class="btn danger sm" onclick="removeCustomerProgram('${cp.id}')">Remove</button>
+          <div class="flex-row gap-6">
+            <button class="btn success sm" onclick="showAddRoundToProgram('${cp.id}')">+ Round</button>
+            <button class="btn danger sm" onclick="removeCustomerProgram('${cp.id}')">Remove All</button>
+          </div>
         </div>
-        ${cp.rounds.map((r,idx) => {
+        ${cp.rounds.sort((a,b) => (a.windowStart||'').localeCompare(b.windowStart||'')).map((r,idx) => {
           const over = r.status === 'pending' && isOverdue(r.windowEnd);
           const due = r.status === 'pending' && isDue(r.windowStart, r.windowEnd);
           return `
@@ -686,7 +711,8 @@ function renderCustomerDetail(el) {
               ${r.status === 'pending' && due && !over ? '<span class="badge" style="background:var(--accent-dim);color:var(--accent)">Due</span>' : ''}
               ${r.status === 'pending' ? `
                 <button class="btn success sm" onclick="completeRound('${cp.id}',${idx})">Done</button>
-                <button class="btn ghost sm" onclick="skipRound('${cp.id}',${idx})">Skip</button>
+                <button class="btn ghost sm" onclick="showEditRound('${cp.id}',${idx})" title="Edit">✏️</button>
+                <button class="btn ghost sm" onclick="deleteRound('${cp.id}',${idx})" title="Delete" style="color:var(--danger)">✕</button>
               ` : ''}
             </div>
           `;
@@ -898,7 +924,10 @@ function renderRouteDetail(el) {
         <h1 style="margin:0">${escHtml(rt.name || fmtDateFull(rt.date))}</h1>
         <div style="font-size:13px;color:var(--text-dim)">${total} stops · ${completed} completed · ${escHtml(rt.serviceFilter||'Mixed')}</div>
       </div>
-      <button class="btn danger sm" onclick="deleteRoute('${rt.id}')">Delete Route</button>
+      <div class="flex-row gap-6">
+        <button class="btn primary sm" onclick="openInAppleMaps('${rt.id}')">🗺️ Open in Maps</button>
+        <button class="btn danger sm" onclick="deleteRoute('${rt.id}')">Delete Route</button>
+      </div>
     </div>
     <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
     ${rt.stops?.map((s,i) => `
@@ -946,24 +975,127 @@ function deleteRoute(id) {
   renderRoutes();
 }
 
+function openInAppleMaps(routeId) {
+  const rt = STATE.routes.find(r => r.id === routeId);
+  if (!rt || !rt.stops || rt.stops.length === 0) { alert('No stops in this route.'); return; }
+  // Get pending stops with addresses
+  const pendingStops = rt.stops.filter(s => s.status !== 'completed' && s.address);
+  if (pendingStops.length === 0) { alert('No pending stops with addresses.'); return; }
+  // Apple Maps URL with multiple waypoints
+  // Format: maps.apple.com/?daddr=addr1&daddr=addr2...
+  const addresses = pendingStops.map(s => encodeURIComponent(s.address));
+  if (addresses.length === 1) {
+    window.open('https://maps.apple.com/?daddr=' + addresses[0], '_blank');
+  } else {
+    // Apple Maps supports waypoints via Google Maps URL scheme on iOS
+    // Use Google Maps URL which iOS will offer to open in Apple Maps
+    const origin = addresses[0];
+    const dest = addresses[addresses.length - 1];
+    const waypoints = addresses.slice(1, -1).join('|');
+    let url = 'https://www.google.com/maps/dir/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
+    window.open(url, '_blank');
+  }
+}
+
+// ── Quick Round Management ──
+function showAddRoundToProgram(cpId) {
+  const cp = STATE.customerPrograms.find(c => c.id === cpId);
+  if (!cp) return;
+  showModal('Add Round', `
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">Add a custom round to this program:</p>
+    <div class="input-group"><label>Round Name *</label><input id="ar-name" placeholder="e.g., R3 — Grub Control"></div>
+    <div class="input-group"><label>Service Type</label>
+      <select id="ar-svc">${SERVICE_TYPES.map(s => `<option>${s}</option>`).join('')}</select>
+    </div>
+    <div class="grid-2">
+      <div class="input-group"><label>Window Start (MM-DD)</label><input id="ar-start" placeholder="05-01"></div>
+      <div class="input-group"><label>Window End (MM-DD)</label><input id="ar-end" placeholder="06-30"></div>
+    </div>
+    <div class="flex-row gap-6" style="justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="addRoundToProgram('${cpId}')">Add Round</button>
+    </div>
+  `);
+}
+
+function addRoundToProgram(cpId) {
+  const name = document.getElementById('ar-name').value.trim();
+  const svc = document.getElementById('ar-svc').value;
+  const start = document.getElementById('ar-start').value.trim();
+  const end = document.getElementById('ar-end').value.trim();
+  if (!name || !start || !end) { alert('Fill in all fields.'); return; }
+  const cp = STATE.customerPrograms.find(c => c.id === cpId);
+  if (!cp) return;
+  cp.rounds.push({ name, serviceType: svc, windowStart: start, windowEnd: end, status: 'pending', completedDate: null });
+  // Sort rounds by window start
+  cp.rounds.sort((a,b) => (a.windowStart||'').localeCompare(b.windowStart||''));
+  saveState();
+  closeModal();
+  renderCurrentPage();
+}
+
+function showEditRound(cpId, roundIdx) {
+  const cp = STATE.customerPrograms.find(c => c.id === cpId);
+  if (!cp) return;
+  const r = cp.rounds[roundIdx];
+  showModal('Edit Round', `
+    <div class="input-group"><label>Round Name</label><input id="er-name" value="${escHtml(r.name)}"></div>
+    <div class="input-group"><label>Service Type</label>
+      <select id="er-svc">${SERVICE_TYPES.map(s => `<option ${r.serviceType===s?'selected':''}>${s}</option>`).join('')}</select>
+    </div>
+    <div class="grid-2">
+      <div class="input-group"><label>Window Start (MM-DD)</label><input id="er-start" value="${escHtml(r.windowStart)}"></div>
+      <div class="input-group"><label>Window End (MM-DD)</label><input id="er-end" value="${escHtml(r.windowEnd)}"></div>
+    </div>
+    <div class="flex-row gap-6" style="justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="saveEditRound('${cpId}',${roundIdx})">Save</button>
+    </div>
+  `);
+}
+
+function saveEditRound(cpId, roundIdx) {
+  const cp = STATE.customerPrograms.find(c => c.id === cpId);
+  if (!cp) return;
+  cp.rounds[roundIdx].name = document.getElementById('er-name').value.trim();
+  cp.rounds[roundIdx].serviceType = document.getElementById('er-svc').value;
+  cp.rounds[roundIdx].windowStart = document.getElementById('er-start').value.trim();
+  cp.rounds[roundIdx].windowEnd = document.getElementById('er-end').value.trim();
+  // Re-sort
+  cp.rounds.sort((a,b) => (a.windowStart||'').localeCompare(b.windowStart||''));
+  saveState();
+  closeModal();
+  renderCurrentPage();
+}
+
+function deleteRound(cpId, roundIdx) {
+  if (!confirm('Delete this round?')) return;
+  const cp = STATE.customerPrograms.find(c => c.id === cpId);
+  if (!cp) return;
+  cp.rounds.splice(roundIdx, 1);
+  saveState();
+  renderCurrentPage();
+}
+
 // ══════════ SYNC ══════════
 function renderSync() {
   const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  // Auto-fill sync URL from API_URL if not set
+  const syncUrl = settings.syncUrl || API_URL || '';
   document.getElementById('page-sync').innerHTML = `
     <h1>Treatment Sync</h1>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">Connect your LPP App Log to automatically verify and complete treatments.</p>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">Sync your LPP App Log to automatically verify and complete treatments in FieldPro.</p>
     <div class="card mb-16">
-      <div class="section-label" style="margin-top:0">🔗 Apps Script API</div>
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Paste your FieldPro Sync Apps Script URL below.</p>
-      <div class="input-group"><label>Sync API URL</label><input id="sync-url" value="${escHtml(settings.syncUrl||'')}" placeholder="https://script.google.com/macros/s/.../exec"></div>
+      <div class="section-label" style="margin-top:0">🔗 LPP App Log Sync</div>
+      <div class="input-group"><label>API URL</label><input id="sync-url" value="${escHtml(syncUrl)}" placeholder="https://script.google.com/macros/s/.../exec"></div>
       <div style="margin-bottom:12px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
           <input type="checkbox" id="sync-all" ${settings.syncAll ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)">
           <span style="font-weight:600">Fetch all months</span>
-          <span style="font-size:11px;color:var(--text-muted)">(uncheck for current + last month)</span>
+          <span style="font-size:11px;color:var(--text-muted)">(uncheck for current + last month only)</span>
         </label>
       </div>
-      <button class="btn primary" onclick="doSync()">Sync Now</button>
+      <button class="btn primary" onclick="doSync()" style="width:100%;padding:14px;font-size:15px">🔄 Sync Now</button>
       ${STATE.sheetLastSync ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Last sync: ${new Date(STATE.sheetLastSync).toLocaleString()} · ${STATE.sheetData.length} records</div>` : ''}
     </div>
     <div class="card mb-16">
@@ -984,12 +1116,16 @@ function doSync() {
   // Save settings
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({ syncUrl: url, syncAll: fetchAll }));
 
-  const fetchUrl = url + (url.includes('?') ? '&' : '?') + (fetchAll ? 'all=true' : '');
-
-  fetch(fetchUrl)
-    .then(r => r.json())
-    .then(json => {
-      if (!json.success) { alert('API error: ' + (json.error||'Unknown')); return; }
+  // Use POST with fpSyncLog action (same CORS-safe pattern as LPP)
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: 'fpSyncLog', fetchAll: fetchAll })
+  })
+    .then(r => r.text())
+    .then(t => {
+      const json = JSON.parse(t);
+      if (json.status !== 'ok') { alert('API error: ' + (json.message||json.error||'Unknown')); return; }
       STATE.sheetData = json.records || [];
       STATE.sheetLastSync = json.synced || new Date().toISOString();
 
