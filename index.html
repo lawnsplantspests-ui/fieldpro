@@ -204,13 +204,14 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
 
 // ══════════ CONFIGURATION ══════════
 // REPLACE THESE WITH YOUR ACTUAL VALUES:
-const API_URL = 'https://script.google.com/home/projects/13xMt14qTs_ZTNmPoQgT4WO8KP-6FhWJKUiz0TvCHZiiQ0oeZ7Ei8bID2'; // Your Apps Script Web App URL
+const API_URL = ''; // Your Apps Script Web App URL
 const CACHE_KEY = 'fieldpro_cache';
 const SETTINGS_KEY = 'fieldpro_settings';
 
 // ══════════ STATE ══════════
 let STATE = {
   customers: [],
+  services: {},
   programs: [],
   customerPrograms: [],
   routes: [],
@@ -341,6 +342,7 @@ function loadFromCache() {
     if (raw) {
       const cached = JSON.parse(raw);
       STATE.customers = cached.customers || [];
+      STATE.services = cached.services || {};
       STATE.programs = cached.programs || (DEFAULT_PROGRAMS.map(p => ({...p})));
       STATE.customerPrograms = cached.customerPrograms || [];
       STATE.routes = cached.routes || [];
@@ -363,15 +365,19 @@ function loadAll() {
   // Then try API
   api({ action: 'fpGetAll' },
     function(d) {
-      // Merge customers from shared sheet
+      // Merge customers from shared Customers tab
       if (d.customers) STATE.customers = d.customers;
-      if (d.programs) STATE.programs = d.programs;
+      // Services from existing Services tab (JSON blob with product definitions)
+      if (d.services) STATE.services = d.services;
+      // FieldPro-specific data
+      if (d.programs && d.programs.length) STATE.programs = d.programs;
       if (d.customerPrograms) STATE.customerPrograms = d.customerPrograms;
       if (d.routes) STATE.routes = d.routes;
       if (d.products) STATE.products = d.products;
       saveToCache();
       renderCurrentPage();
       document.getElementById('offline-banner').classList.remove('show');
+      console.log('FieldPro loaded:', STATE.customers.length, 'customers,', Object.keys(STATE.services || {}).length, 'services');
     },
     function(err) {
       console.log('Using cached data:', err);
