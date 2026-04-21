@@ -159,6 +159,29 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
 /* HIDDEN PAGES */
 .page{display:none}
 .page.active{display:block}
+
+.pond-checklist-section{margin-bottom:16px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.pond-checklist-section .section-header{padding:10px 14px;background:var(--bg-input);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.pond-checklist-section .section-body{padding:14px}
+.pond-field{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.pond-field:last-child{border-bottom:none}
+.pond-field .field-label{flex:0 0 130px;font-size:12px;font-weight:600;color:var(--text-dim)}
+.pond-field input,.pond-field select{flex:1;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-family:var(--font-body);outline:none}
+.quick-select{display:flex;gap:4px;flex:1}
+.quick-select button{flex:1;padding:6px 4px;font-size:10px;font-weight:600;border-radius:4px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-dim);cursor:pointer;transition:all .1s}
+.quick-select button.selected{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.trend-chart{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+.trend-chart canvas{width:100%;height:200px}
+.guide-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px;cursor:pointer;transition:border-color .12s}
+.guide-card:hover{border-color:var(--accent)}
+.guide-card .guide-category{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.guide-card .guide-name{font-size:15px;font-weight:700;margin-bottom:4px}
+.guide-card .guide-desc{font-size:12px;color:var(--text-dim);line-height:1.4}
+.guide-detail{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.guide-detail h3{font-size:14px;font-weight:700;margin:12px 0 6px;color:var(--accent)}
+.treatment-option{background:var(--bg-input);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:6px}
+.cat-algae{color:#ef4444}.cat-submerged{color:#3b82f6}.cat-emergent{color:#22c55e}.cat-floating{color:#f59e0b}
+
 </style>
 </head>
 <body>
@@ -188,6 +211,8 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
       <div id="page-products" class="page"></div>
       <div id="page-sync" class="page"></div>
       <div id="page-history" class="page"></div>
+      <div id="page-ponds" class="page"></div>
+      <div id="page-aquaticid" class="page"></div>
     </main>
   </div>
 </div>
@@ -218,6 +243,8 @@ let STATE = {
   products: [],
   sheetData: [],
   sheetLastSync: null,
+  ponds: [],
+  pondVisits: [],
 };
 
 let currentPage = 'workboard';
@@ -348,6 +375,8 @@ function loadFromCache() {
       STATE.routes = cached.routes || [];
       STATE.products = cached.products || [];
       STATE.sheetData = cached.sheetData || [];
+      STATE.ponds = cached.ponds || [];
+      STATE.pondVisits = cached.pondVisits || [];
       STATE.sheetLastSync = cached.sheetLastSync || null;
     } else {
       STATE.programs = DEFAULT_PROGRAMS.map(p => ({...p, rounds: p.rounds.map(r => ({...r}))}));
@@ -374,6 +403,8 @@ function loadAll() {
       if (d.customerPrograms) STATE.customerPrograms = d.customerPrograms;
       if (d.routes) STATE.routes = d.routes;
       if (d.products) STATE.products = d.products;
+      if (d.ponds) STATE.ponds = d.ponds;
+      if (d.pondVisits) STATE.pondVisits = d.pondVisits;
       saveToCache();
       renderCurrentPage();
       document.getElementById('offline-banner').classList.remove('show');
@@ -394,6 +425,8 @@ function saveState() {
     customerPrograms: STATE.customerPrograms,
     routes: STATE.routes,
     products: STATE.products,
+    ponds: STATE.ponds,
+    pondVisits: STATE.pondVisits,
   }}, function(){}, function(err){ console.warn('Save to API failed:', err); });
 }
 
@@ -403,6 +436,8 @@ const NAV_ITEMS = [
   { key:'routes', label:'Routes', emoji:'🗺️' },
   { key:'customers', label:'Customers', emoji:'👥' },
   { key:'programs', label:'Programs', emoji:'📑' },
+  { key:'ponds', label:'Ponds', emoji:'🌊' },
+  { key:'aquaticid', label:'Aquatic ID', emoji:'🌿' },
   { key:'products', label:'Products', emoji:'🧪' },
   { key:'sync', label:'Sync', emoji:'🔄' },
   { key:'history', label:'History', emoji:'📜' },
@@ -445,6 +480,8 @@ function renderCurrentPage() {
       case 'products': renderProducts(); break;
       case 'sync': renderSync(); break;
       case 'history': renderHistory(); break;
+      case 'ponds': renderPonds(); break;
+      case 'aquaticid': renderAquaticId(); break;
     }
   }
   renderNav();
@@ -1688,6 +1725,854 @@ function processCsvImport() {
     renderCustomers();
   };
   reader.readAsText(file);
+}
+
+// ══════════ POND MANAGEMENT ══════════
+
+let pondDetailId = null;
+let pondVisitView = null; // null=list, 'new'=checklist, visitId=viewing
+
+// ── Default Aquatic Guide Data ──
+const AQUATIC_GUIDE = [
+  // ALGAE
+  { id:'alg-filamentous', category:'Algae', name:'Filamentous Algae (String Algae)', description:'Long, stringy green strands that form mats on the surface. Feels slimy. Attaches to rocks, plants, or bottom substrate and floats to surface as it grows.', idTips:'Pull a clump — it feels like wet cotton or hair. Strands are visible without magnification. Often bright green, can be yellow-green when dying.', treatments:[
+    { product:'Copper Sulfate (Crystal or Liquid)', activeIng:'Copper Sulfate Pentahydrate', rate:'2.7 lbs per acre-foot (crystal) or per label', notes:'Treat in sections — never treat more than 1/3 of pond at once. DO must be above 5 mg/L. Morning application best.' },
+    { product:'Cutrine Plus', activeIng:'Copper Ethanolamine Complex 9%', rate:'0.6-1.2 gal per acre-foot', notes:'Chelated copper — works in harder water where copper sulfate binds up. Safer for fish than straight copper sulfate.' },
+    { product:'SeClear (Sodium Carbonate Peroxyhydrate)', activeIng:'Sodium Percarbonate', rate:'Per label based on severity', notes:'Oxidizer — releases oxygen as it works. No copper restrictions. Good for sensitive areas.' },
+  ]},
+  { id:'alg-planktonic', category:'Algae', name:'Planktonic Algae (Pea Soup)', description:'Microscopic single-celled algae that turns water green, brown, or blue-green. Cannot be felt or grabbed — it IS the water color.', idTips:'Fill a clear glass — if the water itself is green/cloudy (not particles settling), it\'s planktonic. Secchi disk reading will be very low. Some bloom species (blue-green/cyanobacteria) can produce toxins.', treatments:[
+    { product:'Copper Sulfate', activeIng:'Copper Sulfate Pentahydrate', rate:'2.7 lbs per acre-foot', notes:'Effective but treat in small sections. Heavy blooms can cause oxygen crash when algae dies. Aerate during treatment.' },
+    { product:'Cutrine Plus', activeIng:'Copper Ethanolamine Complex 9%', rate:'0.6-1.2 gal per acre-foot', notes:'Chelated copper works better in hard water. Apply early morning.' },
+    { product:'GreenClean Pro', activeIng:'Sodium Carbonate Peroxyhydrate 85%', rate:'Per label — typically 10-60 lbs/acre', notes:'Fast-acting oxidizer. Good for spot treatments. No copper residual.' },
+  ]},
+  { id:'alg-chara', category:'Algae', name:'Chara (Muskgrass)', description:'Looks like a submerged plant but is actually a macro-algae. Gritty texture from calcium deposits. Strong garlic/musty odor when crushed.', idTips:'Crush between fingers — smells like garlic or skunk. Feels gritty/crunchy. Has whorls of branches around a central stem. Not a true plant — no roots, flowers, or seeds.', treatments:[
+    { product:'Copper Sulfate', activeIng:'Copper Sulfate Pentahydrate', rate:'2.7 lbs per acre-foot', notes:'Very effective on Chara. Treat in sections.' },
+    { product:'Cutrine Plus', activeIng:'Copper Ethanolamine Complex 9%', rate:'1.2 gal per acre-foot', notes:'Good alternative in hard water.' },
+  ]},
+  // FLOATING
+  { id:'flt-duckweed', category:'Floating', name:'Duckweed', description:'Tiny (1/8 to 1/4 inch) free-floating leaves with a single root. Can cover entire pond surface rapidly. Each plant is a tiny green disc.', idTips:'Individual plants are tiny round/oval green discs, each with one dangling root. Reproduces by budding — doubles every 2-3 days in warm nutrient-rich water.', treatments:[
+    { product:'Diquat (Reward)', activeIng:'Diquat Dibromide 37.3%', rate:'1-2 gal per surface acre', notes:'Contact herbicide. Apply directly to surface mat. May need repeat applications. Works fast.' },
+    { product:'Fluridone (Sonar)', activeIng:'Fluridone 41.7%', rate:'Per label — low rates', notes:'Systemic — slow acting (30-90 days). Good for season-long control. Treats whole water column.' },
+  ]},
+  { id:'flt-watermeal', category:'Floating', name:'Watermeal', description:'The world\'s smallest flowering plant. Like green grains of sand floating on surface. No visible roots. Often found with duckweed.', idTips:'Scoop water — watermeal looks and feels like tiny green sand granules. Much smaller than duckweed. No roots visible even under magnification.', treatments:[
+    { product:'Diquat (Reward)', activeIng:'Diquat Dibromide 37.3%', rate:'1-2 gal per surface acre', notes:'Harder to control than duckweed. Multiple applications usually needed. Add surfactant.' },
+    { product:'Fluridone (Sonar)', activeIng:'Fluridone 41.7%', rate:'Per label', notes:'Best long-term option. Requires 60-90 days contact time. Whole-pond treatment.' },
+  ]},
+  // EMERGENT
+  { id:'emg-cattail', category:'Emergent', name:'Cattails (Typha spp.)', description:'Tall (3-10 ft) grass-like plants growing in shallow water along shoreline. Distinctive brown cylindrical seed head ("hot dog on a stick").', idTips:'Tall sword-shaped leaves, round stem. Brown fuzzy seed head is unmistakable. Grows in dense stands in shallow water and wet soil.', treatments:[
+    { product:'Glyphosate (Rodeo/AquaNeat)', activeIng:'Glyphosate 53.8%', rate:'2-3 quarts per acre', notes:'Apply to actively growing foliage mid-to-late summer for best results. Use aquatic-labeled formulation ONLY (no Roundup). Add surfactant.' },
+    { product:'Imazapyr (Habitat)', activeIng:'Imazapyr 28.7%', rate:'1-1.5 pints per acre', notes:'Systemic — very effective. Can damage desirable plants if oversprayed. Apply late summer.' },
+  ]},
+  { id:'emg-phragmites', category:'Emergent', name:'Phragmites (Common Reed)', description:'Tall (6-15 ft) invasive grass with feathery plume seed heads. Forms dense monoculture stands that crowd out native plants.', idTips:'Much taller than cattails. Large feathery tan/purple seed heads. Stems are hollow and stiff. Leaves bluish-green. Extremely invasive.', treatments:[
+    { product:'Glyphosate (Rodeo/AquaNeat)', activeIng:'Glyphosate 53.8%', rate:'3 quarts per acre', notes:'Apply August-September when plants are actively translocating to roots. May need 2-3 years of treatment for eradication.' },
+    { product:'Imazapyr (Habitat)', activeIng:'Imazapyr 28.7%', rate:'1-1.5 pints per acre', notes:'Most effective option. Apply late summer. Follow-up required.' },
+  ]},
+  // SUBMERGED
+  { id:'sub-pondweed', category:'Submerged', name:'Curly-Leaf Pondweed', description:'Submerged plant with distinctive wavy/crinkled leaf edges. One of the first plants to appear in spring. Dies back by mid-summer, causing nutrient release.', idTips:'Leaves are oblong with distinctly crimped/wavy edges, like lasagna noodles. Reddish-green color. Appears in early spring before most other plants.', treatments:[
+    { product:'Diquat (Reward)', activeIng:'Diquat Dibromide 37.3%', rate:'1-2 gal per surface acre', notes:'Fast-acting contact herbicide. Treat early spring when plants are small for best results.' },
+    { product:'Endothall (Aquathol K)', activeIng:'Endothall 40.3%', rate:'0.5-3 ppm', notes:'Very effective on pondweeds. Contact herbicide. Calculate volume carefully for proper dosing.' },
+  ]},
+  { id:'sub-hydrilla', category:'Submerged', name:'Hydrilla', description:'Aggressive submerged invasive. Long stems with small pointed leaves in whorls of 4-8. Can grow an inch per day and form dense canopy at surface.', idTips:'Small pointed leaves in whorls around stem, usually 4-5 leaves per whorl. Tiny white teeth on leaf edges (need magnification). Often confused with Elodea but Hydrilla has tubers.', treatments:[
+    { product:'Fluridone (Sonar)', activeIng:'Fluridone 41.7%', rate:'6-12 ppb whole pond', notes:'Gold standard for Hydrilla. Slow acting — 60-90 day contact time. Whole pond treatment required.' },
+    { product:'Endothall (Aquathol K)', activeIng:'Endothall 40.3%', rate:'1-3 ppm', notes:'Contact herbicide for spot treatments. Will not control tubers — regrowth likely.' },
+  ]},
+  // BENEFICIAL BACTERIA (not a pest — but important for management)
+  { id:'mgmt-bacteria', category:'Management', name:'Beneficial Bacteria Programs', description:'Bacterial products that digest organic muck, reduce nutrients, and improve water clarity. Cornerstone of pond restoration programs.', idTips:'Not a pest — this is a treatment approach. Use when ponds have excessive muck, high nutrients, or recurring algae blooms despite chemical treatment.', treatments:[
+    { product:'Beneficial Bacteria (various brands)', activeIng:'Bacillus spp. / enzyme blends', rate:'Per label — typically monthly', notes:'Apply monthly during growing season. Works best with aeration. Takes 1-2 seasons to see significant muck reduction. Preventive, not curative.' },
+    { product:'Pond Dye (blue/black)', activeIng:'Water-soluble dye', rate:'1 gal per acre-foot typically', notes:'Not a pesticide — blocks sunlight to reduce growth. Cosmetic benefit. Use with bacteria program.' },
+  ]},
+];
+
+function renderPonds() {
+  const el = document.getElementById('page-ponds');
+
+  if (pondVisitView === 'new' && pondDetailId) {
+    renderPondChecklist(el);
+    return;
+  }
+  if (pondDetailId) {
+    renderPondDetail(el);
+    return;
+  }
+
+  // Pond list view
+  el.innerHTML = `
+    <div class="flex-between mb-16">
+      <h1 style="margin:0">Pond Management <span style="font-size:15px;color:var(--text-dim);font-weight:500">(${STATE.ponds.length})</span></h1>
+      <button class="btn primary" onclick="showPondForm()">+ Add Pond</button>
+    </div>
+    ${STATE.ponds.map(p => {
+      const visits = STATE.pondVisits.filter(v => v.pondId === p.id);
+      const lastVisit = visits.sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+      return `
+        <div class="card clickable" onclick="pondDetailId='${p.id}';renderPonds()">
+          <div class="flex-row gap-10">
+            <div style="width:40px;height:40px;border-radius:8px;background:rgba(56,189,248,.15);color:#38bdf8;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🌊</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:14px">${escHtml(p.name)}</div>
+              <div style="font-size:12px;color:var(--text-dim)">${escHtml(p.location||'')} · ${p.sizeAcres ? p.sizeAcres + ' acres' : 'Size not set'}</div>
+              <div style="font-size:11px;color:var(--text-muted)">${visits.length} visits${lastVisit ? ' · Last: ' + fmtDate(lastVisit.date) : ''}</div>
+            </div>
+            <div style="text-align:right">
+              ${p.hoaContact ? `<div style="font-size:11px;color:var(--text-dim)">${escHtml(p.hoaContact)}</div>` : ''}
+              ${lastVisit ? `<span class="badge" style="background:var(--accent-dim);color:var(--accent);font-size:9px">pH ${lastVisit.pH||'?'} · DO ${lastVisit.dissolvedOxygen||'?'}</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('')}
+    ${STATE.ponds.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">No ponds yet. Add your first pond above.</p></div>' : ''}
+  `;
+}
+
+function renderPondDetail(el) {
+  const p = STATE.ponds.find(x => x.id === pondDetailId);
+  if (!p) { el.innerHTML = '<p>Pond not found.</p>'; return; }
+  const visits = STATE.pondVisits.filter(v => v.pondId === p.id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+
+  // Get data for trend charts
+  const chartVisits = [...visits].reverse(); // chronological order
+  const chartLabels = chartVisits.map(v => fmtDate(v.date));
+  const phData = chartVisits.map(v => parseFloat(v.pH) || null);
+  const doData = chartVisits.map(v => parseFloat(v.dissolvedOxygen) || null);
+  const tempData = chartVisits.map(v => parseFloat(v.waterTemp) || null);
+
+  el.innerHTML = `
+    <button class="btn ghost sm" onclick="pondDetailId=null;pondVisitView=null;renderPonds()" style="margin-bottom:14px">← Back to Ponds</button>
+    <div class="flex-between mb-16" style="flex-wrap:wrap;gap:12px">
+      <div>
+        <h1 style="margin:0">🌊 ${escHtml(p.name)}</h1>
+        <div style="font-size:13px;color:var(--text-dim)">${escHtml(p.location||'')} · ${p.sizeAcres ? p.sizeAcres + ' acres' : ''} · ${p.avgDepth ? 'Avg ' + p.avgDepth + ' ft deep' : ''}</div>
+        ${p.hoaContact ? `<div style="font-size:13px;color:var(--text-dim)">HOA: ${escHtml(p.hoaContact)}</div>` : ''}
+        ${p.aerationType ? `<div style="font-size:13px;color:var(--text-dim)">Aeration: ${escHtml(p.aerationType)}</div>` : ''}
+      </div>
+      <div class="flex-row gap-6">
+        <button class="btn primary" onclick="pondVisitView='new';renderPonds()">+ New Visit</button>
+        <button class="btn secondary sm" onclick="showPondForm('${p.id}')">Edit</button>
+        <button class="btn secondary sm" onclick="showPondReport('${p.id}')">📄 Report</button>
+        <button class="btn danger sm" onclick="deletePond('${p.id}')">Delete</button>
+      </div>
+    </div>
+
+    ${p.notes ? `<div class="card mb-16"><div style="font-size:13px;color:var(--text-dim)"><strong style="color:var(--text)">Notes:</strong> ${escHtml(p.notes)}</div></div>` : ''}
+
+    <!-- Trend Charts -->
+    ${chartVisits.length >= 2 ? `
+      <h2>Water Quality Trends</h2>
+      <div class="stat-row">
+        <div class="stat-box"><div class="label">Latest pH</div><div class="value" style="color:var(--accent)">${phData[phData.length-1] || '—'}</div></div>
+        <div class="stat-box"><div class="label">Latest DO</div><div class="value" style="color:#38bdf8">${doData[doData.length-1] || '—'} <span style="font-size:11px;color:var(--text-dim)">mg/L</span></div></div>
+        <div class="stat-box"><div class="label">Latest Temp</div><div class="value" style="color:#f59e0b">${tempData[tempData.length-1] || '—'}°F</div></div>
+        <div class="stat-box"><div class="label">Total Visits</div><div class="value">${visits.length}</div></div>
+      </div>
+      <div class="trend-chart">
+        <div style="font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:8px">pH / DO / Temp Over Time</div>
+        <canvas id="pond-trend-canvas"></canvas>
+      </div>
+    ` : `
+      <div class="stat-row">
+        <div class="stat-box"><div class="label">Total Visits</div><div class="value">${visits.length}</div></div>
+      </div>
+      ${visits.length < 2 ? '<div class="card"><p style="color:var(--text-dim)">Complete at least 2 visits to see trend charts.</p></div>' : ''}
+    `}
+
+    <!-- Visit History -->
+    <div class="flex-between" style="margin:18px 0 10px">
+      <h2 style="margin:0">Visit History (${visits.length})</h2>
+    </div>
+    ${visits.map(v => `
+      <div class="card" style="padding:12px">
+        <div class="flex-between mb-8">
+          <div>
+            <span style="font-weight:700;font-size:14px">${fmtDateFull(v.date)}</span>
+          </div>
+          <div class="flex-row gap-6">
+            <span class="badge" style="background:var(--accent-dim);color:var(--accent)">pH ${v.pH||'?'}</span>
+            <span class="badge" style="background:rgba(56,189,248,.15);color:#38bdf8">DO ${v.dissolvedOxygen||'?'}</span>
+            <span class="badge" style="background:rgba(245,158,11,.15);color:#f59e0b">${v.waterTemp||'?'}°F</span>
+            <button class="btn ghost sm" onclick="showVisitDetail('${v.id}')" title="View details">👁</button>
+            <button class="btn ghost sm" onclick="deletePondVisit('${v.id}')" style="color:var(--danger)" title="Delete">✕</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-dim)">
+          <span>Clarity: ${escHtml(v.clarity||'—')}</span>
+          <span>Algae: ${escHtml(v.algaePresence||'—')}</span>
+          <span>Weeds: ${escHtml(v.weedPresence||'—')}</span>
+          <span>Aeration: ${escHtml(v.aerationStatus||'—')}</span>
+        </div>
+        ${v.treatments ? `<div style="font-size:12px;color:var(--accent);margin-top:4px">Treatment: ${escHtml(v.treatments)}</div>` : ''}
+        ${v.notes ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;font-style:italic">${escHtml(v.notes)}</div>` : ''}
+      </div>
+    `).join('')}
+    ${visits.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">No visits logged yet. Click "+ New Visit" to start your first checklist.</p></div>' : ''}
+  `;
+
+  // Draw chart if we have data
+  if (chartVisits.length >= 2) {
+    setTimeout(() => drawTrendChart('pond-trend-canvas', chartLabels, phData, doData, tempData), 100);
+  }
+}
+
+function renderPondChecklist(el) {
+  const p = STATE.ponds.find(x => x.id === pondDetailId);
+  if (!p) return;
+
+  el.innerHTML = `
+    <button class="btn ghost sm" onclick="pondVisitView=null;renderPonds()" style="margin-bottom:14px">← Cancel</button>
+    <h1 style="margin-bottom:4px">🌊 ${escHtml(p.name)} — Visit Checklist</h1>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">${fmtDateFull(todayStr())}</p>
+
+    <!-- SECTION 1: Water Quality -->
+    <div class="pond-checklist-section">
+      <div class="section-header">1. Water Quality</div>
+      <div class="section-body">
+        <div class="pond-field"><span class="field-label">pH</span><input type="number" step="0.1" id="pc-ph" placeholder="e.g., 7.4"></div>
+        <div class="pond-field"><span class="field-label">Dissolved O₂ (mg/L)</span><input type="number" step="0.1" id="pc-do" placeholder="e.g., 8.2"></div>
+        <div class="pond-field"><span class="field-label">Water Temp (°F)</span><input type="number" step="1" id="pc-temp" placeholder="e.g., 72"></div>
+        <div class="pond-field"><span class="field-label">Clarity</span>
+          <div class="quick-select" id="qs-clarity">
+            <button onclick="qSelect('qs-clarity',this,'Clear')">Clear</button>
+            <button onclick="qSelect('qs-clarity',this,'Slightly Murky')">Sl. Murky</button>
+            <button onclick="qSelect('qs-clarity',this,'Murky')">Murky</button>
+            <button onclick="qSelect('qs-clarity',this,'Opaque')">Opaque</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: Visual Assessment -->
+    <div class="pond-checklist-section">
+      <div class="section-header">2. Visual Assessment</div>
+      <div class="section-body">
+        <div class="pond-field"><span class="field-label">Algae Presence</span>
+          <div class="quick-select" id="qs-algae">
+            <button onclick="qSelect('qs-algae',this,'None')">None</button>
+            <button onclick="qSelect('qs-algae',this,'Light')">Light</button>
+            <button onclick="qSelect('qs-algae',this,'Moderate')">Moderate</button>
+            <button onclick="qSelect('qs-algae',this,'Heavy')">Heavy</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Algae Type</span>
+          <div class="quick-select" id="qs-algaetype">
+            <button onclick="qSelect('qs-algaetype',this,'N/A')">N/A</button>
+            <button onclick="qSelect('qs-algaetype',this,'Filamentous')">Filamentous</button>
+            <button onclick="qSelect('qs-algaetype',this,'Planktonic')">Planktonic</button>
+            <button onclick="qSelect('qs-algaetype',this,'Both')">Both</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Weed Presence</span>
+          <div class="quick-select" id="qs-weed">
+            <button onclick="qSelect('qs-weed',this,'None')">None</button>
+            <button onclick="qSelect('qs-weed',this,'Light')">Light</button>
+            <button onclick="qSelect('qs-weed',this,'Moderate')">Moderate</button>
+            <button onclick="qSelect('qs-weed',this,'Heavy')">Heavy</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Weed Species</span><input id="pc-weedspecies" placeholder="e.g., Duckweed, Cattails"></div>
+        <div class="pond-field"><span class="field-label">Shore Erosion</span>
+          <div class="quick-select" id="qs-erosion">
+            <button onclick="qSelect('qs-erosion',this,'None')">None</button>
+            <button onclick="qSelect('qs-erosion',this,'Minor')">Minor</button>
+            <button onclick="qSelect('qs-erosion',this,'Moderate')">Moderate</button>
+            <button onclick="qSelect('qs-erosion',this,'Severe')">Severe</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Buffer Zone</span>
+          <div class="quick-select" id="qs-buffer">
+            <button onclick="qSelect('qs-buffer',this,'Good')">Good</button>
+            <button onclick="qSelect('qs-buffer',this,'Fair')">Fair</button>
+            <button onclick="qSelect('qs-buffer',this,'Poor')">Poor</button>
+            <button onclick="qSelect('qs-buffer',this,'N/A')">N/A</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 3: Infrastructure -->
+    <div class="pond-checklist-section">
+      <div class="section-header">3. Infrastructure</div>
+      <div class="section-body">
+        <div class="pond-field"><span class="field-label">Aeration</span>
+          <div class="quick-select" id="qs-aeration">
+            <button onclick="qSelect('qs-aeration',this,'Running')">Running</button>
+            <button onclick="qSelect('qs-aeration',this,'Off')">Off</button>
+            <button onclick="qSelect('qs-aeration',this,'Needs Repair')">Needs Repair</button>
+            <button onclick="qSelect('qs-aeration',this,'N/A')">N/A</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Fountain</span>
+          <div class="quick-select" id="qs-fountain">
+            <button onclick="qSelect('qs-fountain',this,'Running')">Running</button>
+            <button onclick="qSelect('qs-fountain',this,'Off')">Off</button>
+            <button onclick="qSelect('qs-fountain',this,'Needs Repair')">Needs Repair</button>
+            <button onclick="qSelect('qs-fountain',this,'N/A')">N/A</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Inlets/Outlets</span>
+          <div class="quick-select" id="qs-inlets">
+            <button onclick="qSelect('qs-inlets',this,'Clear')">Clear</button>
+            <button onclick="qSelect('qs-inlets',this,'Partially Blocked')">Part. Blocked</button>
+            <button onclick="qSelect('qs-inlets',this,'Blocked')">Blocked</button>
+            <button onclick="qSelect('qs-inlets',this,'N/A')">N/A</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Debris/Trash</span>
+          <div class="quick-select" id="qs-debris">
+            <button onclick="qSelect('qs-debris',this,'None')">None</button>
+            <button onclick="qSelect('qs-debris',this,'Light')">Light</button>
+            <button onclick="qSelect('qs-debris',this,'Moderate')">Moderate</button>
+            <button onclick="qSelect('qs-debris',this,'Heavy')">Heavy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 4: Wildlife -->
+    <div class="pond-checklist-section">
+      <div class="section-header">4. Wildlife / Fish</div>
+      <div class="section-body">
+        <div class="pond-field"><span class="field-label">Fish Activity</span>
+          <div class="quick-select" id="qs-fish">
+            <button onclick="qSelect('qs-fish',this,'Normal')">Normal</button>
+            <button onclick="qSelect('qs-fish',this,'Low')">Low</button>
+            <button onclick="qSelect('qs-fish',this,'Surface Gasping')">Gasping</button>
+            <button onclick="qSelect('qs-fish',this,'None Observed')">None</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Dead Fish</span>
+          <div class="quick-select" id="qs-deadfish">
+            <button onclick="qSelect('qs-deadfish',this,'No')">No</button>
+            <button onclick="qSelect('qs-deadfish',this,'1-2')">1-2</button>
+            <button onclick="qSelect('qs-deadfish',this,'Several')">Several</button>
+            <button onclick="qSelect('qs-deadfish',this,'Many')">Many</button>
+          </div>
+        </div>
+        <div class="pond-field"><span class="field-label">Waterfowl Issues</span>
+          <div class="quick-select" id="qs-waterfowl">
+            <button onclick="qSelect('qs-waterfowl',this,'None')">None</button>
+            <button onclick="qSelect('qs-waterfowl',this,'Geese Present')">Geese</button>
+            <button onclick="qSelect('qs-waterfowl',this,'Nesting')">Nesting</button>
+            <button onclick="qSelect('qs-waterfowl',this,'Damage')">Damage</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 5: Treatments -->
+    <div class="pond-checklist-section">
+      <div class="section-header">5. Treatments Applied</div>
+      <div class="section-body">
+        <div class="pond-field" style="flex-direction:column;align-items:stretch">
+          <span class="field-label" style="margin-bottom:4px">Products & Rates</span>
+          <textarea id="pc-treatments" rows="3" placeholder="e.g., Cutrine Plus 1 gal per acre-foot, Beneficial bacteria 5 lbs" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-family:var(--font-body);resize:vertical"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 6: Notes & Photos -->
+    <div class="pond-checklist-section">
+      <div class="section-header">6. Notes & Photos</div>
+      <div class="section-body">
+        <div class="pond-field" style="flex-direction:column;align-items:stretch">
+          <span class="field-label" style="margin-bottom:4px">Observations / Recommendations</span>
+          <textarea id="pc-notes" rows="3" placeholder="Buffer zone filling in, recommend reducing cattail stands on north shore..." style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-family:var(--font-body);resize:vertical"></textarea>
+        </div>
+        <div class="pond-field" style="flex-direction:column;align-items:stretch;margin-top:8px">
+          <span class="field-label" style="margin-bottom:4px">Photo (optional)</span>
+          <input type="file" accept="image/*" id="pc-photo" style="font-size:13px">
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px">
+      <button class="btn primary" onclick="savePondVisit('${p.id}')" style="width:100%;padding:14px;font-size:15px">✓ Save Visit Checklist</button>
+    </div>
+  `;
+}
+
+// Quick-select helper
+function qSelect(groupId, btn, value) {
+  const group = document.getElementById(groupId);
+  group.querySelectorAll('button').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  btn.dataset.value = value;
+}
+
+function getQValue(groupId) {
+  const sel = document.getElementById(groupId)?.querySelector('.selected');
+  return sel ? sel.dataset.value || sel.textContent.trim() : '';
+}
+
+function savePondVisit(pondId) {
+  const visit = {
+    id: uid(),
+    pondId: pondId,
+    date: todayStr(),
+    time: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
+    // Water Quality
+    pH: document.getElementById('pc-ph')?.value || '',
+    dissolvedOxygen: document.getElementById('pc-do')?.value || '',
+    waterTemp: document.getElementById('pc-temp')?.value || '',
+    clarity: getQValue('qs-clarity'),
+    // Visual Assessment
+    algaePresence: getQValue('qs-algae'),
+    algaeType: getQValue('qs-algaetype'),
+    weedPresence: getQValue('qs-weed'),
+    weedSpecies: document.getElementById('pc-weedspecies')?.value || '',
+    shorelineErosion: getQValue('qs-erosion'),
+    bufferCondition: getQValue('qs-buffer'),
+    // Infrastructure
+    aerationStatus: getQValue('qs-aeration'),
+    fountainStatus: getQValue('qs-fountain'),
+    inletsOutlets: getQValue('qs-inlets'),
+    debris: getQValue('qs-debris'),
+    // Wildlife
+    fishActivity: getQValue('qs-fish'),
+    deadFish: getQValue('qs-deadfish'),
+    waterfowlIssues: getQValue('qs-waterfowl'),
+    // Treatments & Notes
+    treatments: document.getElementById('pc-treatments')?.value || '',
+    notes: document.getElementById('pc-notes')?.value || '',
+  };
+
+  // Handle photo
+  const photoInput = document.getElementById('pc-photo');
+  if (photoInput && photoInput.files && photoInput.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      visit.photo = e.target.result; // base64
+      STATE.pondVisits.push(visit);
+      saveState();
+      pondVisitView = null;
+      renderPonds();
+    };
+    reader.readAsDataURL(photoInput.files[0]);
+  } else {
+    STATE.pondVisits.push(visit);
+    saveState();
+    pondVisitView = null;
+    renderPonds();
+  }
+}
+
+function deletePondVisit(visitId) {
+  if (!confirm('Delete this visit record?')) return;
+  STATE.pondVisits = STATE.pondVisits.filter(v => v.id !== visitId);
+  saveState();
+  renderPonds();
+}
+
+function showVisitDetail(visitId) {
+  const v = STATE.pondVisits.find(x => x.id === visitId);
+  if (!v) return;
+  const p = STATE.ponds.find(x => x.id === v.pondId);
+  showModal('Visit Details — ' + fmtDateFull(v.date), `
+    <div style="font-size:14px;font-weight:700;margin-bottom:12px">🌊 ${escHtml(p?.name||'Unknown Pond')}</div>
+    <div class="grid-2" style="gap:8px 16px;font-size:13px">
+      <div><strong>pH:</strong> ${v.pH||'—'}</div>
+      <div><strong>DO:</strong> ${v.dissolvedOxygen||'—'} mg/L</div>
+      <div><strong>Temp:</strong> ${v.waterTemp||'—'}°F</div>
+      <div><strong>Clarity:</strong> ${v.clarity||'—'}</div>
+      <div><strong>Algae:</strong> ${v.algaePresence||'—'} (${v.algaeType||'—'})</div>
+      <div><strong>Weeds:</strong> ${v.weedPresence||'—'}</div>
+      <div><strong>Weed Species:</strong> ${v.weedSpecies||'—'}</div>
+      <div><strong>Erosion:</strong> ${v.shorelineErosion||'—'}</div>
+      <div><strong>Buffer:</strong> ${v.bufferCondition||'—'}</div>
+      <div><strong>Aeration:</strong> ${v.aerationStatus||'—'}</div>
+      <div><strong>Fountain:</strong> ${v.fountainStatus||'—'}</div>
+      <div><strong>Inlets:</strong> ${v.inletsOutlets||'—'}</div>
+      <div><strong>Debris:</strong> ${v.debris||'—'}</div>
+      <div><strong>Fish:</strong> ${v.fishActivity||'—'}</div>
+      <div><strong>Dead Fish:</strong> ${v.deadFish||'—'}</div>
+      <div><strong>Waterfowl:</strong> ${v.waterfowlIssues||'—'}</div>
+    </div>
+    ${v.treatments ? `<div style="margin-top:12px;font-size:13px"><strong>Treatments:</strong> ${escHtml(v.treatments)}</div>` : ''}
+    ${v.notes ? `<div style="margin-top:8px;font-size:13px"><strong>Notes:</strong> ${escHtml(v.notes)}</div>` : ''}
+    ${v.photo ? `<div style="margin-top:12px"><img src="${v.photo}" style="max-width:100%;border-radius:8px;border:1px solid var(--border)"></div>` : ''}
+    <div style="margin-top:16px;text-align:right"><button class="btn secondary" onclick="closeModal()">Close</button></div>
+  `, true);
+}
+
+// ── Pond Form ──
+function showPondForm(editId) {
+  const p = editId ? STATE.ponds.find(x => x.id === editId) : {};
+  showModal(editId ? 'Edit Pond' : 'New Pond', `
+    <div class="input-group"><label>Pond Name *</label><input id="pnf-name" value="${escHtml(p?.name||'')}" placeholder="e.g., Oakwood HOA - Main Pond"></div>
+    <div class="input-group"><label>Customer (link to existing)</label>
+      <select id="pnf-customer">
+        <option value="">— None —</option>
+        ${STATE.customers.map(c => `<option value="${c.ID||c.customerId||c.id}" ${(p?.customerId||(c.ID||c.customerId||c.id))===(p?.customerId)?'selected':''}>${escHtml(c.Name||c.name||'')}</option>`).join('')}
+      </select>
+    </div>
+    <div class="grid-2">
+      <div class="input-group"><label>Location / Address</label><input id="pnf-loc" value="${escHtml(p?.location||'')}"></div>
+      <div class="input-group"><label>Size (acres)</label><input type="number" step="0.1" id="pnf-size" value="${p?.sizeAcres||''}"></div>
+      <div class="input-group"><label>Avg Depth (ft)</label><input type="number" step="0.5" id="pnf-depth" value="${p?.avgDepth||''}"></div>
+      <div class="input-group"><label>Aeration Type</label><input id="pnf-aer" value="${escHtml(p?.aerationType||'')}" placeholder="e.g., Bottom diffuser, Fountain"></div>
+      <div class="input-group"><label>HOA Contact</label><input id="pnf-hoa" value="${escHtml(p?.hoaContact||'')}"></div>
+      <div class="input-group"><label>HOA Phone/Email</label><input id="pnf-hoaphone" value="${escHtml(p?.hoaPhone||'')}"></div>
+    </div>
+    <div class="input-group"><label>Notes</label><textarea id="pnf-notes" placeholder="Any special notes about this pond...">${escHtml(p?.notes||'')}</textarea></div>
+    <div class="flex-row gap-6" style="justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="savePond('${editId||''}')">Save</button>
+    </div>
+  `);
+}
+
+function savePond(editId) {
+  const name = document.getElementById('pnf-name').value.trim();
+  if (!name) { alert('Pond name is required.'); return; }
+  const data = {
+    name,
+    customerId: document.getElementById('pnf-customer').value,
+    location: document.getElementById('pnf-loc').value.trim(),
+    sizeAcres: document.getElementById('pnf-size').value,
+    avgDepth: document.getElementById('pnf-depth').value,
+    aerationType: document.getElementById('pnf-aer').value.trim(),
+    hoaContact: document.getElementById('pnf-hoa').value.trim(),
+    hoaPhone: document.getElementById('pnf-hoaphone').value.trim(),
+    notes: document.getElementById('pnf-notes').value,
+  };
+  if (editId) {
+    const idx = STATE.ponds.findIndex(p => p.id === editId);
+    if (idx >= 0) STATE.ponds[idx] = { ...STATE.ponds[idx], ...data };
+  } else {
+    data.id = uid();
+    STATE.ponds.push(data);
+  }
+  saveState();
+  closeModal();
+  renderPonds();
+}
+
+function deletePond(id) {
+  if (!confirm('Delete this pond and all visit history?')) return;
+  STATE.ponds = STATE.ponds.filter(p => p.id !== id);
+  STATE.pondVisits = STATE.pondVisits.filter(v => v.pondId !== id);
+  saveState();
+  pondDetailId = null;
+  renderPonds();
+}
+
+// ── Simple Canvas Trend Chart ──
+function drawTrendChart(canvasId, labels, phData, doData, tempData) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.parentElement.clientWidth - 28;
+  const H = 200;
+  canvas.width = W * 2; canvas.height = H * 2;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.scale(2, 2);
+
+  const pad = { top:20, right:20, bottom:30, left:40 };
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top - pad.bottom;
+
+  // Combine all values to find range
+  const allVals = [...phData, ...doData, ...tempData].filter(v => v !== null);
+  if (allVals.length === 0) return;
+  const minVal = Math.min(...allVals) * 0.9;
+  const maxVal = Math.max(...allVals) * 1.1;
+  const range = maxVal - minVal || 1;
+
+  const xStep = labels.length > 1 ? cw / (labels.length - 1) : cw;
+
+  // Grid lines
+  ctx.strokeStyle = '#2a4a30';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ch / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#5a7a5e';
+    ctx.font = '9px IBM Plex Mono';
+    ctx.textAlign = 'right';
+    ctx.fillText((maxVal - (range / 4) * i).toFixed(1), pad.left - 4, y + 3);
+  }
+
+  // X labels
+  ctx.fillStyle = '#5a7a5e';
+  ctx.font = '9px IBM Plex Mono';
+  ctx.textAlign = 'center';
+  labels.forEach((l, i) => {
+    const x = pad.left + i * xStep;
+    ctx.fillText(l, x, H - 8);
+  });
+
+  // Draw lines
+  function drawLine(data, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let started = false;
+    data.forEach((v, i) => {
+      if (v === null) return;
+      const x = pad.left + i * xStep;
+      const y = pad.top + ch - ((v - minVal) / range) * ch;
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    // Dots
+    data.forEach((v, i) => {
+      if (v === null) return;
+      const x = pad.left + i * xStep;
+      const y = pad.top + ch - ((v - minVal) / range) * ch;
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+
+  drawLine(phData, '#4ade80');   // green = pH
+  drawLine(doData, '#38bdf8');   // blue = DO
+  drawLine(tempData, '#f59e0b'); // yellow = Temp
+
+  // Legend
+  const legendY = 10;
+  [['pH','#4ade80'], ['DO','#38bdf8'], ['Temp','#f59e0b']].forEach(([label, color], i) => {
+    const lx = pad.left + i * 60;
+    ctx.fillStyle = color;
+    ctx.fillRect(lx, legendY - 4, 12, 3);
+    ctx.fillStyle = '#8aab8d';
+    ctx.font = '9px IBM Plex Sans';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, lx + 16, legendY);
+  });
+}
+
+// ── Report Generator ──
+function showPondReport(pondId) {
+  const p = STATE.ponds.find(x => x.id === pondId);
+  if (!p) return;
+
+  showModal('Generate Report — ' + escHtml(p.name), `
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">Choose date range for the report:</p>
+    <div class="grid-2">
+      <div class="input-group"><label>Start Date</label><input type="date" id="rpt-start" value="${currentYear}-01-01"></div>
+      <div class="input-group"><label>End Date</label><input type="date" id="rpt-end" value="${todayStr()}"></div>
+    </div>
+    <div class="flex-row gap-6" style="justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="generatePondReport('${pondId}')">Generate Report</button>
+    </div>
+  `);
+}
+
+function generatePondReport(pondId) {
+  const p = STATE.ponds.find(x => x.id === pondId);
+  if (!p) return;
+  const startDate = document.getElementById('rpt-start').value;
+  const endDate = document.getElementById('rpt-end').value;
+  const visits = STATE.pondVisits.filter(v => v.pondId === pondId && v.date >= startDate && v.date <= endDate).sort((a,b) => a.date.localeCompare(b.date));
+
+  // Build report HTML
+  const reportHtml = `
+    <div style="font-family:'IBM Plex Sans',sans-serif;max-width:800px;margin:0 auto;padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #4a7c59;padding-bottom:12px;margin-bottom:20px">
+        <div>
+          <div style="font-size:22px;font-weight:800;color:#1a1a18">Pond Management Report</div>
+          <div style="font-size:14px;color:#6b6b63">${escHtml(p.name)}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:14px;font-weight:700;color:#4a7c59">Lawns Plants & Pests LLC</div>
+          <div style="font-size:11px;color:#6b6b63">Devon Alleman · Cert #608542</div>
+          <div style="font-size:11px;color:#6b6b63">${fmtDateFull(startDate)} — ${fmtDateFull(endDate)}</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+        <div style="background:#f4f3ef;padding:12px;border-radius:8px"><div style="font-size:10px;color:#9c9c91;text-transform:uppercase;font-weight:700">Total Visits</div><div style="font-size:24px;font-weight:800">${visits.length}</div></div>
+        <div style="background:#f4f3ef;padding:12px;border-radius:8px"><div style="font-size:10px;color:#9c9c91;text-transform:uppercase;font-weight:700">Pond Size</div><div style="font-size:24px;font-weight:800">${p.sizeAcres||'—'} <span style="font-size:12px">acres</span></div></div>
+        <div style="background:#f4f3ef;padding:12px;border-radius:8px"><div style="font-size:10px;color:#9c9c91;text-transform:uppercase;font-weight:700">Aeration</div><div style="font-size:16px;font-weight:700">${escHtml(p.aerationType||'N/A')}</div></div>
+      </div>
+
+      <h2 style="font-size:16px;border-bottom:1px solid #e2e0d8;padding-bottom:6px;margin:20px 0 12px">Visit Summary</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="background:#e8f0ea">
+          <th style="padding:8px;text-align:left;border:1px solid #e2e0d8">Date</th>
+          <th style="padding:8px;text-align:center;border:1px solid #e2e0d8">pH</th>
+          <th style="padding:8px;text-align:center;border:1px solid #e2e0d8">DO (mg/L)</th>
+          <th style="padding:8px;text-align:center;border:1px solid #e2e0d8">Temp °F</th>
+          <th style="padding:8px;text-align:left;border:1px solid #e2e0d8">Clarity</th>
+          <th style="padding:8px;text-align:left;border:1px solid #e2e0d8">Algae</th>
+          <th style="padding:8px;text-align:left;border:1px solid #e2e0d8">Treatment</th>
+        </tr>
+        ${visits.map(v => `
+          <tr>
+            <td style="padding:6px 8px;border:1px solid #e2e0d8">${fmtDateFull(v.date)}</td>
+            <td style="padding:6px 8px;border:1px solid #e2e0d8;text-align:center">${v.pH||'—'}</td>
+            <td style="padding:6px 8px;border:1px solid #e2e0d8;text-align:center">${v.dissolvedOxygen||'—'}</td>
+            <td style="padding:6px 8px;border:1px solid #e2e0d8;text-align:center">${v.waterTemp||'—'}</td>
+            <td style="padding:6px 8px;border:1px solid #e2e0d8">${v.clarity||'—'}</td>
+            <td style="padding:6px 8px;border:1px solid #e2e0d8">${v.algaePresence||'—'}</td>
+            <td style="padding:6px 8px;border:1px solid #e2e0d8">${escHtml(v.treatments||'—')}</td>
+          </tr>
+        `).join('')}
+      </table>
+
+      ${visits.some(v => v.notes) ? `
+        <h2 style="font-size:16px;border-bottom:1px solid #e2e0d8;padding-bottom:6px;margin:20px 0 12px">Visit Notes</h2>
+        ${visits.filter(v => v.notes).map(v => `
+          <div style="margin-bottom:8px;padding:8px;background:#f4f3ef;border-radius:6px">
+            <strong>${fmtDateFull(v.date)}:</strong> ${escHtml(v.notes)}
+          </div>
+        `).join('')}
+      ` : ''}
+
+      <div style="margin-top:30px;padding-top:12px;border-top:1px solid #e2e0d8;font-size:10px;color:#9c9c91;text-align:center">
+        Generated by FieldPro · Lawns Plants & Pests LLC · ${fmtDateFull(todayStr())}
+      </div>
+    </div>
+  `;
+
+  closeModal();
+
+  // Open report in new window for printing/PDF
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Pond Report - ${escHtml(p.name)}</title><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>@media print{body{margin:0}}</style></head><body style="margin:20px">${reportHtml}</body></html>`);
+  win.document.close();
+}
+
+
+// ══════════ AQUATIC ID GUIDE ══════════
+
+let guideFilter = 'all';
+let guideSearch = '';
+let guideDetailId = null;
+
+function renderAquaticId() {
+  const el = document.getElementById('page-aquaticid');
+
+  if (guideDetailId) {
+    renderGuideDetail(el);
+    return;
+  }
+
+  // Combine built-in + custom entries
+  const customEntries = JSON.parse(localStorage.getItem('fp_custom_guide') || '[]');
+  let allEntries = [...AQUATIC_GUIDE, ...customEntries];
+
+  // Filter
+  if (guideFilter !== 'all') allEntries = allEntries.filter(e => e.category === guideFilter);
+  if (guideSearch) {
+    const s = guideSearch.toLowerCase();
+    allEntries = allEntries.filter(e => e.name.toLowerCase().includes(s) || e.description.toLowerCase().includes(s) || e.category.toLowerCase().includes(s));
+  }
+
+  const categories = ['Algae', 'Floating', 'Emergent', 'Submerged', 'Management'];
+  const catColors = { Algae:'cat-algae', Floating:'cat-floating', Emergent:'cat-emergent', Submerged:'cat-submerged', Management:'svc-lawn' };
+
+  el.innerHTML = `
+    <div class="flex-between mb-16">
+      <h1 style="margin:0">🌿 Aquatic Plant & Algae ID</h1>
+      <button class="btn primary sm" onclick="showAddGuideEntry()">+ Add Custom</button>
+    </div>
+    <div class="search-bar"><input placeholder="Search species, algae, weeds..." value="${escHtml(guideSearch)}" oninput="guideSearch=this.value;renderAquaticId()"></div>
+    <div class="filter-pills">
+      <button class="${guideFilter==='all'?'active':''}" onclick="guideFilter='all';renderAquaticId()">All</button>
+      ${categories.map(c => `<button class="${guideFilter===c?'active':''}" onclick="guideFilter='${c}';renderAquaticId()">${c}</button>`).join('')}
+    </div>
+    ${allEntries.map(e => `
+      <div class="guide-card" onclick="guideDetailId='${e.id}';renderAquaticId()">
+        <div class="guide-category ${catColors[e.category]||''}">${escHtml(e.category)}</div>
+        <div class="guide-name">${escHtml(e.name)}</div>
+        <div class="guide-desc">${escHtml(e.description.substring(0, 120))}${e.description.length > 120 ? '...' : ''}</div>
+      </div>
+    `).join('')}
+    ${allEntries.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">No entries match your search.</p></div>' : ''}
+  `;
+}
+
+function renderGuideDetail(el) {
+  const customEntries = JSON.parse(localStorage.getItem('fp_custom_guide') || '[]');
+  const allEntries = [...AQUATIC_GUIDE, ...customEntries];
+  const e = allEntries.find(x => x.id === guideDetailId);
+  if (!e) { el.innerHTML = '<p>Entry not found.</p>'; return; }
+
+  const catColors = { Algae:'cat-algae', Floating:'cat-floating', Emergent:'cat-emergent', Submerged:'cat-submerged', Management:'svc-lawn' };
+  const isCustom = customEntries.some(x => x.id === e.id);
+
+  el.innerHTML = `
+    <button class="btn ghost sm" onclick="guideDetailId=null;renderAquaticId()" style="margin-bottom:14px">← Back</button>
+    <div class="guide-detail">
+      <div class="guide-category ${catColors[e.category]||''}" style="font-size:12px;margin-bottom:6px">${escHtml(e.category)}</div>
+      <h1 style="margin:0 0 8px;font-size:20px">${escHtml(e.name)}</h1>
+      <p style="font-size:14px;color:var(--text-dim);line-height:1.5;margin-bottom:16px">${escHtml(e.description)}</p>
+
+      <h3>🔍 Identification Tips</h3>
+      <p style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:16px">${escHtml(e.idTips)}</p>
+
+      <h3>💊 Treatment Options</h3>
+      ${(e.treatments||[]).map(t => `
+        <div class="treatment-option">
+          <div style="font-weight:700;font-size:14px;margin-bottom:4px">${escHtml(t.product)}</div>
+          <div style="font-size:12px;color:var(--text-dim)">
+            <strong>Active:</strong> ${escHtml(t.activeIng)} · <strong>Rate:</strong> ${escHtml(t.rate)}
+          </div>
+          ${t.notes ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;font-style:italic">${escHtml(t.notes)}</div>` : ''}
+        </div>
+      `).join('')}
+
+      ${isCustom ? `<div style="margin-top:16px"><button class="btn danger sm" onclick="deleteGuideEntry('${e.id}')">Delete Custom Entry</button></div>` : ''}
+    </div>
+  `;
+}
+
+function showAddGuideEntry() {
+  showModal('Add Custom Species', `
+    <div class="input-group"><label>Name *</label><input id="ge-name" placeholder="e.g., Water Hyacinth"></div>
+    <div class="input-group"><label>Category</label>
+      <select id="ge-cat">
+        <option>Algae</option><option>Floating</option><option>Emergent</option><option>Submerged</option><option>Management</option>
+      </select>
+    </div>
+    <div class="input-group"><label>Description</label><textarea id="ge-desc" placeholder="What it looks like, where it grows..."></textarea></div>
+    <div class="input-group"><label>ID Tips</label><textarea id="ge-tips" placeholder="How to identify in the field..."></textarea></div>
+    <div class="input-group"><label>Treatment (product name)</label><input id="ge-tprod" placeholder="e.g., Diquat (Reward)"></div>
+    <div class="input-group"><label>Active Ingredient</label><input id="ge-tai"></div>
+    <div class="input-group"><label>Rate</label><input id="ge-trate"></div>
+    <div class="input-group"><label>Treatment Notes</label><textarea id="ge-tnotes"></textarea></div>
+    <div class="flex-row gap-6" style="justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="saveGuideEntry()">Save</button>
+    </div>
+  `, true);
+}
+
+function saveGuideEntry() {
+  const name = document.getElementById('ge-name').value.trim();
+  if (!name) { alert('Name required.'); return; }
+  const entry = {
+    id: 'custom-' + uid(),
+    category: document.getElementById('ge-cat').value,
+    name: name,
+    description: document.getElementById('ge-desc').value,
+    idTips: document.getElementById('ge-tips').value,
+    treatments: [],
+  };
+  const tprod = document.getElementById('ge-tprod').value.trim();
+  if (tprod) {
+    entry.treatments.push({
+      product: tprod,
+      activeIng: document.getElementById('ge-tai').value.trim(),
+      rate: document.getElementById('ge-trate').value.trim(),
+      notes: document.getElementById('ge-tnotes').value.trim(),
+    });
+  }
+  const custom = JSON.parse(localStorage.getItem('fp_custom_guide') || '[]');
+  custom.push(entry);
+  localStorage.setItem('fp_custom_guide', JSON.stringify(custom));
+  closeModal();
+  renderAquaticId();
+}
+
+function deleteGuideEntry(id) {
+  if (!confirm('Delete this custom entry?')) return;
+  const custom = JSON.parse(localStorage.getItem('fp_custom_guide') || '[]');
+  localStorage.setItem('fp_custom_guide', JSON.stringify(custom.filter(e => e.id !== id)));
+  guideDetailId = null;
+  renderAquaticId();
 }
 
 // ══════════ SECURITY — Simple PIN Gate ══════════
