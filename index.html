@@ -138,23 +138,100 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
 
 .stop-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;margin-top:2px}
 
-/* MOBILE RESPONSIVE */
-@media(max-width:700px){
-  nav{width:56px;padding:8px 4px}
-  nav button{padding:8px;justify-content:center}
-  nav button span.nav-label{display:none}
-  nav button .badge{display:none}
-  main{padding:14px}
-  main h1{font-size:18px}
-  .stat-box{min-width:100px;padding:10px}
-  .stat-box .value{font-size:18px}
-  .modal{padding:16px;border-radius:10px}
+/* MOBILE RESPONSIVE — iPhone 14 Pro optimized */
+@media(max-width:768px){
+  /* Hide desktop sidebar */
+  nav.desktop-nav{display:none!important}
+  /* Show bottom tab bar */
+  .bottom-tabs{display:flex!important}
+  /* Layout adjustments */
+  .app-body{flex-direction:column}
+  main{padding:16px 14px 90px 14px}
+  main h1{font-size:19px}
+  /* Bigger tap targets */
+  .btn{padding:12px 18px;font-size:14px;min-height:44px}
+  .btn.sm{padding:8px 14px;font-size:12px;min-height:38px}
+  .card{padding:14px}
+  /* Forms */
+  .input-group input,.input-group select,.input-group textarea{font-size:16px!important;padding:12px}
+  .input-group label{font-size:12px}
   .grid-2{grid-template-columns:1fr}
+  /* Stat boxes */
+  .stat-row{gap:8px}
+  .stat-box{min-width:80px;padding:10px}
+  .stat-box .value{font-size:20px}
+  /* Modal */
+  .modal{padding:18px;border-radius:12px;max-width:100vw;width:100vw;margin:0;border-radius:16px 16px 0 0;position:fixed;bottom:0;max-height:85vh}
+  .modal.wide{width:100vw}
+  .modal-overlay{align-items:flex-end;padding-top:0}
+  /* Filter pills */
+  .filter-pills{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+  .filter-pills button{white-space:nowrap;padding:8px 14px;font-size:11px}
+  /* Header */
+  header{padding:10px 14px}
   header .meta{display:none}
+  /* Search bar */
+  .search-bar input{font-size:16px!important;padding:12px 12px 12px 38px}
+  /* Quick select buttons */
+  .quick-select button{padding:10px 6px;font-size:11px;min-height:38px}
+  /* Pond fields */
+  .pond-field{flex-direction:column;align-items:stretch;gap:6px}
+  .pond-field .field-label{flex:none}
+  /* Station map */
+  .station-map{height:200px}
+  /* Safe area for home indicator */
+  .bottom-tabs{padding-bottom:env(safe-area-inset-bottom,20px)}
 }
-@media(max-width:400px){
-  nav{width:48px}
-  main{padding:10px}
+
+/* Bottom tab bar — hidden on desktop */
+.bottom-tabs{
+  display:none;
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--bg-nav);border-top:1px solid var(--border);
+  justify-content:space-around;align-items:center;
+  padding:6px 4px;padding-bottom:calc(6px + env(safe-area-inset-bottom,0px));
+  z-index:200;
+}
+.bottom-tabs button{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  background:none;border:none;color:var(--text-muted);
+  font-size:10px;font-weight:600;font-family:var(--font-body);
+  cursor:pointer;padding:4px 8px;min-width:56px;
+  transition:color .1s;
+}
+.bottom-tabs button.active{color:var(--accent)}
+.bottom-tabs button .tab-emoji{font-size:20px;line-height:1}
+.bottom-tabs button .tab-label{font-size:9px;line-height:1}
+.bottom-tabs button .tab-badge{
+  position:absolute;top:-2px;right:8px;
+  background:var(--accent);color:var(--bg);
+  border-radius:10px;padding:1px 5px;font-size:8px;font-weight:800;
+}
+.bottom-tabs button{position:relative}
+
+/* More menu overlay */
+.more-menu{
+  position:fixed;bottom:70px;left:0;right:0;
+  background:var(--bg-nav);border-top:1px solid var(--border);
+  padding:12px;display:none;z-index:199;
+  padding-bottom:env(safe-area-inset-bottom,8px);
+}
+.more-menu.show{display:block}
+.more-menu button{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:14px 16px;margin-bottom:2px;border-radius:8px;
+  background:transparent;color:var(--text-dim);
+  font-size:14px;font-weight:600;border:none;cursor:pointer;
+  font-family:var(--font-body);text-align:left;
+}
+.more-menu button:hover,.more-menu button.active{background:var(--accent-dim);color:#c8e6c9}
+.more-menu button .emoji{font-size:18px}
+
+/* Desktop keeps sidebar */
+@media(min-width:769px){
+  .bottom-tabs{display:none!important}
+  .more-menu{display:none!important}
+  nav.desktop-nav{display:flex!important;flex-direction:column}
 }
 
 /* HIDDEN PAGES */
@@ -227,7 +304,7 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
 
   <div class="app-body">
     <!-- NAV -->
-    <nav id="nav"></nav>
+    <nav id="nav" class="desktop-nav"></nav>
 
     <!-- MAIN -->
     <main id="main-content">
@@ -245,7 +322,11 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
   </div>
 </div>
 
-<!-- MODAL CONTAINER -->
+<!-- BOTTOM TAB BAR (mobile) -->
+<div class="bottom-tabs" id="bottom-tabs"></div>
+<div class="more-menu" id="more-menu"></div>
+
+<!-- MODAL CONTAINER -->'
 <div id="modal-container"></div>
 
 <script>
@@ -490,6 +571,8 @@ const NAV_ITEMS = [
 function renderNav() {
   const nav = document.getElementById('nav');
   const dueCount = getWorkboardItems().filter(i => i.due).length;
+
+  // Desktop sidebar nav
   nav.innerHTML = NAV_ITEMS.map(n => `
     <button class="${currentPage === n.key ? 'active' : ''}" onclick="navigateTo('${n.key}')">
       <span class="emoji">${n.emoji}</span>
@@ -497,6 +580,52 @@ function renderNav() {
       ${n.key === 'workboard' && dueCount > 0 ? `<span class="badge">${dueCount}</span>` : ''}
     </button>
   `).join('');
+
+  // Mobile bottom tab bar
+  const mainTabs = [
+    { key:'workboard', label:'Work', emoji:'📋' },
+    { key:'routes', label:'Routes', emoji:'🗺️' },
+    { key:'customers', label:'Customers', emoji:'👥' },
+    { key:'ponds', label:'Ponds', emoji:'🌊' },
+    { key:'_more', label:'More', emoji:'•••' },
+  ];
+  const moreTabs = [
+    { key:'programs', label:'Programs', emoji:'📑' },
+    { key:'aquaticid', label:'Aquatic ID', emoji:'🌿' },
+    { key:'products', label:'Products', emoji:'🧪' },
+    { key:'sync', label:'Sync', emoji:'🔄' },
+    { key:'history', label:'History', emoji:'📜' },
+  ];
+  const isMorePage = moreTabs.some(t => t.key === currentPage);
+
+  const btabs = document.getElementById('bottom-tabs');
+  if (btabs) {
+    btabs.innerHTML = mainTabs.map(t => `
+      <button class="${t.key === '_more' ? (isMorePage ? 'active' : '') : (currentPage === t.key ? 'active' : '')}" onclick="${t.key === '_more' ? 'toggleMoreMenu()' : "navigateTo('" + t.key + "');closeMoreMenu()"}">
+        <span class="tab-emoji">${t.emoji}</span>
+        <span class="tab-label">${t.label}</span>
+        ${t.key === 'workboard' && dueCount > 0 ? `<span class="tab-badge">${dueCount}</span>` : ''}
+      </button>
+    `).join('');
+  }
+
+  const moreMenu = document.getElementById('more-menu');
+  if (moreMenu) {
+    moreMenu.innerHTML = moreTabs.map(t => `
+      <button class="${currentPage === t.key ? 'active' : ''}" onclick="navigateTo('${t.key}');closeMoreMenu()">
+        <span class="emoji">${t.emoji}</span> ${t.label}
+      </button>
+    `).join('');
+  }
+}
+
+function toggleMoreMenu() {
+  const menu = document.getElementById('more-menu');
+  if (menu) menu.classList.toggle('show');
+}
+function closeMoreMenu() {
+  const menu = document.getElementById('more-menu');
+  if (menu) menu.classList.remove('show');
 }
 
 function navigateTo(page) {
@@ -692,7 +821,8 @@ function renderCustomers() {
     <div class="flex-between mb-16">
       <h1 style="margin:0">Customers <span style="font-size:15px;color:var(--text-dim);font-weight:500">(${STATE.customers.length})</span></h1>
       <div class="flex-row gap-6">
-        <button class="btn secondary sm" onclick="showCsvImport()">📄 CSV Import</button>
+        <button class="btn secondary sm" onclick="showCustomerMap()">🗺️ Map</button>
+        <button class="btn secondary sm" onclick="showCsvImport()">📄 CSV</button>
         <button class="btn primary" onclick="showCustomerForm()">+ Add</button>
       </div>
     </div>
@@ -1185,9 +1315,21 @@ function openInAppleMaps(routeId) {
     window.open(url, '_blank');
     return;
   }
-  // Build Google Maps directions URL (iOS offers to open in Apple Maps)
-  const url = 'https://www.google.com/maps/dir/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
-  window.open(url, '_blank');
+  // Get current GPS location as start point, then open Maps
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      const start = pos.coords.latitude + ',' + pos.coords.longitude;
+      const url = 'https://www.google.com/maps/dir/' + start + '/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
+      window.open(url, '_blank');
+    }, function() {
+      // GPS failed — open without start point
+      const url = 'https://www.google.com/maps/dir/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
+      window.open(url, '_blank');
+    }, { enableHighAccuracy: true, timeout: 5000 });
+  } else {
+    const url = 'https://www.google.com/maps/dir/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
+    window.open(url, '_blank');
+  }
 }
 
 // ── Quick Round Management ──
@@ -2207,6 +2349,56 @@ function renderBaitStationsForCustomer(customerId) {
 
 
 
+
+// ══════════ CUSTOMER MAP ══════════
+function showCustomerMap() {
+  showModal('Customer Map — All Locations', `
+    <div id="all-customers-map" style="height:400px;border-radius:var(--radius);border:1px solid var(--border)"></div>
+    <p style="font-size:11px;color:var(--text-muted);margin-top:8px">Showing customers with addresses. Colors indicate service density.</p>
+  `, true);
+  
+  setTimeout(function() {
+    const container = document.getElementById('all-customers-map');
+    if (!container || !window.L) { container.innerHTML = '<p style="padding:20px;color:var(--text-dim)">Map library not loaded.</p>'; return; }
+    
+    // We need to geocode addresses — for now use a simple approach
+    // Show a note that addresses need lat/lng
+    const customersWithAddr = STATE.customers.filter(c => (c.Address||c.address||'').trim().length > 5);
+    
+    if (!customersWithAddr.length) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim)"><p style="font-size:16px">No customer addresses found.</p><p>Update customer addresses to see them on the map.</p></div>';
+      return;
+    }
+
+    // For customers with bait stations that have GPS coords, we can plot those
+    const plotPoints = [];
+    STATE.baitStations.forEach(function(bs) {
+      if (bs.lat && bs.lng) {
+        const cust = STATE.customers.find(c => (c.ID||c.customerId||c.id) === bs.customerId);
+        if (cust && !plotPoints.find(p => p.customerId === bs.customerId)) {
+          plotPoints.push({ lat: bs.lat, lng: bs.lng, name: cust.Name||cust.name||'?', customerId: bs.customerId });
+        }
+      }
+    });
+
+    if (plotPoints.length > 0) {
+      const map = L.map('all-customers-map').setView([plotPoints[0].lat, plotPoints[0].lng], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 19
+      }).addTo(map);
+      plotPoints.forEach(function(p) {
+        L.marker([p.lat, p.lng]).addTo(map).bindPopup('<strong>' + p.name + '</strong>');
+      });
+      if (plotPoints.length > 1) {
+        map.fitBounds(L.latLngBounds(plotPoints.map(p => [p.lat, p.lng])), { padding: [30, 30] });
+      }
+      container.insertAdjacentHTML('afterend', '<p style="font-size:11px;color:var(--accent);margin-top:4px">Showing ' + plotPoints.length + ' customers with GPS data from bait stations. More customers will appear as you add GPS coordinates.</p>');
+    } else {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-dim)"><p style="font-size:14px">' + customersWithAddr.length + ' customers have addresses but no GPS coordinates yet.</p><p style="font-size:12px">GPS coordinates are captured from bait stations. As you add stations, customers will appear on the map.</p><p style="font-size:12px;margin-top:12px">Future update: auto-geocode addresses to plot all customers.</p></div>';
+    }
+  }, 300);
+}
+
 // ══════════ POND MANAGEMENT ══════════
 
 let pondDetailId = null;
@@ -3092,7 +3284,7 @@ function showLoginScreen() {
   document.getElementById('modal-container').innerHTML = `
     <div style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999">
       <div style="text-align:center;width:300px;max-width:90vw">
-        <div style="font-size:40px;margin-bottom:16px">🌿</div>
+        <img id="pin-logo" alt="LPP" src="" style="width:180px;max-width:60vw;filter:invert(1) brightness(1.5);margin-bottom:16px">
         <h1 style="font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px">FieldPro</h1>
         <p style="font-size:13px;color:var(--text-dim);margin-bottom:24px">Lawns Plants & Pests</p>
         <input id="pin-input" type="password" inputmode="numeric" placeholder="Enter PIN" maxlength="10"
@@ -3103,6 +3295,8 @@ function showLoginScreen() {
       </div>
     </div>
   `;
+  const pinLogo = document.getElementById('pin-logo');
+  if (pinLogo && logoImg) pinLogo.src = logoImg.src;
   setTimeout(() => document.getElementById('pin-input')?.focus(), 100);
 }
 
