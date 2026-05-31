@@ -280,6 +280,66 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
 .visit-tabs button{flex:1;padding:8px;font-size:11px;font-weight:600;border:none;border-radius:6px;background:transparent;color:var(--text-muted);cursor:pointer;font-family:var(--font-body)}
 .visit-tabs button.active{background:var(--bg-card);color:var(--text);border:1px solid var(--border)}
 
+
+/* ══════════ SOILTRACKS ══════════ */
+.st-page {font-family:Georgia,serif}
+
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0c0c0c;color:#e7e5e4;font-family:Georgia,serif;min-height:100vh}
+  .st-header{background:#111;border-bottom:1px solid #292524;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:10px}
+  .logo{display:flex;align-items:center;gap:10px}.logo-icon{width:38px;height:38px;border-radius:8px;overflow:hidden}
+  .logo-text{font-size:18px;font-weight:700;color:#f5f5f4}.logo-sub{font-size:10px;color:#78716c;font-family:monospace}
+  .st-nav{display:flex;gap:2px}.st-nav-btn{min-height:40px;padding:0 12px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;background:transparent;color:#a8a29e;font-family:sans-serif;white-space:nowrap}.st-nav-btn.active{background:#4ade8022;color:#4ade80}
+  .st-main{padding:20px 16px;max-width:900px;margin:0 auto}
+  .page-title{font-size:22px;font-weight:700;color:#f5f5f4;margin-bottom:4px}
+  .page-sub{color:#78716c;font-size:13px;font-family:sans-serif;margin-bottom:18px;line-height:1.5}
+  .st-card{background:#161616;border:1px solid #222;border-radius:14px;padding:20px;margin-bottom:16px}
+  .sec-title{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#57534e;margin-bottom:14px;font-family:sans-serif}
+  .sub-head{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#4ade8077;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid #1f1f1f;font-family:sans-serif}
+  .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+  .stat-card{background:#161616;border:1px solid #222;border-radius:12px;padding:14px}.stat-icon{font-size:22px;margin-bottom:4px}.stat-val{font-size:30px;font-weight:900;color:#4ade80}.stat-label{font-size:11px;color:#78716c;font-family:sans-serif}
+  .st-btn-green{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;font-family:sans-serif}
+  .st-btn-outline{background:transparent;border:1px solid #333;border-radius:8px;color:#a8a29e;padding:10px 16px;cursor:pointer;font-size:14px;font-family:sans-serif}
+  .st-btn-danger{background:#7f1d1d33;border:1px solid #f8717133;border-radius:8px;color:#f87171;padding:10px 16px;cursor:pointer;font-size:14px;font-family:sans-serif}
+  .st-btn-full{width:100%;margin-top:10px;padding:15px 0;text-align:center}.st-btn-sm{padding:8px 14px;font-size:13px}
+  .st-btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .form-group{margin-bottom:14px}.form-label{font-size:13px;color:#a8a29e;margin-bottom:5px;display:block;font-family:sans-serif;font-weight:600}
+  .form-input{width:100%;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:12px 14px;color:#e7e5e4;font-size:16px;font-family:sans-serif;min-height:46px}.form-input:focus{outline:none;border-color:#4ade8055}
+  select.form-input{cursor:pointer}textarea.form-input{min-height:76px;resize:vertical}
+  .st-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.st-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .search-bar{display:flex;align-items:center;gap:10px;padding:11px 14px;background:#161616;border:1px solid #222;border-radius:10px;margin-bottom:12px}
+  .search-bar input{flex:1;border:none;outline:none;font-size:15px;background:transparent;color:#e7e5e4;font-family:sans-serif}
+  .cust-row{padding:13px 14px;border-radius:10px;cursor:pointer;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;border:1px solid transparent;transition:all .15s}.cust-row:hover{background:#1a1a1a;border-color:#2a2a2a}
+  .cust-name{font-weight:700;color:#f5f5f4;font-size:16px}.cust-sub{font-size:12px;color:#78716c;font-family:sans-serif;margin-top:2px}
+  .st-badge{display:inline-block;padding:3px 9px;border-radius:5px;font-size:12px;font-weight:700;font-family:monospace}
+  .b-green{background:#4ade8018;color:#4ade80;border:1px solid #4ade8033}.b-red{background:#f8717118;color:#f87171;border:1px solid #f8717133}.b-orange{background:#fb923c18;color:#fb923c;border:1px solid #fb923c33}.b-gray{color:#57534e}
+  .tbl-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}
+  th{padding:7px 9px;font-weight:600;border-bottom:1px solid #222;font-family:sans-serif;font-size:11px;color:#57534e;text-align:left;white-space:nowrap}th.c{text-align:center;color:#a8a29e;font-family:monospace;font-size:13px}
+  td{padding:8px 9px;border-bottom:1px solid #1a1a1a}td.c{text-align:center}
+  .sec-row td{padding:10px 9px 4px;color:#4ade8077;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;font-family:sans-serif;border-bottom:1px solid #1e1e1e;background:#0f0f0f}
+  .m-lbl{font-weight:600;color:#d6d3d1;font-family:sans-serif;cursor:pointer;text-decoration:underline dotted #444}.ideal{color:#57534e;font-size:11px;font-family:monospace;white-space:nowrap}
+  .scan-opt{display:flex;align-items:center;gap:14px;padding:18px;background:#161616;border:1px solid #222;border-radius:12px;cursor:pointer;margin-bottom:12px}.scan-opt:hover{border-color:#4ade8044}.scan-opt.primary{background:linear-gradient(135deg,#16a34a,#15803d);border-color:#16a34a;color:#fff}
+  .scan-opt .si{font-size:30px;flex-shrink:0}.scan-opt .st{font-size:17px;font-weight:700;margin-bottom:2px;font-family:sans-serif}.scan-opt .sd{font-size:13px;opacity:.75;font-family:sans-serif;line-height:1.4}
+  .st-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:none;align-items:flex-end;justify-content:center}.st-modal-overlay.open{display:flex}
+  .st-modal{background:#1a1a1a;border:1px solid #333;border-radius:18px 18px 0 0;padding:26px 22px;width:100%;max-width:520px;max-height:75vh;overflow-y:auto}
+  .st-modal h2{font-size:19px;font-weight:700;color:#f5f5f4;margin-bottom:4px}.st-modal-rng{font-size:13px;color:#4ade80;margin-bottom:14px;font-family:monospace}
+  .st-modal-close{float:right;background:none;border:none;font-size:26px;cursor:pointer;color:#78716c}
+  .st-modal-sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#4ade80;margin:12px 0 5px;font-family:sans-serif}.st-modal-body{font-size:14px;line-height:1.65;color:#a8a29e}
+  .st-notif{position:fixed;top:14px;left:10px;right:10px;max-width:480px;margin:0 auto;border-radius:10px;padding:13px 16px;font-size:14px;font-weight:600;z-index:999;box-shadow:0 8px 24px #00000088;font-family:sans-serif;display:none}
+  .st-notif.ok{background:#14532d;border:1px solid #4ade80;color:#bbf7d0}.st-notif.err{background:#7f1d1d;border:1px solid #f87171;color:#fca5a5}.st-notif.inf{background:#1e3a5f;border:1px solid #60a5fa;color:#bfdbfe}
+  .st-loading{text-align:center;padding:60px 20px;color:#78716c;font-family:sans-serif}
+  .spin{display:inline-block;width:34px;height:34px;border:3px solid #333;border-top-color:#4ade80;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+  .st-empty{text-align:center;padding:44px 20px;color:#78716c;font-family:sans-serif}
+  .st-back{display:inline-flex;align-items:center;gap:6px;color:#78716c;font-family:sans-serif;font-size:14px;cursor:pointer;margin-bottom:16px;background:none;border:none;padding:0}
+  .banner-ok{background:#0a1f0f;border:1px solid #4ade8033;border-radius:8px;padding:11px 14px;margin-bottom:12px;font-family:sans-serif;font-size:13px;color:#4ade80}
+  .photo-preview{max-width:100%;border-radius:10px;margin-top:14px;border:1px solid #333}
+  .paste-bar{display:flex;gap:8px;margin-bottom:8px}
+  .paste-btn{padding:8px 14px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#a8a29e;font-size:13px;font-family:sans-serif;cursor:pointer}
+  .paste-btn:hover{border-color:#4ade80;color:#4ade80}
+  @media print{.st-header,.no-print{display:none !important}body{background:#fff}.st-main{padding:0}}
+  @media(max-width:600px){.stats-grid{grid-template-columns:1fr 1fr}.st-grid-2{grid-template-columns:1fr}.st-grid-3{grid-template-columns:1fr 1fr}.st-nav-btn{padding:0 8px;font-size:12px}.logo-sub{display:none}}
+
+
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -318,6 +378,7 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
       <div id="page-history" class="page"></div>
       <div id="page-ponds" class="page"></div>
       <div id="page-aquaticid" class="page"></div>
+      <div id="page-soil" class="page st-page"></div>
     </main>
   </div>
 </div>
@@ -565,6 +626,7 @@ const NAV_ITEMS = [
   { key:'aquaticid', label:'Aquatic ID', emoji:'🌿' },
   { key:'products', label:'Products', emoji:'🧪' },
   { key:'sync', label:'Sync', emoji:'🔄' },
+  { key:'soil', label:'Soil', emoji:'🧪' },
   { key:'history', label:'History', emoji:'📜' },
 ];
 
@@ -655,6 +717,7 @@ function renderCurrentPage() {
       case 'history': renderHistory(); break;
       case 'ponds': renderPonds(); break;
       case 'aquaticid': renderAquaticId(); break;
+      case 'soil': renderSoilPage(); break;
     }
     // Render any pending bait station maps
     if (window._pendingBaitMap) {
@@ -1001,9 +1064,11 @@ function renderCustomerDetail(el) {
     <!-- SOIL SAMPLES -->
     <div class="flex-between" style="margin:20px 0 10px">
       <h2 style="margin:0">🧪 Soil Samples</h2>
-      <button class="btn success sm" onclick="showSoilSampleForm('${cid}')">+ Soil Sample</button>
+      <button class="btn success sm" onclick="navigateTo('soil')">Open SoilTracks →</button>
     </div>
-    ${renderSoilHistory(cid)}
+    <div class="card" style="padding:12px">
+      <p style="font-size:13px;color:var(--text-dim)">Soil sample tracking is powered by SoilTracks. Tap above to view and add samples, scan Penn State reports, and see trends.</p>
+    </div>
 
     <!-- BAIT STATIONS -->
     <div class="flex-between" style="margin:20px 0 10px">
@@ -3224,6 +3289,66 @@ function generatePondReport(pondId) {
 .visit-tabs button{flex:1;padding:8px;font-size:11px;font-weight:600;border:none;border-radius:6px;background:transparent;color:var(--text-muted);cursor:pointer;font-family:var(--font-body)}
 .visit-tabs button.active{background:var(--bg-card);color:var(--text);border:1px solid var(--border)}
 
+
+/* ══════════ SOILTRACKS ══════════ */
+.st-page {font-family:Georgia,serif}
+
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0c0c0c;color:#e7e5e4;font-family:Georgia,serif;min-height:100vh}
+  .st-header{background:#111;border-bottom:1px solid #292524;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:10px}
+  .logo{display:flex;align-items:center;gap:10px}.logo-icon{width:38px;height:38px;border-radius:8px;overflow:hidden}
+  .logo-text{font-size:18px;font-weight:700;color:#f5f5f4}.logo-sub{font-size:10px;color:#78716c;font-family:monospace}
+  .st-nav{display:flex;gap:2px}.st-nav-btn{min-height:40px;padding:0 12px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;background:transparent;color:#a8a29e;font-family:sans-serif;white-space:nowrap}.st-nav-btn.active{background:#4ade8022;color:#4ade80}
+  .st-main{padding:20px 16px;max-width:900px;margin:0 auto}
+  .page-title{font-size:22px;font-weight:700;color:#f5f5f4;margin-bottom:4px}
+  .page-sub{color:#78716c;font-size:13px;font-family:sans-serif;margin-bottom:18px;line-height:1.5}
+  .st-card{background:#161616;border:1px solid #222;border-radius:14px;padding:20px;margin-bottom:16px}
+  .sec-title{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#57534e;margin-bottom:14px;font-family:sans-serif}
+  .sub-head{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#4ade8077;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid #1f1f1f;font-family:sans-serif}
+  .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+  .stat-card{background:#161616;border:1px solid #222;border-radius:12px;padding:14px}.stat-icon{font-size:22px;margin-bottom:4px}.stat-val{font-size:30px;font-weight:900;color:#4ade80}.stat-label{font-size:11px;color:#78716c;font-family:sans-serif}
+  .st-btn-green{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;font-family:sans-serif}
+  .st-btn-outline{background:transparent;border:1px solid #333;border-radius:8px;color:#a8a29e;padding:10px 16px;cursor:pointer;font-size:14px;font-family:sans-serif}
+  .st-btn-danger{background:#7f1d1d33;border:1px solid #f8717133;border-radius:8px;color:#f87171;padding:10px 16px;cursor:pointer;font-size:14px;font-family:sans-serif}
+  .st-btn-full{width:100%;margin-top:10px;padding:15px 0;text-align:center}.st-btn-sm{padding:8px 14px;font-size:13px}
+  .st-btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .form-group{margin-bottom:14px}.form-label{font-size:13px;color:#a8a29e;margin-bottom:5px;display:block;font-family:sans-serif;font-weight:600}
+  .form-input{width:100%;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:12px 14px;color:#e7e5e4;font-size:16px;font-family:sans-serif;min-height:46px}.form-input:focus{outline:none;border-color:#4ade8055}
+  select.form-input{cursor:pointer}textarea.form-input{min-height:76px;resize:vertical}
+  .st-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.st-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .search-bar{display:flex;align-items:center;gap:10px;padding:11px 14px;background:#161616;border:1px solid #222;border-radius:10px;margin-bottom:12px}
+  .search-bar input{flex:1;border:none;outline:none;font-size:15px;background:transparent;color:#e7e5e4;font-family:sans-serif}
+  .cust-row{padding:13px 14px;border-radius:10px;cursor:pointer;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;border:1px solid transparent;transition:all .15s}.cust-row:hover{background:#1a1a1a;border-color:#2a2a2a}
+  .cust-name{font-weight:700;color:#f5f5f4;font-size:16px}.cust-sub{font-size:12px;color:#78716c;font-family:sans-serif;margin-top:2px}
+  .st-badge{display:inline-block;padding:3px 9px;border-radius:5px;font-size:12px;font-weight:700;font-family:monospace}
+  .b-green{background:#4ade8018;color:#4ade80;border:1px solid #4ade8033}.b-red{background:#f8717118;color:#f87171;border:1px solid #f8717133}.b-orange{background:#fb923c18;color:#fb923c;border:1px solid #fb923c33}.b-gray{color:#57534e}
+  .tbl-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}
+  th{padding:7px 9px;font-weight:600;border-bottom:1px solid #222;font-family:sans-serif;font-size:11px;color:#57534e;text-align:left;white-space:nowrap}th.c{text-align:center;color:#a8a29e;font-family:monospace;font-size:13px}
+  td{padding:8px 9px;border-bottom:1px solid #1a1a1a}td.c{text-align:center}
+  .sec-row td{padding:10px 9px 4px;color:#4ade8077;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;font-family:sans-serif;border-bottom:1px solid #1e1e1e;background:#0f0f0f}
+  .m-lbl{font-weight:600;color:#d6d3d1;font-family:sans-serif;cursor:pointer;text-decoration:underline dotted #444}.ideal{color:#57534e;font-size:11px;font-family:monospace;white-space:nowrap}
+  .scan-opt{display:flex;align-items:center;gap:14px;padding:18px;background:#161616;border:1px solid #222;border-radius:12px;cursor:pointer;margin-bottom:12px}.scan-opt:hover{border-color:#4ade8044}.scan-opt.primary{background:linear-gradient(135deg,#16a34a,#15803d);border-color:#16a34a;color:#fff}
+  .scan-opt .si{font-size:30px;flex-shrink:0}.scan-opt .st{font-size:17px;font-weight:700;margin-bottom:2px;font-family:sans-serif}.scan-opt .sd{font-size:13px;opacity:.75;font-family:sans-serif;line-height:1.4}
+  .st-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:none;align-items:flex-end;justify-content:center}.st-modal-overlay.open{display:flex}
+  .st-modal{background:#1a1a1a;border:1px solid #333;border-radius:18px 18px 0 0;padding:26px 22px;width:100%;max-width:520px;max-height:75vh;overflow-y:auto}
+  .st-modal h2{font-size:19px;font-weight:700;color:#f5f5f4;margin-bottom:4px}.st-modal-rng{font-size:13px;color:#4ade80;margin-bottom:14px;font-family:monospace}
+  .st-modal-close{float:right;background:none;border:none;font-size:26px;cursor:pointer;color:#78716c}
+  .st-modal-sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#4ade80;margin:12px 0 5px;font-family:sans-serif}.st-modal-body{font-size:14px;line-height:1.65;color:#a8a29e}
+  .st-notif{position:fixed;top:14px;left:10px;right:10px;max-width:480px;margin:0 auto;border-radius:10px;padding:13px 16px;font-size:14px;font-weight:600;z-index:999;box-shadow:0 8px 24px #00000088;font-family:sans-serif;display:none}
+  .st-notif.ok{background:#14532d;border:1px solid #4ade80;color:#bbf7d0}.st-notif.err{background:#7f1d1d;border:1px solid #f87171;color:#fca5a5}.st-notif.inf{background:#1e3a5f;border:1px solid #60a5fa;color:#bfdbfe}
+  .st-loading{text-align:center;padding:60px 20px;color:#78716c;font-family:sans-serif}
+  .spin{display:inline-block;width:34px;height:34px;border:3px solid #333;border-top-color:#4ade80;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+  .st-empty{text-align:center;padding:44px 20px;color:#78716c;font-family:sans-serif}
+  .st-back{display:inline-flex;align-items:center;gap:6px;color:#78716c;font-family:sans-serif;font-size:14px;cursor:pointer;margin-bottom:16px;background:none;border:none;padding:0}
+  .banner-ok{background:#0a1f0f;border:1px solid #4ade8033;border-radius:8px;padding:11px 14px;margin-bottom:12px;font-family:sans-serif;font-size:13px;color:#4ade80}
+  .photo-preview{max-width:100%;border-radius:10px;margin-top:14px;border:1px solid #333}
+  .paste-bar{display:flex;gap:8px;margin-bottom:8px}
+  .paste-btn{padding:8px 14px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#a8a29e;font-size:13px;font-family:sans-serif;cursor:pointer}
+  .paste-btn:hover{border-color:#4ade80;color:#4ade80}
+  @media print{.st-header,.no-print{display:none !important}body{background:#fff}.st-main{padding:0}}
+  @media(max-width:600px){.stats-grid{grid-template-columns:1fr 1fr}.st-grid-2{grid-template-columns:1fr}.st-grid-3{grid-template-columns:1fr 1fr}.st-nav-btn{padding:0 8px;font-size:12px}.logo-sub{display:none}}
+
+
 </style><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 </head><body style="margin:20px">${reportHtml}</body></html>`);
   win.document.close();
@@ -3368,6 +3493,712 @@ function deleteGuideEntry(id) {
   localStorage.setItem('fp_custom_guide', JSON.stringify(custom.filter(e => e.id !== id)));
   guideDetailId = null;
   renderAquaticId();
+}
+
+
+// ══════════ SOILTRACKS INTEGRATION ══════════
+var ST_GAS_URL = 'https://script.google.com/macros/s/AKfycbywck7W0oDiTcvOx5-9z2cs-E7XcyBTGE86ABNu1PqknLB6God_ql5QsGayLH6Zxem8fA/exec';
+var GAS_URL="https://script.google.com/macros/s/AKfycbywck7W0oDiTcvOx5-9z2cs-E7XcyBTGE86ABNu1PqknLB6God_ql5QsGayLH6Zxem8fA/exec";
+
+var customers=[],samples=[],activeCust=null,prefill=null;
+
+var TOP_FIELDS=[
+  {key:'pH',label:'Soil pH',unit:'',min:6.0,max:7.0,about:'Measures soil acidity or alkalinity on a 0–14 scale. Most lawn grasses thrive between 6.0–7.0 where nutrients are most available.',fix:'If too low (acidic), apply limestone to raise pH. If too high (alkaline), apply elemental sulfur.'},
+  {key:'Phosphorus_ppm',label:'Phosphorus',unit:'ppm',min:50,max:100,about:'Supports root development, flowering, and energy transfer. Critical during lawn establishment.',fix:'If deficient, apply phosphate fertilizer (P₂O₅). Avoid excess — high P runs off into waterways.'},
+  {key:'Potassium_ppm',label:'Potassium',unit:'ppm',min:100,max:300,about:'Strengthens cell walls, improves drought resistance and winter hardiness.',fix:'If deficient, apply potash (K₂O). Adequate K improves stress and disease tolerance.'}
+];
+var REC_FIELDS=[
+  {key:'LimestoneLbs',label:'Limestone (lb/1000 ft²)',note:'Raises pH. Split if >100 lb. Aerate first.'},
+  {key:'RecN',label:'Nitrogen (N)',note:'Split into 2–4 apps through the season.'},
+  {key:'RecP',label:'Phosphorus (P₂O₅)',note:'Only apply what the test recommends.'},
+  {key:'RecK',label:'Potassium (K₂O)',note:'Important for winter hardiness.'}
+];
+var LAB_FIELDS=[
+  {key:'P_lbA',label:'P (lb/A)',unit:'lb/A',min:50,max:200,about:'Phosphorus measured in pounds per acre from the lab analysis. Different unit than ppm at the top.',fix:'Compare to your ppm reading. If low, apply phosphate fertilizer.'},
+  {key:'Acidity',label:'Acidity',unit:'meq/100g',min:0,max:2,about:'Reserve acidity (buffer acidity) in the soil. Higher values mean more limestone is needed to change pH.',fix:'This value determines your limestone application rate. The higher the acidity, the more lime you need.'},
+  {key:'K_meq',label:'K',unit:'meq/100g',min:0.15,max:0.40,about:'Potassium measured in milliequivalents — shows how much K is held by the soil. Essential for water regulation.',fix:'If deficient, apply potash (K₂O). Important for disease resistance and winter survival.'},
+  {key:'Mg_meq',label:'Mg',unit:'meq/100g',min:0.5,max:2.5,about:'Magnesium is the central atom in every chlorophyll molecule. Plants cannot photosynthesize without it.',fix:'If deficient, apply dolomitic limestone (provides both Ca and Mg) or Epsom salt for a quick boost.'},
+  {key:'Ca_meq',label:'Ca',unit:'meq/100g',min:5,max:15,about:'Calcium builds strong cell walls, improves soil structure, and helps neutralize acids. Primary component of limestone.',fix:'If deficient, apply calcitic or dolomitic limestone. Ca and pH are closely linked.'},
+  {key:'CEC',label:'CEC',unit:'meq/100g',min:10,max:20,info:true,about:'Cation Exchange Capacity — the soil\'s ability to hold nutrient ions. Higher CEC means fewer fertilizer applications needed. Sandy soils have low CEC; clay soils have high CEC.',fix:'CEC is informational — you can\'t change it quickly. Long-term, adding compost and organic matter increases CEC.'},
+  {key:'SatK',label:'K Sat',unit:'%',min:2,max:5,about:'Percentage of CEC occupied by potassium. The ratio between K, Mg, and Ca matters for balanced nutrition.',fix:'If too low, apply potassium. If too high relative to Mg, it can block magnesium uptake — focus on balancing all three.'},
+  {key:'SatMg',label:'Mg Sat',unit:'%',min:10,max:20,about:'Percentage of CEC occupied by magnesium. Imbalances between Mg, K, and Ca affect nutrient uptake.',fix:'If deficient, apply dolomitic limestone or Epsom salt. Maintain proper Mg:K ratio.'},
+  {key:'SatCa',label:'Ca Sat',unit:'%',min:60,max:80,about:'Percentage of CEC occupied by calcium. Calcium should dominate in healthy soils.',fix:'If deficient, apply limestone. Low Ca saturation usually signals acidic soil needing lime.'}
+];
+var ALL_METRICS=[].concat(TOP_FIELDS,LAB_FIELDS);
+
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function bdg(m,v){if(!m||m.info||v==null||v==='')return'<span class="b-gray">—</span>';var n=parseFloat(v);if(isNaN(n))return'<span class="b-gray">—</span>';if(n>=m.min&&n<=m.max)return'<span class="st-badge b-green">'+n+'</span>';if(n>m.max)return'<span class="st-badge b-orange">'+n+'</span>';return'<span class="st-badge b-red">'+n+'</span>';}
+function setApp(h){document.getElementById('app').innerHTML=h;}
+function stNotify(msg,type,ms){var el=document.getElementById('st-notif');el.textContent=msg;el.className='notif '+(type||'ok');el.style.display='block';clearTimeout(el._t);el._t=setTimeout(function(){el.style.display='none';},ms||4000);}
+function navActive(id){['nb-dash','nb-add','nb-report'].forEach(function(n){var el=document.getElementById(n);if(el)el.classList.remove('active');});var t=document.getElementById('nb-'+id);if(t)t.classList.add('active');}
+function stGasGet(p){var qs=Object.keys(p).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(p[k]);}).join('&');return fetch(ST_GAS_URL+'?'+qs).then(function(r){return r.json();});}
+function stGasPost(b){return fetch(ST_GAS_URL,{method:'POST',body:JSON.stringify(b)}).then(function(r){return r.json();});}
+
+document.addEventListener('DOMContentLoaded',function(){
+  document.getElementById('cam-input').addEventListener('change',function(e){
+    var file=e.target.files[0];if(!file)return;e.target.value='';
+    // Check if we're in snap mode (show photo) or scan mode (upload to AI)
+    var snapPhoto=document.getElementById('snap-photo');
+    if(snapPhoto){
+      // Snap & Copy mode — show photo for Live Text
+      var reader=new FileReader();reader.onload=function(ev){
+        snapPhoto.src=ev.target.result;snapPhoto.style.display='block';
+        document.getElementById('snap-step2').style.display='block';
+        document.getElementById('snap-step3').style.display='block';
+        stNotify('Photo ready! Tap and hold to use Live Text.','inf',6000);
+      };reader.readAsDataURL(file);
+    } else {
+      // Auto Scan mode — compress and send to server
+      doPhotoScan(file);
+    }
+  });
+  stLoadAndShow();
+});
+
+function stLoadAndShow(){
+  setApp('<div class="st-loading"><div class="spin"></div><p style="margin-top:14px">Loading...</p></div>');
+  var t=setTimeout(function(){setApp('<div style="background:#1a0000;border:1px solid #f8717133;border-radius:8px;padding:14px;color:#f87171;font-family:sans-serif">Could not connect.<br><button class="st-btn-green btn-sm" style="margin-top:10px" onclick="stLoadAndShow()">↺ Retry</button></div>');},15000);
+  stGasGet({action:'getData'}).then(function(d){clearTimeout(t);if(!d.success){setApp('<div style="color:#f87171;font-family:sans-serif">'+esc(d.error)+'</div>');return;}customers=d.customers||[];samples=d.samples||[];stShowPage('dash');}).catch(function(err){clearTimeout(t);setApp('<div style="color:#f87171;font-family:sans-serif">'+esc(err.message)+'<br><button class="st-btn-green btn-sm" style="margin-top:10px" onclick="stLoadAndShow()">↺ Retry</button></div>');});
+}
+function stShowPage(p){navActive(p);if(p==='dash'){activeCust=null;renderDash();}else if(p==='add'){activeCust=null;prefill=null;renderScan();}else if(p==='report')renderReportPage();}
+
+// ── Dashboard ──
+function renderDash(){
+  var yrs={};samples.forEach(function(s){if(s.Year)yrs[s.Year]=true;});
+  var html='<div class="page-title">Soil Data Overview</div><div class="page-sub">'+customers.length+' customers · '+samples.length+' samples · '+Object.keys(yrs).length+' seasons</div>';
+  html+='<div class="stats-grid"><div class="stat-card"><div class="stat-icon">👨‍🌾</div><div class="stat-val">'+customers.length+'</div><div class="stat-label">Customers</div></div><div class="stat-card"><div class="stat-icon">🧪</div><div class="stat-val">'+samples.length+'</div><div class="stat-label">Samples</div></div><div class="stat-card"><div class="stat-icon">📅</div><div class="stat-val">'+Object.keys(yrs).length+'</div><div class="stat-label">Seasons</div></div></div>';
+  html+='<div class="st-card no-print"><div class="sec-title">Customers</div><div class="search-bar"><span style="color:#57534e">🔍</span><input id="csearch" placeholder="Search..." oninput="filterCust()"></div><div id="clist">'+buildCL(customers)+'</div></div>';
+  setApp(html);
+}
+function buildCL(list){
+  if(!list.length)return'<div class="st-empty"><div style="font-size:40px;margin-bottom:10px">🌱</div><div style="font-size:15px;font-weight:700;color:#f5f5f4">No customers</div></div>';
+  return list.map(function(c){var cs=samples.filter(function(s){return s.CustomerName===c.Name;});var yrs=[...new Set(cs.map(function(s){return s.Year;}).filter(Boolean))].sort().join(', ');return'<div class="cust-row" onclick="openCust(\''+esc(c.Name)+'\')"><div><div class="cust-name">'+esc(c.Name)+'</div><div class="cust-sub">'+(c.Field?esc(c.Field)+' · ':'')+cs.length+' sample'+(cs.length!==1?'s':'')+(yrs?' · '+yrs:'')+'</div></div><span style="color:#57534e;font-size:20px">›</span></div>';}).join('');
+}
+function filterCust(){var q=(document.getElementById('csearch').value||'').toLowerCase();var list=q?customers.filter(function(c){return(c.Name||'').toLowerCase().includes(q)||(c.City||'').toLowerCase().includes(q);}):customers;document.getElementById('clist').innerHTML=buildCL(list);}
+
+// ── Customer Detail (with metric explanations) ──
+function openCust(name){
+  activeCust=customers.find(function(c){return c.Name===name;});if(!activeCust)return;navActive('');
+  var c=activeCust,cs=samples.filter(function(s){return s.CustomerName===c.Name;}).sort(function(a,b){return b.Year-a.Year;});
+  var html='<button class="st-back no-print" onclick="showPage(\'dash\')">&larr; Back</button>';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:6px"><div class="page-title">'+esc(c.Name)+'</div><div class="st-btn-row no-print" style="margin:0"><button class="st-btn-green btn-sm" onclick="startSample()">+ Sample</button></div></div>';
+  var info=[];if(c.Field)info.push(esc(c.Field));if(c.Address)info.push(esc(c.Address)+(c.City?', '+esc(c.City):''));if(c.Phone)info.push(esc(c.Phone));
+  if(info.length)html+='<div class="page-sub">'+info.join(' · ')+'</div>';
+  if(!cs.length){html+='<div class="st-empty"><div style="font-size:40px;margin-bottom:10px">🧪</div><div style="font-size:15px;font-weight:700;color:#f5f5f4">No samples yet</div><button class="st-btn-green btn-full no-print" onclick="startSample()">+ Add Sample</button></div>';setApp(html);return;}
+  var years=cs.map(function(s){return s.Year;});
+  // Recs
+  html+='<div class="st-card"><div class="sec-title">Recommendations</div><div class="tbl-wrap"><table><thead><tr><th>Item</th>';years.forEach(function(y){html+='<th class="c">'+y+'</th>';});html+='<th>Notes</th></tr></thead><tbody>';
+  REC_FIELDS.forEach(function(r){html+='<tr><td style="font-family:sans-serif;font-size:13px;font-weight:600;color:#d6d3d1;white-space:nowrap">'+r.label+'</td>';cs.forEach(function(s){var v=s[r.key],none=!v||String(v).toLowerCase()==='none'||v==='0'||v===0;html+='<td class="c"><span class="st-badge '+(none?'b-green':'b-orange')+'">'+(none?'None':v)+'</span></td>';});html+='<td style="color:#57534e;font-size:11px;font-family:sans-serif">'+r.note+'</td></tr>';});
+  html+='</tbody></table></div></div>';
+  // Top values with info buttons
+  html+='<div class="st-card"><div class="sec-title">Soil Nutrient Levels <span style="font-weight:400;color:#78716c">(tap metric for details)</span></div><div class="tbl-wrap"><table><thead><tr><th>Metric</th>';years.forEach(function(y){html+='<th class="c">'+y+'</th>';});html+='<th>Ideal</th></tr></thead><tbody>';
+  TOP_FIELDS.forEach(function(m){html+='<tr><td><span class="m-lbl" onclick="stShowInfo(\''+m.key+'\')">'+m.label+(m.unit?' ('+m.unit+')':'')+'</span></td>';cs.forEach(function(s){html+='<td class="c">'+bdg(m,s[m.key])+'</td>';});html+='<td class="ideal">'+m.min+'–'+m.max+'</td></tr>';});
+  html+='</tbody></table></div></div>';
+  // Lab results with info buttons
+  html+='<div class="st-card"><div class="sec-title">Laboratory Results <span style="font-weight:400;color:#78716c">(tap metric for details)</span></div><div class="tbl-wrap"><table><thead><tr><th>Metric</th>';years.forEach(function(y){html+='<th class="c">'+y+'</th>';});html+='<th>Ideal</th></tr></thead><tbody>';
+  LAB_FIELDS.forEach(function(m){html+='<tr><td><span class="m-lbl" onclick="stShowInfo(\''+m.key+'\')">'+m.label+(m.unit?' ('+m.unit+')':'')+'</span></td>';cs.forEach(function(s){html+='<td class="c">'+bdg(m,s[m.key])+'</td>';});html+='<td class="ideal">'+(m.info?'info':m.min+'–'+m.max)+'</td></tr>';});
+  html+='</tbody></table>';
+  html+='<div class="st-btn-row no-print" style="margin-top:12px">';cs.forEach(function(s){html+='<button class="st-btn-danger btn-sm" onclick="doDelete(\''+s.ID+'\',\''+s.Year+'\')">Delete '+s.Year+'</button>';});
+  html+='</div></div>';
+  html+='<button class="st-btn-outline no-print" onclick="openReport(\''+esc(c.Name)+'\')">🖨 Print Report</button>';
+  setApp(html);
+}
+
+// ── Info Modal ──
+function stShowInfo(key){
+  var m=ALL_METRICS.find(function(x){return x.key===key;});if(!m)return;
+  document.getElementById('info-modal-body').innerHTML='<button class="st-modal-close" onclick="stCloseModal()">×</button><h2>'+m.label+'</h2>'
+    +'<div class="st-modal-rng">'+(m.info?'Informational — no target range':'Ideal: '+m.min+' – '+m.max+(m.unit?' '+m.unit:''))+'</div>'
+    +'<div class="st-modal-sec-title">What is it?</div><div class="st-modal-body">'+(m.about||'')+'</div>'
+    +'<div class="st-modal-sec-title" style="margin-top:12px">What to do</div><div class="st-modal-body">'+(m.fix||'')+'</div>';
+  document.getElementById('info-modal').classList.add('open');
+}
+function stCloseModal(){document.getElementById('info-modal').classList.remove('open');}
+
+// ── Add Sample ──
+function startSample(){prefill=null;renderScan();}
+function renderScan(){
+  var c=activeCust,back=c?'openCust(\''+esc(c.Name)+'\')':'showPage(\'dash\')';
+  setApp('<button class="st-back" onclick="'+back+'">&larr; Back</button><div class="page-title">Add Sample'+(c?' — '+esc(c.Name):'')+'</div><div class="page-sub">Choose how to enter data.</div>'
+    +'<div class="scan-opt primary" onclick="renderAutoScan()"><div class="si">📷</div><div><div class="st">Scan Report</div><div class="sd">Take a photo — AI reads everything automatically. No copy/paste!</div></div></div>'
+    +'<div class="scan-opt" onclick="renderSnap()"><div class="si">📸</div><div><div class="st">Snap & Copy</div><div class="sd">Photo → Live Text → Paste. Manual fallback.</div></div></div>'
+    +'<div class="scan-opt" onclick="renderPaste()"><div class="si">📋</div><div><div class="st">Paste Text</div><div class="sd">Already copied? Paste here.</div></div></div>'
+    +'<div class="scan-opt" onclick="renderForm(null)"><div class="si">✏️</div><div><div class="st">Manual Entry</div><div class="sd">Type all values.</div></div></div>');
+}
+
+function renderAutoScan(){
+  setApp('<button class="st-back" onclick="renderScan()">&larr; Back</button><div class="page-title">Scan Report</div>'
+    +'<div class="st-card"><div style="font-size:14px;color:#a8a29e;font-family:sans-serif;line-height:1.7;margin-bottom:14px">Take a clear photo of the <b>entire soil report</b>. Make sure the Laboratory Results table at the bottom is readable. AI will extract all values automatically.</div>'
+    +'<button class="st-btn-green btn-full" onclick="triggerAutoScan()" style="margin-top:0;font-size:17px;padding:16px">📷 Take Photo & Scan</button></div>'
+    +'<div class="st-card" style="border-color:#333"><div style="font-size:12px;color:#57534e;font-family:sans-serif;line-height:1.6">💡 <b>Tips for best results:</b><br>• Lay the report flat on a table<br>• Good lighting, no shadows<br>• Include the entire page in the frame<br>• Hold camera steady</div></div>');
+}
+
+function triggerAutoScan(){
+  // Remove snap-photo element so camera handler knows we're in scan mode
+  document.getElementById('cam-input').click();
+}
+
+function doPhotoScan(file){
+  setApp('<div class="st-loading"><div class="spin" style="width:40px;height:40px;border-width:4px"></div>'
+    +'<p style="margin-top:14px;font-size:17px;font-weight:700;color:#f5f5f4">📷 Scanning Report</p>'
+    +'<p id="scan-status" style="color:#a8a29e;font-size:14px;margin-top:8px;font-family:sans-serif">Compressing image...</p>'
+    +'<p style="color:#57534e;font-size:12px;margin-top:4px;font-family:monospace"><span id="scan-timer">0</span>s</p>'
+    +'<div style="margin-top:20px"><button class="st-btn-outline" onclick="renderPaste()">📋 Paste Text Instead</button></div></div>');
+  var start=Date.now();
+  var tick=setInterval(function(){var el=document.getElementById('scan-timer');if(el)el.textContent=Math.floor((Date.now()-start)/1000);},1000);
+  compressForScan(file,function(b64){
+    var el=document.getElementById('scan-status');if(el)el.textContent='Uploading to server & running OCR...';
+    stGasPost({action:'scanPhoto',imageBase64:b64,mimeType:'image/jpeg'}).then(function(res){
+      clearInterval(tick);
+      if(res&&res.success&&res.data){
+        prefill=res.data;prefill._ai=true;activeCust=null;
+        stNotify('✅ Values extracted from photo!');renderForm(prefill);
+      }else{
+        var errMsg=res?res.error:'No response';
+        if(errMsg.indexOf('rate limit')!==-1){
+          setApp('<div class="st-card" style="border-color:#fb923c33"><div style="font-size:16px;font-weight:700;color:#fb923c;margin-bottom:10px;font-family:sans-serif">⏳ Google OCR Rate Limit</div><div style="font-size:14px;color:#a8a29e;font-family:sans-serif;line-height:1.7;margin-bottom:14px">Google limits how fast you can scan photos. Wait 30 seconds and try again, or use Paste Text instead.</div><button class="st-btn-green btn-full" onclick="renderAutoScan()">🔄 Try Again</button><button class="st-btn-outline btn-full" onclick="renderPaste()">📋 Paste Text Instead</button></div>');
+        }else{
+          stNotify('Scan error: '+errMsg,'err',8000);renderScan();
+        }
+      }
+    }).catch(function(err){clearInterval(tick);stNotify('Error: '+err.message,'err');renderScan();});
+  });
+}
+
+function compressForScan(file,cb){
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var img=new Image();
+    img.onload=function(){
+      var canvas=document.createElement('canvas');
+      var MAX=1200;var w=img.width,h=img.height;
+      if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      cb(canvas.toDataURL('image/jpeg',0.7).split(',')[1]);
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderSnap(){
+  setApp('<button class="st-back" onclick="renderScan()">&larr; Back</button><div class="page-title">Snap & Copy</div>'
+    +'<div class="st-card"><div class="sec-title">Step 1 — Take Photo</div><div style="font-size:14px;color:#a8a29e;font-family:sans-serif;line-height:1.7;margin-bottom:14px">Photograph the soil report. Make sure the <b>Laboratory Results</b> table at the bottom is clear.</div><button class="st-btn-green btn-full" onclick="document.getElementById(\'cam-input\').click()" style="margin-top:0">📷 Open Camera</button><img id="snap-photo" class="photo-preview" style="display:none"></div>'
+    +'<div id="snap-step2" class="st-card" style="display:none"><div class="sec-title">Step 2 — Copy Text from Photo</div><div style="font-size:14px;color:#a8a29e;font-family:sans-serif;line-height:1.7"><b>Tap and hold</b> on the photo above until text highlights. Then:<br>• Drag the handles to cover ALL text<br>• Tap <b>Copy</b> from the popup menu<br><br>Or open the photo in your <b>Photos app</b> and copy from there.</div></div>'
+    +'<div id="snap-step3" class="st-card" style="display:none"><div class="sec-title">Step 3 — Paste & Extract</div>'+pasteBox()+'</div>');
+}
+
+function renderPaste(){
+  setApp('<button class="st-back" onclick="renderScan()">&larr; Back</button><div class="page-title">Paste Text</div><div class="page-sub">Paste your soil report text below.</div><div class="st-card">'+pasteBox()+'</div>');
+}
+
+function pasteBox(){
+  return '<div class="form-group"><label class="form-label">Paste the copied report text here</label>'
+    +'<div class="paste-bar"><button class="paste-btn" onclick="doPaste()">📋 Paste from Clipboard</button><button class="paste-btn" onclick="doCopy()">📄 Copy</button><button class="paste-btn" onclick="doClear()">✕ Clear</button></div>'
+    +'<textarea class="form-input" id="ocr-text" rows="8" style="min-height:140px;font-size:14px" placeholder="Tap Paste button above..."></textarea></div>'
+    +'<button class="st-btn-green btn-full" onclick="doParse()">🤖 Extract Values</button>';
+}
+
+function doPaste(){
+  navigator.clipboard.readText().then(function(text){
+    var el=document.getElementById('ocr-text');if(el){el.value=text;stNotify('Text pasted!','ok',2000);}
+  }).catch(function(){
+    var el=document.getElementById('ocr-text');if(el){el.focus();stNotify('Tap and hold in the text box, then tap Paste.','inf',3000);}
+  });
+}
+function doCopy(){var el=document.getElementById('ocr-text');if(el&&el.value){navigator.clipboard.writeText(el.value).then(function(){stNotify('Copied!','ok',1500);}).catch(function(){el.select();document.execCommand('copy');stNotify('Copied!','ok',1500);});}}
+function doClear(){var el=document.getElementById('ocr-text');if(el)el.value='';}
+
+function doParse(){
+  var text=(document.getElementById('ocr-text')||{}).value||'';
+  if(text.trim().length<20){stNotify('Paste the text first.','err');return;}
+  setApp('<div class="st-loading"><div class="spin" style="width:40px;height:40px"></div><p style="margin-top:14px;font-size:17px;font-weight:700;color:#f5f5f4">🤖 Reading Report</p><p style="color:#a8a29e;font-size:14px;margin-top:8px;font-family:sans-serif">3–5 seconds...</p></div>');
+  stGasPost({action:'parseReport',text:text}).then(function(res){
+    if(!res)return;
+    if(res.success&&res.data){
+      prefill=res.data;prefill._ai=true;
+      activeCust=null;
+      stNotify('✅ Values extracted!');renderForm(prefill);
+    }else{stNotify('Error: '+(res.error||''),'err');renderPaste();}
+  }).catch(function(e){stNotify('Error: '+e.message,'err');renderPaste();});
+}
+
+// AI parsing now handled server-side via stGasPost({action:'parseReport'})
+
+// ── Sample Form ──
+function renderForm(p){
+  var c=activeCust;p=p||{};function gv(k){var v=p[k];return(v!=null&&v!=='')?String(v):'';}
+  // If AI extracted a customer name, always do fresh matching
+  if(p._ai&&gv('CustomerName')){
+    var n=gv('CustomerName').toLowerCase();
+    var m=customers.find(function(x){var h=(x.Name||'').toLowerCase();return h===n||h.includes(n)||n.includes(h);});
+    if(m){activeCust=m;c=m;}else{activeCust=null;c=null;}
+  }
+  var html='<button class="st-back" onclick="renderScan()">&larr; Back</button><div class="page-title">'+(p._ai?'Review Extracted Data':'Enter Sample')+(c?' — '+esc(c.Name):'')+'</div>';
+  if(p._ai)html+='<div class="banner-ok">✅ AI extracted — review and save.</div>';
+  html+='<div class="st-card">';
+  if(!c){
+    html+='<div class="sub-head">Customer</div>';
+    var presel='';if(gv('CustomerName')){var n=gv('CustomerName').toLowerCase();var m=customers.find(function(x){var h=(x.Name||'').toLowerCase();return h===n||h.includes(n)||n.includes(h);});if(m){presel=m.Name;activeCust=m;}}
+    html+='<div class="form-group"><label class="form-label">Select customer</label><select class="form-input" id="sf-cust" onchange="sfCC(this.value)"><option value="">— Select —</option>';
+    customers.forEach(function(x){html+='<option value="'+esc(x.Name)+'"'+(presel===x.Name?' selected':'')+'>'+esc(x.Name)+'</option>';});
+    html+='</select></div>';
+    if(!presel&&gv('CustomerName'))html+='<div style="font-size:12px;color:#fb923c;font-family:sans-serif;margin-bottom:8px">AI found: "'+esc(gv('CustomerName'))+'" — not in master list.</div>';
+  }
+  html+='<div class="form-group"><label class="form-label">Year *</label><input class="form-input" id="sf-Year" type="number" value="'+(gv('Year')||new Date().getFullYear())+'"></div>';
+  html+='<div class="sub-head">Soil Nutrient Levels</div><div class="st-grid-3">';
+  TOP_FIELDS.forEach(function(m){html+='<div class="form-group"><label class="form-label">'+m.label+(m.unit?' ('+m.unit+')':'')+'</label><input class="form-input" id="sf-'+m.key+'" type="number" step="any" value="'+gv(m.key)+'" placeholder="'+m.min+'–'+m.max+'"></div>';});
+  html+='</div><div class="sub-head">Recommendations</div><div class="st-grid-2">';
+  html+='<div class="form-group"><label class="form-label">Limestone (lb/1000 ft²)</label><input class="form-input" id="sf-LimestoneLbs" value="'+gv('LimestoneLbs')+'" placeholder="0 if none"></div>';
+  [{k:'RecN',l:'Nitrogen (N)'},{k:'RecP',l:'P₂O₅'},{k:'RecK',l:'K₂O'}].forEach(function(r){html+='<div class="form-group"><label class="form-label">'+r.l+'</label><input class="form-input" id="sf-'+r.k+'" value="'+gv(r.k)+'"></div>';});
+  html+='</div><div class="sub-head">Laboratory Results</div><div class="st-grid-3">';
+  LAB_FIELDS.forEach(function(m){html+='<div class="form-group"><label class="form-label">'+m.label+(m.unit?' ('+m.unit+')':'')+'</label><input class="form-input" id="sf-'+m.key+'" type="number" step="any" value="'+gv(m.key)+'" placeholder="'+(m.info?'':m.min+'–'+m.max)+'"></div>';});
+  html+='</div><button class="st-btn-green btn-full" onclick="doSave()">💾 Save to Google Sheets</button></div>';
+  setApp(html);
+}
+function sfCC(v){if(v){activeCust=customers.find(function(c){return c.Name===v;});}else{activeCust=null;}}
+
+function doSave(){
+  var year=parseInt((document.getElementById('sf-Year')||{}).value,10);if(!year||year<1990){stNotify('Enter a valid year.','err');return;}
+  if(!activeCust){var sel=document.getElementById('sf-cust');if(sel&&sel.value)activeCust=customers.find(function(c){return c.Name===sel.value;});}
+  if(!activeCust){stNotify('Select a customer.','err');return;}
+  var data={CustomerName:activeCust.Name,Field:activeCust.Field||'',Year:year};
+  TOP_FIELDS.concat(LAB_FIELDS).forEach(function(m){var v=((document.getElementById('sf-'+m.key)||{}).value||'').trim();if(v!=='')data[m.key]=parseFloat(v);});
+  data.LimestoneLbs=((document.getElementById('sf-LimestoneLbs')||{}).value||'').trim()||'0';
+  ['RecN','RecP','RecK'].forEach(function(k){var v=((document.getElementById('sf-'+k)||{}).value||'').trim();if(v)data[k]=v;});
+  stGasPost({action:'saveSample',data:data}).then(function(r){
+    if(!r.success){stNotify('Error: '+(r.error||''),'err');return;}
+    data.ID=r.id;data.DateAdded=new Date().toISOString();samples.push(data);
+    var savedName=activeCust.Name;
+    stNotify('✅ Saved!');openCust(savedName);
+  }).catch(function(err){stNotify('Error: '+err.message,'err');});
+}
+
+// ── Delete ──
+function doDelete(id,yr){if(!confirm('Delete '+yr+' sample?'))return;var n=activeCust?activeCust.Name:null;stGasPost({action:'deleteSample',id:id}).then(function(r){if(!r.success){stNotify('Error','err');return;}samples=samples.filter(function(s){return String(s.ID)!==String(id);});stNotify('Deleted.','inf');if(n)openCust(n);else stShowPage('dash');}).catch(function(){stNotify('Error','err');});}
+
+// ── Reports ──
+function renderReportPage(){
+  var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px" class="no-print"><div class="page-title">Reports</div><button class="st-btn-green btn-sm" onclick="window.print()">🖨️ Print</button></div>'
+    +'<div class="st-card no-print"><div class="sec-title">Select Customer</div><select class="form-input" id="rpt-c" onchange="renderRpt()"><option value="">— Select —</option>';
+  customers.forEach(function(c){html+='<option value="'+esc(c.Name)+'">'+esc(c.Name)+'</option>';});
+  html+='</select></div><div id="rpt-out"></div>';setApp(html);
+}
+function openReport(n){stShowPage('report');setTimeout(function(){var el=document.getElementById('rpt-c');if(el){el.value=n;renderRpt();}},80);}
+function renderRpt(){
+  var n=(document.getElementById('rpt-c')||{}).value,out=document.getElementById('rpt-out');if(!out||!n){if(out)out.innerHTML='';return;}
+  var c=customers.find(function(x){return x.Name===n;}),cs=samples.filter(function(s){return s.CustomerName===n;}).sort(function(a,b){return a.Year-b.Year;});
+  if(!c||!cs.length){out.innerHTML='<div style="color:#78716c;font-family:sans-serif;padding:16px">No samples.</div>';return;}
+  var today=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  var latest=cs[cs.length-1];
+  var yrs=cs.map(function(s){return s.Year;});
+
+  // Helper: bar chart showing value position in range
+  function bar(val,min,max,label,isInfo){
+    if(val==null||val===''||isInfo)return'';
+    var n=parseFloat(val);if(isNaN(n))return'';
+    var rangeMax=max*1.5;if(rangeMax<n)rangeMax=n*1.2;
+    var pct=Math.min(Math.max((n/rangeMax)*100,2),100);
+    var idealL=(min/rangeMax)*100,idealR=(max/rangeMax)*100;
+    var clr=n>=min&&n<=max?'#16a34a':(n<min?'#dc2626':'#d97706');
+    var status=n>=min&&n<=max?'Optimal':(n<min?'Below Optimal':'Above Optimal');
+    return '<div style="margin-bottom:2px">'
+      +'<div style="position:relative;height:18px;background:#f0f0f0;border-radius:9px;overflow:hidden">'
+      +'<div style="position:absolute;left:'+idealL+'%;width:'+(idealR-idealL)+'%;height:100%;background:#e8f5e3;border-left:1px solid #4ade80;border-right:1px solid #4ade80"></div>'
+      +'<div style="position:relative;height:100%;width:'+pct+'%;background:'+clr+';border-radius:9px;min-width:4px"></div>'
+      +'</div>'
+      +'<div style="font-size:9px;color:#999;margin-top:1px">'+status+' ('+n+') · Ideal: '+min+'–'+max+'</div></div>';
+  }
+
+  // Helper: year-over-year bars for a metric (larger, more prominent)
+  function yearBars(metric){
+    if(cs.length<1)return'';
+    var vals=cs.map(function(s){return{year:s.Year,val:parseFloat(s[metric.key])};}).filter(function(v){return!isNaN(v.val);});
+    if(!vals.length)return'';
+    if(vals.length===1){
+      // Single year — just show a note, no bar chart needed
+      return'';
+    }
+    var maxVal=Math.max.apply(null,vals.map(function(v){return v.val;}).concat([metric.max*1.3]));
+    var idealTopPct=(metric.max/maxVal)*100;
+    var idealBotPct=(metric.min/maxVal)*100;
+    var h='<div style="margin:10px 0 4px">';
+    h+='<div style="font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Year-over-Year Trend</div>';
+    h+='<div style="position:relative;display:flex;align-items:flex-end;gap:8px;height:90px;background:#f7f7f7;border-radius:8px;padding:8px 10px 0;border:1px solid #eee">';
+    // Ideal zone band
+    h+='<div style="position:absolute;left:0;right:0;bottom:'+(idealBotPct)+'%;height:'+(idealTopPct-idealBotPct)+'%;background:#e8f5e3;border-top:1px dashed #4ade80;border-bottom:1px dashed #4ade80;pointer-events:none;border-radius:4px"></div>';
+    vals.forEach(function(v,i){
+      var pct=Math.max((v.val/maxVal)*82,5); // 82% max height to leave label room
+      var clr=v.val>=metric.min&&v.val<=metric.max?'#16a34a':(v.val<metric.min?'#dc2626':'#d97706');
+      var prev=i>0?vals[i-1].val:null;
+      var arrow='';
+      if(prev!==null){var diff=v.val-prev;arrow=diff>0?'<span style="color:#16a34a;font-size:9px">▲</span>':(diff<0?'<span style="color:#dc2626;font-size:9px">▼</span>':'<span style="color:#999;font-size:9px">–</span>');}
+      h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative;z-index:1">'
+        +'<div style="font-size:10px;font-weight:800;color:'+clr+';margin-bottom:2px">'+arrow+v.val+'</div>'
+        +'<div style="width:100%;background:'+clr+';height:'+pct+'%;border-radius:5px 5px 0 0;min-height:6px;opacity:0.9"></div>'
+        +'<div style="font-size:10px;font-weight:700;color:#444;margin-top:4px;padding-bottom:4px">'+v.year+'</div>'
+        +'</div>';
+    });
+    h+='</div>';
+    h+='<div style="font-size:9px;color:#aaa;margin-top:3px">Shaded band = ideal range ('+metric.min+'–'+metric.max+(metric.unit?' '+metric.unit:'')+')</div>';
+    h+='</div>';
+    return h;
+  }
+
+  // Calculate soil health score
+  var scoreCount=0,scoreGood=0;
+  ALL_METRICS.forEach(function(m){
+    if(m.info)return;
+    var v=parseFloat(latest[m.key]);
+    if(isNaN(v))return;
+    scoreCount++;
+    if(v>=m.min&&v<=m.max)scoreGood++;
+  });
+  var scorePct=scoreCount?Math.round((scoreGood/scoreCount)*100):0;
+  var scoreColor=scorePct>=75?'#16a34a':(scorePct>=50?'#d97706':'#dc2626');
+  var scoreLabel=scorePct>=75?'Good':(scorePct>=50?'Needs Improvement':'Needs Attention');
+
+  var h='<div style="background:white;color:#1a1a1a;border-radius:12px;padding:28px;font-family:sans-serif;line-height:1.5;max-width:800px">';
+
+  // ── Header ──
+  h+='<div style="display:flex;justify-content:space-between;border-bottom:3px solid #2d5a1b;padding-bottom:16px;margin-bottom:20px;flex-wrap:wrap;gap:10px">'
+    +'<div><div style="font-size:22px;font-weight:900;color:#2d5a1b;line-height:1.2">LAWNS PLANTS &amp; PESTS LLC</div><div style="font-size:12px;color:#666;margin-top:4px">Soil Health Report &amp; Improvement Plan</div></div>'
+    +'<div style="text-align:right"><div style="font-size:18px;font-weight:700;color:#2d5a1b">'+esc(c.Name)+'</div>'
+    +(c.Address?'<div style="font-size:11px;color:#666">'+esc(c.Address)+(c.City?', '+esc(c.City):'')+'</div>':'')
+    +'<div style="font-size:11px;color:#666">Report Generated: '+today+'</div>'
+    +'<div style="font-size:11px;color:#666">Seasons Tracked: '+yrs.join(', ')+'</div></div></div>';
+
+  // ── Soil Health Score ──
+  h+='<div style="background:#f8faf7;border:1px solid #e0e8dc;border-radius:10px;padding:18px;margin-bottom:22px;text-align:center">'
+    +'<div style="font-size:11px;font-weight:700;color:#2d5a1b;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Overall Soil Health Score</div>'
+    +'<div style="font-size:48px;font-weight:900;color:'+scoreColor+'">'+scorePct+'%</div>'
+    +'<div style="font-size:14px;font-weight:600;color:'+scoreColor+'">'+scoreLabel+'</div>'
+    +'<div style="font-size:11px;color:#888;margin-top:6px">'+scoreGood+' of '+scoreCount+' metrics within optimal range ('+latest.Year+' test)</div></div>';
+
+  // ── How to Read This Report ──
+  h+='<div style="background:#f9f9f9;border-radius:8px;padding:14px;margin-bottom:22px;font-size:12px;color:#555;line-height:1.7">'
+    +'<div style="font-weight:700;color:#2d5a1b;margin-bottom:4px">How to Read This Report</div>'
+    +'Your soil was tested by Penn State Extension\'s Agricultural Analytical Services Laboratory. Each value is compared to ideal ranges for healthy lawn growth. '
+    +'<span style="color:#16a34a;font-weight:700">Green</span> = optimal, '
+    +'<span style="color:#d97706;font-weight:700">Orange</span> = above optimal, '
+    +'<span style="color:#dc2626;font-weight:700">Red</span> = below optimal. '
+    +'The bar charts show your progress over time — the shaded green zone is the ideal range.</div>';
+
+  // ── Improvement Plan (Recommendations) ──
+  h+='<div style="font-size:13px;font-weight:800;color:#2d5a1b;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;border-bottom:2px solid #2d5a1b;padding-bottom:6px">Your Improvement Plan</div>';
+
+  // Limestone
+  var limeVal=latest.LimestoneLbs;
+  var limeNone=!limeVal||String(limeVal).toLowerCase()==='none'||limeVal==='0'||limeVal===0;
+  h+='<div style="margin-bottom:14px;padding:12px;border-radius:8px;border-left:4px solid '+(limeNone?'#16a34a':'#d97706')+';background:#fafafa">'
+    +'<div style="font-weight:700;font-size:13px;color:#1a1a1a">Limestone — '+(limeNone?'None Needed ✅':limeVal+' lb/1,000 sq ft')+'</div>'
+    +'<div style="font-size:11px;color:#555;margin-top:4px">Limestone raises soil pH to the optimal 6.0–7.0 range where nutrients are most available to grass roots. '
+    +(limeNone?'Your pH is in good shape — no lime needed at this time.':'Apply '+limeVal+' lb per 1,000 sq ft. If over 100 lb, split into two applications 4–6 months apart. Aerate before applying for best absorption.')
+    +'</div>';
+  if(cs.length>1){h+='<div style="font-size:10px;color:#888;margin-top:6px">History: ';cs.forEach(function(s,i){var v=s.LimestoneLbs,nn=!v||String(v).toLowerCase()==='none'||v==='0'||v===0;h+=(i?', ':'')+s.Year+': '+(nn?'None':v);});h+='</div>';}
+  h+='</div>';
+
+  // N, P, K recs
+  var recItems=[
+    {key:'RecN',label:'Nitrogen (N)',desc:'Nitrogen drives leaf growth and that deep green color. It cannot be measured by a soil test — recommendations are based on grass type and maintenance level. Apply in 2–4 split applications through the growing season for best results.'},
+    {key:'RecP',label:'Phosphorus (P₂O₅)',desc:'Phosphorus supports root development and energy transfer. Only apply if recommended — excess phosphorus runs off into waterways and contributes to pollution.'},
+    {key:'RecK',label:'Potassium (K₂O)',desc:'Potassium strengthens cell walls, improves drought tolerance and winter hardiness. Essential for preparing your lawn to survive cold months.'}
+  ];
+  recItems.forEach(function(r){
+    var val=latest[r.key];var none=!val||String(val).toLowerCase()==='none';
+    h+='<div style="margin-bottom:14px;padding:12px;border-radius:8px;border-left:4px solid '+(none?'#16a34a':'#d97706')+';background:#fafafa">'
+      +'<div style="font-weight:700;font-size:13px;color:#1a1a1a">'+r.label+' — '+(none?'Not Needed ✅':val+' lb/1,000 sq ft/yr')+'</div>'
+      +'<div style="font-size:11px;color:#555;margin-top:4px">'+r.desc+'</div></div>';
+  });
+
+  // ── Soil Nutrient Levels ──
+  h+='<div style="font-size:13px;font-weight:800;color:#2d5a1b;text-transform:uppercase;letter-spacing:1px;margin:24px 0 10px;border-bottom:2px solid #2d5a1b;padding-bottom:6px">Soil Nutrient Levels</div>'
+    +'<div style="font-size:11px;color:#666;margin-bottom:14px">These values come from the top section of your Penn State soil test and represent the nutrients available in your soil.</div>';
+
+  TOP_FIELDS.forEach(function(m){
+    var val=latest[m.key];var n=parseFloat(val);
+    var status=isNaN(n)?'—':(n>=m.min&&n<=m.max?'✅ Optimal':(n<m.min?'⚠️ Below Optimal':'⚠️ Above Optimal'));
+    h+='<div style="margin-bottom:16px;padding:14px;border-radius:8px;background:#fafafa;border:1px solid #eee">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:700;font-size:14px;color:#1a1a1a">'+m.label+(m.unit?' ('+m.unit+')':'')+'</div><div style="font-size:13px;font-weight:700;color:'+(isNaN(n)?'#999':(n>=m.min&&n<=m.max?'#16a34a':(n<m.min?'#dc2626':'#d97706')))+'">'+(!isNaN(n)?n:'—')+' '+status+'</div></div>'
+      +bar(val,m.min,m.max)
+      +yearBars(m)
+      +'<div style="font-size:11px;color:#555;margin-top:6px">'+m.about+'</div>'
+      +'<div style="font-size:11px;color:#2d5a1b;font-weight:600;margin-top:4px">'+m.fix+'</div>'
+      +'</div>';
+  });
+
+  // ── Laboratory Results ──
+  h+='<div style="font-size:13px;font-weight:800;color:#2d5a1b;text-transform:uppercase;letter-spacing:1px;margin:24px 0 10px;border-bottom:2px solid #2d5a1b;padding-bottom:6px">Laboratory Results</div>'
+    +'<div style="font-size:11px;color:#666;margin-bottom:14px">These detailed values from the lab analysis provide a deeper look at your soil chemistry. The exchangeable cations and saturation percentages show how nutrients are balanced in your soil.</div>';
+
+  LAB_FIELDS.forEach(function(m){
+    var val=latest[m.key];var n=parseFloat(val);
+    var status=m.info?'ℹ️ Informational':(isNaN(n)?'—':(n>=m.min&&n<=m.max?'✅ Optimal':(n<m.min?'⚠️ Below':'⚠️ Above')));
+    h+='<div style="margin-bottom:16px;padding:14px;border-radius:8px;background:#fafafa;border:1px solid #eee">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:700;font-size:14px;color:#1a1a1a">'+m.label+(m.unit?' ('+m.unit+')':'')+'</div><div style="font-size:13px;font-weight:700;color:'+(m.info?'#666':(isNaN(n)?'#999':(n>=m.min&&n<=m.max?'#16a34a':(n<m.min?'#dc2626':'#d97706'))))+'">'+(!isNaN(n)?n:'—')+' '+status+'</div></div>'
+      +bar(val,m.min,m.max,m.label,m.info)
+      +yearBars(m)
+      +'<div style="font-size:11px;color:#555;margin-top:6px">'+m.about+'</div>'
+      +'<div style="font-size:11px;color:#2d5a1b;font-weight:600;margin-top:4px">'+m.fix+'</div>'
+      +'</div>';
+  });
+
+  // ── Year-over-Year Summary Table ──
+  if(cs.length>1){
+    h+='<div style="font-size:13px;font-weight:800;color:#2d5a1b;text-transform:uppercase;letter-spacing:1px;margin:24px 0 10px;border-bottom:2px solid #2d5a1b;padding-bottom:6px">Year-over-Year Data</div>';
+    var TH='style="background:#f0f7ee;padding:6px 8px;text-align:left;color:#2d5a1b;font-weight:600;font-size:11px"',THC='style="background:#f0f7ee;padding:6px 8px;text-align:center;color:#2d5a1b;font-weight:600;font-size:11px"';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px"><thead><tr><th '+TH+'>Metric</th><th '+TH+'>Ideal</th>';
+    yrs.forEach(function(y){h+='<th '+THC+'>'+y+'</th>';});
+    h+='<th '+THC+'>Trend</th></tr></thead><tbody>';
+    ALL_METRICS.forEach(function(m){
+      var vals=cs.map(function(s){return parseFloat(s[m.key]);});
+      var first=vals.find(function(v){return!isNaN(v);}),last=vals.slice().reverse().find(function(v){return!isNaN(v);});
+      var trend='—';
+      if(!isNaN(first)&&!isNaN(last)&&cs.length>1){
+        if(m.info)trend='—';
+        else if(first>=m.min&&first<=m.max&&last>=m.min&&last<=m.max)trend='✅ Stable';
+        else if(last>=m.min&&last<=m.max)trend='📈 Improved';
+        else if(first>=m.min&&first<=m.max)trend='📉 Declined';
+        else trend='⚠️ Monitor';
+      }
+      h+='<tr><td style="padding:5px 8px;border-bottom:1px solid #eee;font-weight:600">'+m.label+'</td><td style="padding:5px 8px;border-bottom:1px solid #eee;color:#999;font-family:monospace;font-size:10px">'+(m.info?'info':m.min+'–'+m.max)+'</td>';
+      cs.forEach(function(s){var v=parseFloat(s[m.key]),clr=isNaN(v)?'#ccc':(m.info?'#333':(v>=m.min&&v<=m.max?'#16a34a':(v<m.min?'#dc2626':'#d97706')));h+='<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:700;color:'+clr+'">'+(isNaN(v)?'—':v)+'</td>';});
+      h+='<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;font-size:10px">'+trend+'</td></tr>';
+    });
+    h+='</tbody></table>';
+  }
+
+  // ── What Changed Since Last Year ──
+  if(cs.length>1){
+    var prev=cs[cs.length-2],curr=cs[cs.length-1];
+    var prevYr=prev.Year,currYr=curr.Year;
+
+    // Per-metric plain-English notes based on direction and position
+    var changeNotes={
+      pH:{
+        improvedToOptimal:'Limestone applications are working — your soil is now in the ideal range. Keep following the current plan.',
+        improvedStillLow:'Moving in the right direction, but still below optimal. Continue limestone applications as recommended.',
+        improvedStillHigh:'Coming down toward the ideal range. No lime needed — monitor at next test.',
+        declinedFromOptimal:'pH has slipped below optimal. A limestone application this season should bring it back.',
+        declinedFurtherLow:'pH is continuing to fall. Prioritize a limestone application — this affects nutrient availability for everything else.',
+        declinedFurtherHigh:'pH remains above optimal. Avoid limestone. Elemental sulfur can help lower it over time.',
+        stableOptimal:'pH is holding steady in the ideal range. Nothing to change.',
+        stableOffTarget:'pH is stable but outside the ideal range. Address with lime or sulfur per recommendations.',
+        infoOnly:''
+      },
+      Phosphorus_ppm:{
+        improvedToOptimal:'Phosphorus is now in the ideal range. The current fertilizer program is balanced.',
+        improvedStillLow:'Phosphorus is rising but still low. Continue P₂O₅ applications as recommended.',
+        improvedStillHigh:'Phosphorus is still above optimal despite reduction. Hold off on any P₂O₅ fertilizer this season.',
+        declinedFromOptimal:'Phosphorus has dropped below optimal. A modest P₂O₅ application may be needed.',
+        declinedFurtherLow:'Phosphorus continues to be low. A phosphate fertilizer application is recommended.',
+        declinedFurtherHigh:'Phosphorus remains elevated. Skip P₂O₅ fertilizer — excess phosphorus can run off into waterways.',
+        stableOptimal:'Phosphorus is steady in the ideal range. Current program is working.',
+        stableOffTarget:'Phosphorus is stable but outside the ideal range. Adjust fertilizer per recommendations.',
+        infoOnly:''
+      },
+      Potassium_ppm:{
+        improvedToOptimal:'Potassium is now in the ideal range — good for drought and winter hardiness.',
+        improvedStillLow:'Potassium is improving but still low. Continue K₂O applications.',
+        improvedStillHigh:'Potassium is still elevated. Hold off on additional potash.',
+        declinedFromOptimal:'Potassium has dipped below optimal. Apply K₂O to restore strength and stress resistance.',
+        declinedFurtherLow:'Low potassium is making your lawn more vulnerable to drought and disease. K₂O application is a priority.',
+        declinedFurtherHigh:'Potassium remains high. No additional K₂O needed.',
+        stableOptimal:'Potassium is steady and in a good range.',
+        stableOffTarget:'Potassium is stable but off-target. Adjust per recommendations.',
+        infoOnly:''
+      },
+      P_lbA:{
+        improvedToOptimal:'Lab phosphorus is now in the optimal range.',
+        improvedStillLow:'Lab phosphorus is rising — continue the current fertilizer plan.',
+        improvedStillHigh:'Lab phosphorus is high. Avoid additional P₂O₅ this season.',
+        declinedFromOptimal:'Lab phosphorus has dropped below optimal — a phosphate application may be needed.',
+        declinedFurtherLow:'Lab phosphorus remains low. Phosphate fertilizer is recommended.',
+        declinedFurtherHigh:'Lab phosphorus is still elevated. Skip phosphate fertilizer.',
+        stableOptimal:'Lab phosphorus is holding in the ideal range.',
+        stableOffTarget:'Lab phosphorus is stable but outside the target. Adjust per recommendations.',
+        infoOnly:''
+      },
+      Acidity:{
+        improvedToOptimal:'Buffer acidity is in a good range — limestone needs are manageable.',
+        improvedStillLow:'',
+        improvedStillHigh:'Acidity is high, meaning your soil needs significant limestone to shift pH. Follow the lb recommendation closely.',
+        declinedFromOptimal:'Buffer acidity has increased — more limestone will be needed this cycle.',
+        declinedFurtherLow:'',
+        declinedFurtherHigh:'Acidity remains high. This explains the larger limestone recommendation.',
+        stableOptimal:'Buffer acidity is stable and manageable.',
+        stableOffTarget:'Buffer acidity is elevated — follow limestone recommendations carefully.',
+        infoOnly:''
+      },
+      K_meq:{
+        improvedToOptimal:'Exchangeable potassium is now in the optimal range.',
+        improvedStillLow:'Potassium is rising — continue K₂O applications.',
+        improvedStillHigh:'Potassium is still high relative to ideal. Monitor the K:Mg ratio.',
+        declinedFromOptimal:'Exchangeable K has dropped — a potash application is recommended.',
+        declinedFurtherLow:'Low exchangeable K is limiting nutrient balance. Apply K₂O.',
+        declinedFurtherHigh:'Exchangeable K remains high. No additional potash needed.',
+        stableOptimal:'Exchangeable potassium is holding steady in the ideal range.',
+        stableOffTarget:'Exchangeable potassium is stable but off-target. Adjust per recommendations.',
+        infoOnly:''
+      },
+      Mg_meq:{
+        improvedToOptimal:'Magnesium is now in the ideal range — chlorophyll production should be strong.',
+        improvedStillLow:'Magnesium is rising but still low. Dolomitic limestone or Epsom salt can help.',
+        improvedStillHigh:'Magnesium is still above optimal — no additional Mg applications needed.',
+        declinedFromOptimal:'Magnesium has dipped below optimal. Consider dolomitic limestone at next application.',
+        declinedFurtherLow:'Low magnesium limits photosynthesis. Dolomitic limestone or Epsom salt is recommended.',
+        declinedFurtherHigh:'Magnesium remains high. Avoid additional Mg sources.',
+        stableOptimal:'Magnesium is stable and in the ideal range.',
+        stableOffTarget:'Magnesium is stable but off-target. Adjust per recommendations.',
+        infoOnly:''
+      },
+      Ca_meq:{
+        improvedToOptimal:'Calcium is now in the optimal range — good for cell strength and soil structure.',
+        improvedStillLow:'Calcium is improving but still low. Limestone applications will continue to help.',
+        improvedStillHigh:'Calcium remains elevated. This is usually not a problem but watch pH.',
+        declinedFromOptimal:'Calcium has dropped below optimal — often linked to acidic conditions. Limestone helps.',
+        declinedFurtherLow:'Low calcium is weakening soil structure. Limestone is the primary fix.',
+        declinedFurtherHigh:'Calcium remains high. Monitor pH — high Ca can push pH above optimal.',
+        stableOptimal:'Calcium is holding steady in the ideal range.',
+        stableOffTarget:'Calcium is stable but outside the target. Address with limestone per recommendations.',
+        infoOnly:''
+      },
+      CEC:{
+        improvedToOptimal:'',improvedStillLow:'',improvedStillHigh:'',
+        declinedFromOptimal:'',declinedFurtherLow:'',declinedFurtherHigh:'',
+        stableOptimal:'',stableOffTarget:'',
+        infoOnly:'CEC is a long-term property of your soil. Adding compost and organic matter over many seasons will gradually improve it.'
+      },
+      SatK:{
+        improvedToOptimal:'Potassium saturation is now in the ideal range — good balance with Mg and Ca.',
+        improvedStillLow:'K saturation is rising. Continue potash applications.',
+        improvedStillHigh:'K saturation remains high. Excess K can block magnesium uptake — hold off on additional potash.',
+        declinedFromOptimal:'K saturation has dropped below optimal. A potash application is recommended.',
+        declinedFurtherLow:'Low K saturation limits drought resistance. Apply K₂O.',
+        declinedFurtherHigh:'K saturation is still high. Skip additional potash and watch Mg levels.',
+        stableOptimal:'Potassium saturation is steady in the ideal range.',
+        stableOffTarget:'K saturation is stable but off-target. Adjust per recommendations.',
+        infoOnly:''
+      },
+      SatMg:{
+        improvedToOptimal:'Magnesium saturation is now in the ideal range.',
+        improvedStillLow:'Mg saturation is rising — continue dolomitic limestone or Epsom salt.',
+        improvedStillHigh:'Mg saturation remains elevated. Avoid additional Mg sources.',
+        declinedFromOptimal:'Mg saturation has slipped below optimal — consider dolomitic limestone.',
+        declinedFurtherLow:'Low Mg saturation is limiting photosynthesis. Dolomitic limestone or Epsom salt recommended.',
+        declinedFurtherHigh:'Mg saturation is still high. No additional magnesium needed.',
+        stableOptimal:'Magnesium saturation is holding steady in the ideal range.',
+        stableOffTarget:'Mg saturation is stable but off-target. Adjust per recommendations.',
+        infoOnly:''
+      },
+      SatCa:{
+        improvedToOptimal:'Calcium saturation is now in the ideal range — healthy soil base.',
+        improvedStillLow:'Ca saturation is rising. Limestone applications are helping.',
+        improvedStillHigh:'Ca saturation remains high. Monitor pH to ensure it doesn\'t push above 7.0.',
+        declinedFromOptimal:'Ca saturation has dropped. This often signals acidifying conditions — check limestone schedule.',
+        declinedFurtherLow:'Ca saturation is low, usually a sign of acidic soil. Limestone is the primary fix.',
+        declinedFurtherHigh:'Ca saturation is still above optimal. Watch pH closely.',
+        stableOptimal:'Calcium saturation is steady in the ideal range.',
+        stableOffTarget:'Ca saturation is stable but off-target. Limestone or pH correction recommended.',
+        infoOnly:''
+      }
+    };
+
+    function getNoteKey(m, pv, cv){
+      if(m.info) return 'infoOnly';
+      var prevOk=pv>=m.min&&pv<=m.max, currOk=cv>=m.min&&cv<=m.max;
+      var prevLow=pv<m.min, currLow=cv<m.min;
+      var improved=cv>pv, declined=cv<pv;
+      if(prevOk&&currOk) return 'stableOptimal';
+      if(!prevOk&&!currOk&&Math.abs(cv-pv)<0.01) return 'stableOffTarget';
+      if(!prevOk&&!currOk&&improved&&currLow) return 'improvedStillLow';
+      if(!prevOk&&!currOk&&improved&&!currLow) return 'improvedStillHigh';
+      if(!prevOk&&currOk) return 'improvedToOptimal';
+      if(prevOk&&!currOk&&currLow) return 'declinedFromOptimal';
+      if(!prevOk&&!currOk&&declined&&currLow) return 'declinedFurtherLow';
+      if(!prevOk&&!currOk&&declined&&!currLow) return 'declinedFurtherHigh';
+      if(prevOk&&!currOk&&!currLow) return 'declinedFromOptimal';
+      return 'stableOffTarget';
+    }
+
+    var changeItems=[];
+    ALL_METRICS.forEach(function(m){
+      var pv=parseFloat(prev[m.key]), cv=parseFloat(curr[m.key]);
+      if(isNaN(pv)||isNaN(cv)) return;
+      var diff=cv-pv;
+      var absDiff=Math.abs(diff);
+      if(absDiff<0.001) return; // skip if no meaningful change
+      var arrow=diff>0?'▲':'▼';
+      var arrowClr=diff>0?'#16a34a':'#dc2626';
+      // For informational fields (CEC) direction doesn't carry good/bad meaning
+      if(m.info){arrowClr='#888';}
+      var noteKey=getNoteKey(m,pv,cv);
+      var noteBank=changeNotes[m.key]||{};
+      var note=noteBank[noteKey]||'';
+      // Format diff nicely
+      var diffStr=(diff>0?'+':'')+Math.round(diff*100)/100;
+      changeItems.push({m:m,pv:pv,cv:cv,diff:diff,diffStr:diffStr,arrow:arrow,arrowClr:arrowClr,note:note,noteKey:noteKey});
+    });
+
+    if(changeItems.length){
+      h+='<div style="font-size:13px;font-weight:800;color:#2d5a1b;text-transform:uppercase;letter-spacing:1px;margin:24px 0 10px;border-bottom:2px solid #2d5a1b;padding-bottom:6px">What Changed Since Last Year</div>';
+      h+='<div style="font-size:11px;color:#666;margin-bottom:12px">Comparing '+prevYr+' → '+currYr+' results. Only metrics with measured changes are shown.</div>';
+      h+='<div style="display:flex;flex-direction:column;gap:8px">';
+      changeItems.forEach(function(item){
+        var currOk=item.cv>=item.m.min&&item.cv<=item.m.max;
+        var borderClr=item.m.info?'#bbb':(currOk?'#16a34a':(item.cv<item.m.min?'#dc2626':'#d97706'));
+        h+='<div style="padding:11px 14px;border-radius:8px;border-left:4px solid '+borderClr+';background:#fafafa;border:1px solid #eee;border-left-width:4px">';
+        h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">';
+        h+='<div style="font-weight:700;font-size:13px;color:#1a1a1a">'+item.m.label+(item.m.unit?' ('+item.m.unit+')':'')+'</div>';
+        h+='<div style="font-size:13px;font-family:monospace;font-weight:700">'
+          +'<span style="color:#888">'+item.pv+'</span>'
+          +' <span style="color:'+item.arrowClr+'">'+item.arrow+' '+item.diffStr+'</span>'
+          +' <span style="color:'+borderClr+'">→ '+item.cv+'</span>'
+          +'</div>';
+        h+='</div>';
+        if(item.note){
+          h+='<div style="font-size:11px;color:#444;margin-top:5px;line-height:1.6">'+item.note+'</div>';
+        }
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+  }
+
+  // ── Next Steps ──
+  h+='<div style="background:#f0f7ee;border-radius:8px;padding:16px;margin-top:20px">'
+    +'<div style="font-weight:700;color:#2d5a1b;margin-bottom:6px;font-size:13px">Recommended Next Steps</div>'
+    +'<div style="font-size:12px;color:#555;line-height:1.7">'
+    +'• Follow the improvement plan recommendations above<br>'
+    +'• Retest soil in 2–3 years to track progress<br>'
+    +'• Apply treatments at recommended rates — more is not better<br>'
+    +'• Aerate before limestone application for best results<br>'
+    +'• Split nitrogen applications through the growing season<br>'
+    +'• Contact us with questions about your soil improvement plan'
+    +'</div></div>';
+
+  // ── Footer ──
+  h+='<div style="margin-top:20px;padding-top:14px;border-top:2px solid #2d5a1b;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+    +'<div><div style="font-weight:900;color:#2d5a1b;font-size:14px">Lawns Plants &amp; Pests LLC</div><div style="font-size:10px;color:#888">3506 High St · Harrisburg, PA 17109 · 717-379-3248</div></div>'
+    +'<div style="text-align:right;font-size:9px;color:#aaa">Report generated by SoilTracks<br>Data source: Penn State Extension Soil Test<br>🟢 Optimal 🟠 Above 🔴 Below</div>'
+    +'</div></div>';
+
+  out.innerHTML=h;
+}
+
+
+function renderSoilPage() {
+  const el = document.getElementById('page-soil');
+  el.innerHTML = `
+    <h1 style="margin-bottom:4px">🧪 Soil Samples</h1>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">Penn State Extension soil test tracking & AI scanning</p>
+    <div id="st-notif" class="st-notif"></div>
+    <input type="file" accept="image/*" capture="environment" id="st-cam-input" style="display:none">
+    <div id="st-info-modal" class="st-modal-overlay" onclick="if(event.target===this)stCloseModal()"><div id="st-info-modal-body" class="st-modal"></div></div>
+    <div id="st-app"></div>
+  `;
+  stLoadAndShow();
 }
 
 // ══════════ SECURITY — Simple PIN Gate ══════════
