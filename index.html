@@ -339,7 +339,35 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
   @media print{.st-header,.no-print{display:none !important}body{background:#fff}.st-main{padding:0}}
   @media(max-width:600px){.stats-grid{grid-template-columns:1fr 1fr}.st-grid-2{grid-template-columns:1fr}.st-grid-3{grid-template-columns:1fr 1fr}.st-nav-btn{padding:0 8px;font-size:12px}.logo-sub{display:none}}
 
+  /* ───── Phase 1 nav reorg ───── */
+  .header-sync-btn{background:transparent;border:1px solid var(--border,#2a2a2a);color:var(--text-muted,#a8a29e);width:34px;height:34px;border-radius:8px;font-size:16px;cursor:pointer;margin-left:10px;display:inline-flex;align-items:center;justify-content:center;transition:all .15s}
+  .header-sync-btn:hover{border-color:var(--accent,#4ade80);color:var(--accent,#4ade80)}
+  .nav-divider{height:1px;background:#222;margin:14px 4px 8px}
+  .nav-section-label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#555;padding:0 12px 6px}
+  nav.desktop-nav .nav-section-label ~ button{opacity:.78}
+  nav.desktop-nav .nav-section-label ~ button.active{opacity:1}
 
+  /* Hub pages (Library, Logs) */
+  .hub{padding:24px 28px;max-width:900px}
+  .hub-title{font-size:26px;font-weight:800;letter-spacing:-.5px;margin:0 0 6px;color:#c8e6c9}
+  .hub-sub{color:var(--text-muted,#a8a29e);font-size:14px;margin:0 0 22px}
+  .hub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+  .hub-tile{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:18px 18px 16px;background:#161616;border:1px solid #262626;border-radius:14px;color:inherit;text-decoration:none;cursor:pointer;text-align:left;transition:all .15s;font:inherit}
+  .hub-tile:hover{border-color:var(--accent,#4ade80);background:#1a1f1a;transform:translateY(-1px)}
+  .hub-tile-emoji{font-size:28px;line-height:1;margin-bottom:6px}
+  .hub-tile-label{font-size:16px;font-weight:700;color:#e7e5e4}
+  .hub-tile-sub{font-size:12px;color:var(--text-muted,#a8a29e);line-height:1.35}
+  .hub-tile-tag{font-size:9px;font-weight:700;letter-spacing:.5px;background:#2a2a2a;color:#a8a29e;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
+  .hub-footnote{margin-top:22px;color:#666;font-size:12px;font-style:italic}
+  @media(max-width:600px){
+    .hub{padding:18px 14px 90px}
+    .hub-title{font-size:22px}
+    .hub-grid{grid-template-columns:1fr 1fr;gap:10px}
+    .hub-tile{padding:14px 12px}
+    .hub-tile-emoji{font-size:24px}
+    .hub-tile-label{font-size:14px}
+    .header-sync-btn{width:30px;height:30px;font-size:14px;margin-left:6px}
+  }
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -359,6 +387,7 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
       <div class="app-name">FieldPro</div>
     </div>
     <div class="meta" id="header-date"></div>
+    <button id="header-sync-btn" class="header-sync-btn" onclick="navigateTo('sync')" title="Sync settings &amp; status">🔄</button>
   </header>
   <div class="offline-banner" id="offline-banner">⚠ Offline — using cached data</div>
 
@@ -379,6 +408,8 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
       <div id="page-ponds" class="page"></div>
       <div id="page-aquaticid" class="page"></div>
       <div id="page-soil" class="page st-page"></div>
+      <div id="page-library" class="page"></div>
+      <div id="page-logs" class="page"></div>
     </main>
   </div>
 </div>
@@ -617,47 +648,51 @@ function saveState() {
 }
 
 // ══════════ NAVIGATION ══════════
+// Primary nav — what you reach for every day
 const NAV_ITEMS = [
-  { key:'workboard', label:'Work Board', emoji:'📋' },
-  { key:'routes', label:'Routes', emoji:'🗺️' },
+  { key:'workboard', label:'Today',     emoji:'🏠' },
   { key:'customers', label:'Customers', emoji:'👥' },
-  { key:'programs', label:'Programs', emoji:'📑' },
-  { key:'ponds', label:'Ponds', emoji:'🌊' },
+  { key:'logs',      label:'Logs',      emoji:'📝' },
+  { key:'library',   label:'Library',   emoji:'📚' },
+];
+// Secondary — still reachable, just out of the way
+const NAV_MORE = [
+  { key:'routes',    label:'Routes',     emoji:'🗺️' },
+  { key:'programs',  label:'Programs',   emoji:'📑' },
+  { key:'ponds',     label:'Ponds',      emoji:'🌊' },
   { key:'aquaticid', label:'Aquatic ID', emoji:'🌿' },
-  { key:'products', label:'Products', emoji:'🧪' },
-  { key:'sync', label:'Sync', emoji:'🔄' },
-  { key:'soil', label:'Soil', emoji:'🧪' },
-  { key:'history', label:'History', emoji:'📜' },
+  { key:'products',  label:'Products',   emoji:'🧪' },
+  { key:'soil',      label:'Soil',       emoji:'🧪' },
+  { key:'history',   label:'History',    emoji:'📜' },
 ];
 
 function renderNav() {
   const nav = document.getElementById('nav');
   const dueCount = getWorkboardItems().filter(i => i.due).length;
 
-  // Desktop sidebar nav
-  nav.innerHTML = NAV_ITEMS.map(n => `
+  const navBtn = (n) => `
     <button class="${currentPage === n.key ? 'active' : ''}" onclick="navigateTo('${n.key}')">
       <span class="emoji">${n.emoji}</span>
       <span class="nav-label">${n.label}</span>
       ${n.key === 'workboard' && dueCount > 0 ? `<span class="badge">${dueCount}</span>` : ''}
     </button>
-  `).join('');
+  `;
 
-  // Mobile bottom tab bar
+  // Desktop sidebar nav — primary 4 + a quieter "More" group
+  nav.innerHTML =
+    NAV_ITEMS.map(navBtn).join('') +
+    `<div class="nav-divider"></div><div class="nav-section-label">More</div>` +
+    NAV_MORE.map(navBtn).join('');
+
+  // Mobile bottom tab bar — same 4 primary + More menu for the rest
   const mainTabs = [
-    { key:'workboard', label:'Work', emoji:'📋' },
-    { key:'routes', label:'Routes', emoji:'🗺️' },
+    { key:'workboard', label:'Today',     emoji:'🏠' },
     { key:'customers', label:'Customers', emoji:'👥' },
-    { key:'ponds', label:'Ponds', emoji:'🌊' },
-    { key:'_more', label:'More', emoji:'•••' },
+    { key:'logs',      label:'Logs',      emoji:'📝' },
+    { key:'library',   label:'Library',   emoji:'📚' },
+    { key:'_more',     label:'More',      emoji:'•••' },
   ];
-  const moreTabs = [
-    { key:'programs', label:'Programs', emoji:'📑' },
-    { key:'aquaticid', label:'Aquatic ID', emoji:'🌿' },
-    { key:'products', label:'Products', emoji:'🧪' },
-    { key:'sync', label:'Sync', emoji:'🔄' },
-    { key:'history', label:'History', emoji:'📜' },
-  ];
+  const moreTabs = NAV_MORE;
   const isMorePage = moreTabs.some(t => t.key === currentPage);
 
   const btabs = document.getElementById('bottom-tabs');
@@ -718,6 +753,8 @@ function renderCurrentPage() {
       case 'ponds': renderPonds(); break;
       case 'aquaticid': renderAquaticId(); break;
       case 'soil': renderSoilPage(); break;
+      case 'library': renderLibrary(); break;
+      case 'logs': renderLogs(); break;
     }
     // Render any pending bait station maps
     if (window._pendingBaitMap) {
@@ -726,6 +763,57 @@ function renderCurrentPage() {
     }
   }
   renderNav();
+}
+
+// ══════════ LIBRARY (hub) ══════════
+function renderLibrary() {
+  const tiles = [
+    { key:'programs',  label:'Programs',   emoji:'📑', sub:'Service templates & rounds' },
+    { key:'products',  label:'Products',   emoji:'🧪', sub:'Pesticide & fertilizer catalog' },
+    { key:'aquaticid', label:'Aquatic ID', emoji:'🌿', sub:'Pond plant & algae lookup' },
+    { key:'soil',      label:'Soil',       emoji:'🧪', sub:'Soil test reference' },
+    { key:'ponds',     label:'Ponds',      emoji:'🌊', sub:'Customer pond setup' },
+  ];
+  const el = document.getElementById('page-library');
+  el.innerHTML = `
+    <div class="hub">
+      <h1 class="hub-title">Library</h1>
+      <p class="hub-sub">Reference data — programs, products, ID guides, soil, pond setup.</p>
+      <div class="hub-grid">
+        ${tiles.map(t => `
+          <button class="hub-tile" onclick="navigateTo('${t.key}')">
+            <div class="hub-tile-emoji">${t.emoji}</div>
+            <div class="hub-tile-label">${t.label}</div>
+            <div class="hub-tile-sub">${t.sub}</div>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ══════════ LOGS (hub) ══════════
+function renderLogs() {
+  const el = document.getElementById('page-logs');
+  el.innerHTML = `
+    <div class="hub">
+      <h1 class="hub-title">Logs</h1>
+      <p class="hub-sub">Service history and your pesticide application records.</p>
+      <div class="hub-grid">
+        <button class="hub-tile" onclick="navigateTo('history')">
+          <div class="hub-tile-emoji">📜</div>
+          <div class="hub-tile-label">Service History</div>
+          <div class="hub-tile-sub">Completed work, by customer or date</div>
+        </button>
+        <a class="hub-tile" href="https://lawnsplantspests-ui.github.io/lpp-log/" target="_blank" rel="noopener">
+          <div class="hub-tile-emoji">🧪</div>
+          <div class="hub-tile-label">LPP Pesticide Log <span class="hub-tile-tag">External</span></div>
+          <div class="hub-tile-sub">Regulatory log — opens the standalone app</div>
+        </a>
+      </div>
+      <p class="hub-footnote">Coming soon: pesticide log entry built into FieldPro so a "Done" tap writes both records at once.</p>
+    </div>
+  `;
 }
 
 // ══════════ WORKBOARD ══════════
