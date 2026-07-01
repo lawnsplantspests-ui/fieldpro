@@ -409,6 +409,7 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
       <div id="page-aquaticid" class="page"></div>
       <div id="page-soil" class="page st-page"></div>
       <div id="page-library" class="page"></div>
+      <div id="page-mixrates" class="page"></div>
       <div id="page-logs" class="page"></div>
     </main>
   </div>
@@ -662,6 +663,7 @@ const NAV_MORE = [
   { key:'ponds',     label:'Ponds',      emoji:'🌊' },
   { key:'aquaticid', label:'Aquatic ID', emoji:'🌿' },
   { key:'products',  label:'Products',   emoji:'🧪' },
+  { key:'mixrates',  label:'Mix Rates',  emoji:'💧' },
   { key:'soil',      label:'Soil',       emoji:'🧪' },
   { key:'history',   label:'History',    emoji:'📜' },
 ];
@@ -748,6 +750,7 @@ function renderCurrentPage() {
       case 'customers': renderCustomers(); break;
       case 'programs': renderPrograms(); break;
       case 'products': renderProducts(); break;
+      case 'mixrates': renderMixRates(); break;
       case 'sync': renderSync(); break;
       case 'history': renderHistory(); break;
       case 'ponds': renderPonds(); break;
@@ -770,6 +773,7 @@ function renderLibrary() {
   const tiles = [
     { key:'programs',  label:'Programs',   emoji:'📑', sub:'Service templates & rounds' },
     { key:'products',  label:'Products',   emoji:'🧪', sub:'Pesticide & fertilizer catalog' },
+    { key:'mixrates',  label:'Mix Rates',  emoji:'💧', sub:'Rates by rig — Z-Spray & backpack' },
     { key:'aquaticid', label:'Aquatic ID', emoji:'🌿', sub:'Pond plant & algae lookup' },
     { key:'soil',      label:'Soil',       emoji:'🧪', sub:'Soil test reference' },
     { key:'ponds',     label:'Ponds',      emoji:'🌊', sub:'Customer pond setup' },
@@ -1311,6 +1315,146 @@ function deleteProduct(id) {
   STATE.products = STATE.products.filter(p => p.id !== id);
   saveState();
   renderProducts();
+}
+
+// ══════════ MIX RATES (rate-by-rig reference) ══════════
+// rates: z=Z-Spray, b=Backpack, g=Granular spreader, s=Specialty (void/100gal/acre/DBH); ty=section
+const MIX_RATES = [
+ // Herbicides
+ {ty:'herb',n:'Strike 3 / 3D (3-Way)',ai:'2,4-D + MCPP + Dicamba',epa:'228-397',t:'Broadleaf weeds',z:'0.34 gal output / 1000',b:'6 oz / 4 gal',notes:'Selective. No rain 24 hrs. No clippings as mulch for 3 mowings. No mow 2 days before/after.'},
+ {ty:'herb',n:'Triad Select',ai:'2,4-D 30.89% + MCPA 8.23% + Dicamba 2.77%',epa:'89442-22',t:'Broadleaf weeds',b:'6 oz / 4 gal',notes:'Selective. No mow 2 days before/after. No rain 4 hrs.'},
+ {ty:'herb',n:'2D / Confront',ai:'Clopyralid 8.66% + Triclopyr 21.3%',epa:'62719-176',t:'Broadleaf / clover / ground ivy',z:'0.34 gal output / 1000',b:'2 oz / 4 gal',notes:'No rain 24 hrs. Do not use clippings as mulch.'},
+ {ty:'herb',n:'Turflon Ester / Triclopyr 4EC',ai:'Triclopyr 61.6%',epa:'62719-566',t:'Broadleaf / wild violet',z:'0.5 oz / 1000',b:'6 oz / 4 gal',notes:'Code H14. Avoid temps above 85°F. Keep off desirable broadleaf plants.',warn:1},
+ {ty:'herb',n:'Triclopyr 4E (amine)',ai:'Triclopyr 61.6% amine salt',epa:'42750-126',t:'Broadleaf / wild violet / brush',z:'0.1 oz / 1000',notes:'Code H20. Less volatile amine salt.'},
+ {ty:'herb',n:'Tenacity',ai:'Mesotrione 40%',epa:'100-1267',t:'Crabgrass / nimblewill',z:'1 fl oz / 1000',b:'2 tsp / 4 gal (0.33 oz)',notes:'Add NIS. Bleaching is normal. Max 2 apps/yr.'},
+ {ty:'herb',n:'Quinclorac 1.5L',ai:'Quinclorac 18.92%',epa:'111312-1',t:'Crabgrass / broadleaf',z:'1.45 oz / 1000',b:'6 oz / 4 gal (12 Tbsp)',notes:'Code H19. Add MSO for best control.'},
+ {ty:'herb',n:'Sedgehammer',ai:'Halosulfuron-methyl 75%',epa:'62719-542',t:'Nutsedge',z:'1.33 oz / 1000',b:'1.8 g / 4 gal',notes:'Add NIS. Reapply 6–10 weeks if regrowth.'},
+ {ty:'herb',n:'Prosedge',ai:'Halosulfuron-methyl 75%',epa:'228-711',t:'Nutsedge',z:'0.9 g / 1000',notes:'Code H13. Add NIS.'},
+ {ty:'herb',n:'Pylex',ai:'Topramezone 2.08%',epa:'7969-327',t:'Bermuda / goosegrass / nimblewill',b:'2 mL / 4 gal',notes:'Always tank-mix MSO. No mow 2 days before/after.',warn:1},
+ {ty:'herb',n:'SureGuard SC',ai:'Flumioxazin 51%',epa:'71368-114',t:'Broadleaf / pre-emergent',b:'1 oz / 4 gal',notes:'Pre + post emergent. Rainfast 1 hr. Apply sunny, above 65°F.'},
+ {ty:'herb',n:'Dismiss',ai:'Sulfentrazone 39.6%',epa:'279-3295',t:'Nutsedge / kyllinga / broadleaf',z:'0.092–0.18 oz / 1000',notes:'Code H18. Do not apply to stressed turf.',warn:1},
+ {ty:'herb',n:'Solitare',ai:'Quinclorac + Sulfentrazone',epa:'279-3355',t:'Crabgrass / nutsedge / broadleaf',z:'0.4 oz / 1000',notes:'Code H7. Add MSO.'},
+ {ty:'herb',n:'Vessel',ai:'Topramezone + Dithiopyr',epa:'2217-656-72112',t:'Crabgrass / grassy weeds',z:'1.5 oz / 1000',notes:'Code H10. Pre + post emergent.'},
+ {ty:'herb',n:'04 Plus',ai:'2,4-D + MCPP + Dicamba',epa:'2217-930',t:'Broadleaf weeds',z:'2.75 oz / 1000',notes:'Code H3.'},
+ {ty:'herb',n:'Cool Power',ai:'MCPA + Triclopyr + Clopyralid',epa:'228-442',t:'Broadleaf / clover / wild violet',z:'1 oz / 1000',notes:'Code H4. Works in cool weather.'},
+ {ty:'herb',n:'Momentum FX2',ai:'2,4-D + Triclopyr + Clopyralid',epa:'228-447',t:'Broadleaf / wild violet / ground ivy',z:'1.5 oz / 1000',notes:'Code H6.'},
+ {ty:'herb',n:'Tri-Mec 100',ai:'2,4-D + MCPP + Dicamba',epa:'2217-931',t:'Broadleaf weeds',z:'1.5 oz / 1000',notes:'Code H9.'},
+ {ty:'herb',n:'Triplet SF',ai:'2,4-D + MCPP + Dicamba',epa:'228-312',t:'Broadleaf weeds',z:'1.5 oz / 1000',notes:'Code H11. Surfactant-free.'},
+ {ty:'herb',n:'Last Call',ai:'2,4-D + MCPP + Dicamba',epa:'228-719',t:'Broadleaf weeds',z:'1.5 oz / 1000',notes:'Code H12. Late-season use.'},
+ {ty:'herb',n:'2-D',ai:'2,4-D 46.5%',epa:'66222-222',t:'Broadleaf weeds',z:'0.2 oz / 1000',notes:'Code H15.'},
+ {ty:'herb',n:'Buccaneer',ai:'Glyphosate 41%',epa:'55467-9',t:'All vegetation (non-selective)',z:'4–6 oz / 1000',notes:'Code H5. Generic glyphosate.',warn:1},
+ {ty:'herb',n:'Roundup QuikPro',ai:'Glyphosate 73.3% + Diquat 2.9%',epa:'524-535',t:'All vegetation (non-selective)',b:'6 oz / 4 gal (1.5 oz/gal)',notes:'Rainfast 30 min. Fast knockdown from diquat.',warn:1},
+ {ty:'herb',n:'Roundup Pro (Glyphosate 41%)',ai:'Glyphosate 41%',epa:'524-475',t:'All vegetation (non-selective)',b:'2–3 fl oz / gal',notes:'Non-selective bare ground. Allow 24–48 hrs before rain.',warn:1},
+ {ty:'herb',n:'Preen / Pendimethalin 3.8%',ai:'Pendimethalin 3.8%',epa:'241-341',t:'Annual grasses / broadleaf (pre-em)',g:'2–3 lbs / 1000',notes:'Bare-ground pre-emergent. Water in after application.'},
+ {ty:'herb',n:'Snapshot 2.5 TG',ai:'Trifluralin 2.0% + Isoxaben 0.5%',epa:'62719-175',t:'Pre-em (beds / ornamentals)',g:'2.3–4.6 lbs / 1000',notes:'NOT for turfgrass — landscape beds only. Water in 0.5 in within 3 days.',warn:1},
+ {ty:'herb',n:'Barrier 4G',ai:'Imazapyr + Glyphosate',epa:'2217-924',t:'Non-selective (non-crop)',g:'Per label',notes:'Controls up to 12 months. Activated by rainfall.',warn:1},
+ {ty:'herb',n:'Rodeo Aquatic',ai:'Glyphosate 53.8%',epa:'62719-324',t:'Emergent / floating aquatic weeds',s:'4–6 oz / 1000',sl:'aquatic',notes:'Code H17. Requires aquatic-approved surfactant.'},
+ // Fungicides
+ {ty:'fung',n:'Propiconazole 14.3%',ai:'Propiconazole 14.3%',epa:'100-741',t:'Dollar spot / brown patch',z:'1–4 fl oz / 1000',b:'1–4 fl oz / gal',notes:'Systemic. Rotate with a contact fungicide.'},
+ {ty:'fung',n:'Chlorothalonil (Daconil)',ai:'Chlorothalonil 29.6%',epa:'60063-7',t:'Dollar spot / brown patch',b:'14 oz / 4 gal (3.5 oz/gal)',notes:'Contact. Reapply every 7–14 days. Dedicated PHC backpack.'},
+ {ty:'fung',n:'Reliant Systemic Fungicide',ai:'K salts of Phosphorous Acid 45.8%',epa:'83416-1',t:'Pythium / phytophthora / root rot',b:'12 oz / 4 gal',notes:'Foliar or drench. Not compatible with copper. Dedicated PHC backpack.'},
+ // Insecticides / Mites / Pest
+ {ty:'insect',n:'Bifenthrin 7.9%',ai:'Bifenthrin 7.9%',epa:'279-3206',t:'Surface insects / ants / perimeter',z:'0.34 gal output / 1000',b:'4 oz / 4 gal (1 oz/gal)',notes:'Do not apply near water.',warn:1},
+ {ty:'insect',n:'Tengard SFR',ai:'Permethrin 36.8%',epa:'70506-6',t:'Ants / fleas / ticks / surface',b:'1.75 oz / gal',notes:'Current working rate; label range 0.4–0.8 oz/gal. Toxic to bees & fish — not near water. Dedicated pest backpack.',warn:1},
+ {ty:'insect',n:'Permethrin 36.8% (liquid)',ai:'Permethrin 36.8%',epa:'279-3097',t:'Ants / fleas / ticks / mosquitoes',b:'0.5–1 fl oz / gal',notes:'Dedicated pest backpack. Toxic to fish.',warn:1},
+ {ty:'insect',n:'Talstar G Granular',ai:'Bifenthrin 0.2%',epa:'279-3336',t:'Ants / surface insects',g:'2.3 lbs / 1000 band',notes:'Apply 10 ft out from foundation. Water in lightly.'},
+ {ty:'insect',n:'Imidacloprid 2% (Imicide HP)',ai:'Imidacloprid 2%',epa:'5905-541',t:'Scale / aphids / borers / whitefly',s:'1–2 oz / inch DBH',sl:'tree inject',notes:'Soil drench or basal bark. Best applied spring for uptake.'},
+ {ty:'insect',n:'Hexygon DF',ai:'Hexythiazox 50%',epa:'432-1344',t:'Mites',s:'4–8 oz / 100 gal',sl:'100-gal mix',notes:'Rotate miticide classes.'},
+ {ty:'insect',n:'Forbid 4F',ai:'Spiromesifen 45.9%',epa:'264-840',t:'Mites',s:'2–4 fl oz / 100 gal',sl:'100-gal mix',notes:'Rotate class. Do not apply above 90°F.',warn:1},
+ {ty:'insect',n:'Avid 0.15EC',ai:'Abamectin 0.15%',epa:'100-728',t:'Spider mites',s:'4–8 fl oz / 100 gal',sl:'100-gal mix',notes:'Translaminar. Best on spider mites.'},
+ {ty:'insect',n:'Floramite SC',ai:'Bifenazate 22.6%',epa:'400-481',t:'Mites',s:'4–8 fl oz / 100 gal',sl:'100-gal mix',notes:'Fast knockdown. Good rotation partner.'},
+ {ty:'insect',n:'Delta Dust',ai:'Deltamethrin 0.05%',epa:'432-772',t:'Yellow jackets',s:'2 oz / void',sl:'dust',notes:'Waterproof dust. Apply at dusk. Full PPE.',warn:1},
+ {ty:'insect',n:'Tempo Dust',ai:'Cyfluthrin 1%',epa:'3125-491',t:'Yellow jackets',s:'0.5 oz / void',sl:'dust',notes:'Fast knockdown. Allow 48 hrs before sealing void.',warn:1},
+ {ty:'insect',n:'PT Wasp-Freeze II',ai:'Prallethrin 0.1%',epa:'499-507',t:'Yellow jackets',s:'Direct to nest',sl:'aerosol',notes:'Spray from 15+ ft. Full PPE.',warn:1},
+ // Fertilizer / Granular
+ {ty:'fert',n:'Lebanon Pro 16-0-3',ai:'Fertilizer only',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular — record bags used.'},
+ {ty:'fert',n:'Spring Valley Fertilizer',ai:'Fertilizer only',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular — record bags used.'},
+ {ty:'fert',n:'Spring Valley 18-2-3',ai:'Fertilizer only',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular spreader.'},
+ {ty:'fert',n:'High Bio Winterizer',ai:'High-K fertilizer',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular — record bags used.'},
+ {ty:'fert',n:'SV 12-0-0 + Prodiamine',ai:'Prodiamine 0.38%',epa:'Per bag label',t:'Annual grasses (pre-em)',g:'4 lbs / 1000',notes:'Pre-emergent crabgrass + fertilizer.'},
+ {ty:'fert',n:'SV 13-0-5 + Dimension',ai:'Dithiopyr 0.13%',epa:'Per bag label',t:'Annual grasses (pre-em)',g:'4 lbs / 1000',notes:'Pre-emergent + fertilizer.'},
+ {ty:'fert',n:'SV 15-0-3 Protego',ai:'Imidacloprid + Lambda-Cyhalothrin',epa:'Per bag label',t:'White grubs',g:'4 lbs / 1000',notes:'Water in within 24–48 hrs.',warn:1},
+ // Adjuvants / Lime / Pond
+ {ty:'adj',n:'MSO Mineral Seed Oil',ai:'Methylated Seed Oil 85%+',epa:'—',t:'Herbicide penetration',b:'~1 oz / 4 gal (0.25% v/v)',notes:'Required with Pylex, Tenacity, Triclopyr. Do not use alone.'},
+ {ty:'adj',n:'Sticker Gulfstream',ai:'Silicone spreader-sticker',epa:'—',t:'Improves spray coverage',s:'4–16 oz / 100 gal tank',sl:'tank add',notes:'Add to tank with herbicide or fungicide for better adhesion.'},
+ {ty:'adj',n:'Maskit Bubblegum',ai:'Polymeric drift-control agent',epa:'—',t:'Drift reduction',s:'8–16 oz / 100 gal tank',sl:'tank add',notes:'Reduces fine droplet formation during spray.'},
+ {ty:'adj',n:'Sol-U-Cal Liquid Lime',ai:'Soluble calcium carbonate',epa:'—',t:'pH correction',z:'0.34 gal / 1000',notes:'Soil amendment. Record gal applied.'},
+ {ty:'adj',n:'Pond Worx Pond Bacteria',ai:'Beneficial bacteria',epa:'—',t:'Reduces organic matter (ponds)',s:'1 gal / acre',sl:'dump & pour',notes:'Safe for fish & wildlife. Repeat monthly.'},
+ {ty:'adj',n:'Beneficial Bacteria (Aquatic)',ai:'Mixed beneficial strains',epa:'—',t:'Reduces organic matter (ponds)',s:'Per label by volume',sl:'dump & pour',notes:'Best in warm water. Repeat monthly.'},
+ {ty:'adj',n:'Cutrine Pro Algaecide',ai:'Copper Ethanolamine 27.9% (9% Cu)',epa:'8959-10',t:'Algae / hydrilla',s:'0.6–3.0 gal / acre-foot',sl:'aquatic',notes:'Apply early AM 60°F+. Treat ≤50% of pond at once. 14 days between treatments.',warn:1},
+ {ty:'adj',n:'Cutrine Ultra Algaecide',ai:'Copper Ethanolamine (chelated)',epa:'67690-98',t:'Algae / aquatic weeds',s:'0.6–1.2 gal / surface acre',sl:'aquatic',notes:'Enhanced chelated formula. No use restrictions after treatment.'},
+];
+const MIX_RIGS = [
+  { key:'z',   label:'🚜 Z-Spray',  note:'Liquid rates per 1,000 sqft (or spray output). Tag shows the backpack rate for the same product.' },
+  { key:'b',   label:'🎒 Backpack', note:'Per 4-gallon tank unless the rate reads “/gal”. Tag shows the Z-Spray rate for the same product.' },
+  { key:'g',   label:'🌾 Granular', note:'Spreader rates — most lawn fertilizers run 4 lbs / 1,000 sqft.' },
+  { key:'s',   label:'🐝 Specialty',note:'Dusts, miticide tank mixes, tree injections, and pond treatments.' },
+  { key:'all', label:'📋 All',      note:'Every product, showing whichever rig(s) it runs through.' },
+];
+const MIX_TYNAME = { herb:'Herbicides', fung:'Fungicides', insect:'Insecticides · Mites · Pest', fert:'Fertilizer & Granular', adj:'Adjuvants · Lime · Pond' };
+const MIX_RIGLABEL = { z:'Z-Spray', b:'Backpack', g:'Granular', s:'' };
+let mixRig = 'z';
+
+function renderMixRates() {
+  const rig = mixRig;
+  const hasRig = (d) => rig === 'all' ? true : !!d[rig];
+  let items = MIX_RATES.filter(hasRig);
+  if (searchTerm) {
+    const s = searchTerm.toLowerCase();
+    items = items.filter(d => (d.n+' '+d.ai+' '+d.t+' '+d.notes+' '+d.epa).toLowerCase().includes(s));
+  }
+  const tyOrder = ['herb','fung','insect','fert','adj'];
+  items.sort((a,b) => tyOrder.indexOf(a.ty) - tyOrder.indexOf(b.ty));
+  const rigNote = (MIX_RIGS.find(r => r.key === rig) || {}).note || '';
+
+  let body = '';
+  let lastTy = null;
+  items.forEach(d => {
+    if (d.ty !== lastTy) {
+      lastTy = d.ty;
+      body += `<div class="section-label" style="color:var(--accent)">${MIX_TYNAME[d.ty] || ''}</div>`;
+    }
+    // primary rate = current rig (or first available on the "All" tab)
+    const pk = rig !== 'all' ? rig : (d.z ? 'z' : d.b ? 'b' : d.g ? 'g' : 's');
+    const primary = pk === 's' ? d.s : d[pk];
+    const punit = pk === 's' ? (d.sl || 'rate') : MIX_RIGLABEL[pk];
+    // alternate rates for the same product on other rigs
+    let alts = '';
+    [['z','Z-Spray'],['b','Backpack'],['g','Granular']].forEach(([k,lbl]) => {
+      if (k !== pk && d[k]) alts += `<span class="badge" style="background:var(--bg-input);color:var(--text-dim);text-transform:none;letter-spacing:0">${lbl}: ${escHtml(d[k])}</span>`;
+    });
+    if (pk !== 's' && d.s) alts += `<span class="badge" style="background:var(--bg-input);color:var(--text-dim);text-transform:none;letter-spacing:0">${escHtml(d.sl||'rate')}: ${escHtml(d.s)}</span>`;
+
+    body += `
+      <div class="card" style="margin-bottom:8px">
+        <div class="flex-row gap-10" style="align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px">${escHtml(d.n)}</div>
+            <div style="font-size:12px;color:var(--text-dim)">${escHtml(d.ai)}</div>
+          </div>
+          <div style="flex-shrink:0;text-align:center;background:var(--accent-dim);color:var(--accent);font-weight:800;font-size:14px;padding:7px 11px;border-radius:8px;min-width:104px">
+            ${escHtml(primary)}<div style="font-weight:600;font-size:9px;opacity:.85;margin-top:1px;text-transform:uppercase;letter-spacing:.5px">${escHtml(punit)}</div>
+          </div>
+        </div>
+        <div class="flex-row gap-6" style="flex-wrap:wrap;margin-top:8px;align-items:center">
+          <span class="badge" style="background:var(--bg-input);color:var(--text)">🎯 ${escHtml(d.t)}</span>
+          <span class="badge" style="background:var(--bg-input);color:var(--text-muted)">EPA ${escHtml(d.epa)}</span>
+          ${alts}
+        </div>
+        <div style="font-size:11px;margin-top:7px;color:${d.warn ? '#fbbf24' : 'var(--text-muted)'}">${d.warn ? '⚠️ ' : ''}${escHtml(d.notes)}</div>
+      </div>`;
+  });
+
+  document.getElementById('page-mixrates').innerHTML = `
+    <h1 style="margin:0 0 4px">Mix Rates</h1>
+    <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px">Pick your rig — every product that runs through it shows its dose.</p>
+    <div class="filter-pills">
+      ${MIX_RIGS.map(r => `<button class="${mixRig===r.key?'active':''}" onclick="mixRig='${r.key}';renderMixRates()">${r.label}</button>`).join('')}
+    </div>
+    <div class="search-bar"><input placeholder="Search product, pest, or ingredient..." value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderMixRates()"></div>
+    <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">${escHtml(rigNote)}</p>
+    ${items.length ? body : '<div class="card"><p style="color:var(--text-dim)">No matches on this rig. Try the “All” tab or a different word.</p></div>'}
+  `;
 }
 
 // ══════════ ROUTES ══════════
