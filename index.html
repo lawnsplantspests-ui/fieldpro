@@ -4465,14 +4465,18 @@ var ALL_METRICS=[].concat(TOP_FIELDS,LAB_FIELDS);
 
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function bdg(m,v){if(!m||m.info||v==null||v==='')return'<span class="b-gray">—</span>';var n=parseFloat(v);if(isNaN(n))return'<span class="b-gray">—</span>';if(n>=m.min&&n<=m.max)return'<span class="st-badge b-green">'+n+'</span>';if(n>m.max)return'<span class="st-badge b-orange">'+n+'</span>';return'<span class="st-badge b-red">'+n+'</span>';}
-function setApp(h){document.getElementById('app').innerHTML=h;}
+function setApp(h){document.getElementById('st-app').innerHTML=h;}
 function stNotify(msg,type,ms){var el=document.getElementById('st-notif');el.textContent=msg;el.className='notif '+(type||'ok');el.style.display='block';clearTimeout(el._t);el._t=setTimeout(function(){el.style.display='none';},ms||4000);}
 function navActive(id){['nb-dash','nb-add','nb-report'].forEach(function(n){var el=document.getElementById(n);if(el)el.classList.remove('active');});var t=document.getElementById('nb-'+id);if(t)t.classList.add('active');}
 function stGasGet(p){var qs=Object.keys(p).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(p[k]);}).join('&');return fetch(ST_GAS_URL+'?'+qs).then(function(r){return r.json();});}
 function stGasPost(b){return fetch(ST_GAS_URL,{method:'POST',body:JSON.stringify(b)}).then(function(r){return r.json();});}
 
-document.addEventListener('DOMContentLoaded',function(){
-  document.getElementById('cam-input').addEventListener('change',function(e){
+// Bound by renderSoilPage() — #st-cam-input only exists once the Soil page renders,
+// so this cannot run at DOMContentLoaded.
+function stBindCam(){
+  var cam=document.getElementById('st-cam-input');
+  if(!cam)return;
+  cam.addEventListener('change',function(e){
     var file=e.target.files[0];if(!file)return;e.target.value='';
     // Check if we're in snap mode (show photo) or scan mode (upload to AI)
     var snapPhoto=document.getElementById('snap-photo');
@@ -4489,8 +4493,7 @@ document.addEventListener('DOMContentLoaded',function(){
       doPhotoScan(file);
     }
   });
-  stLoadAndShow();
-});
+}
 
 function stLoadAndShow(){
   setApp('<div class="st-loading"><div class="spin"></div><p style="margin-top:14px">Loading...</p></div>');
@@ -4517,7 +4520,7 @@ function filterCust(){var q=(document.getElementById('csearch').value||'').toLow
 function openCust(name){
   activeCust=customers.find(function(c){return c.Name===name;});if(!activeCust)return;navActive('');
   var c=activeCust,cs=samples.filter(function(s){return s.CustomerName===c.Name;}).sort(function(a,b){return b.Year-a.Year;});
-  var html='<button class="st-back no-print" onclick="showPage(\'dash\')">&larr; Back</button>';
+  var html='<button class="st-back no-print" onclick="stShowPage(\'dash\')">&larr; Back</button>';
   html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:6px"><div class="page-title">'+esc(c.Name)+'</div><div class="st-btn-row no-print" style="margin:0"><button class="st-btn-green btn-sm" onclick="startSample()">+ Sample</button></div></div>';
   var info=[];if(c.Field)info.push(esc(c.Field));if(c.Address)info.push(esc(c.Address)+(c.City?', '+esc(c.City):''));if(c.Phone)info.push(esc(c.Phone));
   if(info.length)html+='<div class="page-sub">'+info.join(' · ')+'</div>';
@@ -4544,18 +4547,18 @@ function openCust(name){
 // ── Info Modal ──
 function stShowInfo(key){
   var m=ALL_METRICS.find(function(x){return x.key===key;});if(!m)return;
-  document.getElementById('info-modal-body').innerHTML='<button class="st-modal-close" onclick="stCloseModal()">×</button><h2>'+m.label+'</h2>'
+  document.getElementById('st-info-modal-body').innerHTML='<button class="st-modal-close" onclick="stCloseModal()">×</button><h2>'+m.label+'</h2>'
     +'<div class="st-modal-rng">'+(m.info?'Informational — no target range':'Ideal: '+m.min+' – '+m.max+(m.unit?' '+m.unit:''))+'</div>'
     +'<div class="st-modal-sec-title">What is it?</div><div class="st-modal-body">'+(m.about||'')+'</div>'
     +'<div class="st-modal-sec-title" style="margin-top:12px">What to do</div><div class="st-modal-body">'+(m.fix||'')+'</div>';
-  document.getElementById('info-modal').classList.add('open');
+  document.getElementById('st-info-modal').classList.add('open');
 }
-function stCloseModal(){document.getElementById('info-modal').classList.remove('open');}
+function stCloseModal(){document.getElementById('st-info-modal').classList.remove('open');}
 
 // ── Add Sample ──
 function startSample(){prefill=null;renderScan();}
 function renderScan(){
-  var c=activeCust,back=c?'openCust(\''+esc(c.Name)+'\')':'showPage(\'dash\')';
+  var c=activeCust,back=c?'openCust(\''+esc(c.Name)+'\')':'stShowPage(\'dash\')';
   setApp('<button class="st-back" onclick="'+back+'">&larr; Back</button><div class="page-title">Add Sample'+(c?' — '+esc(c.Name):'')+'</div><div class="page-sub">Choose how to enter data.</div>'
     +'<div class="scan-opt primary" onclick="renderAutoScan()"><div class="si">📷</div><div><div class="st">Scan Report</div><div class="sd">Take a photo — AI reads everything automatically. No copy/paste!</div></div></div>'
     +'<div class="scan-opt" onclick="renderSnap()"><div class="si">📸</div><div><div class="st">Snap & Copy</div><div class="sd">Photo → Live Text → Paste. Manual fallback.</div></div></div>'
@@ -4572,7 +4575,7 @@ function renderAutoScan(){
 
 function triggerAutoScan(){
   // Remove snap-photo element so camera handler knows we're in scan mode
-  document.getElementById('cam-input').click();
+  document.getElementById('st-cam-input').click();
 }
 
 function doPhotoScan(file){
@@ -4621,7 +4624,7 @@ function compressForScan(file,cb){
 
 function renderSnap(){
   setApp('<button class="st-back" onclick="renderScan()">&larr; Back</button><div class="page-title">Snap & Copy</div>'
-    +'<div class="st-card"><div class="sec-title">Step 1 — Take Photo</div><div style="font-size:14px;color:#a8a29e;font-family:sans-serif;line-height:1.7;margin-bottom:14px">Photograph the soil report. Make sure the <b>Laboratory Results</b> table at the bottom is clear.</div><button class="st-btn-green btn-full" onclick="document.getElementById(\'cam-input\').click()" style="margin-top:0">📷 Open Camera</button><img id="snap-photo" class="photo-preview" style="display:none"></div>'
+    +'<div class="st-card"><div class="sec-title">Step 1 — Take Photo</div><div style="font-size:14px;color:#a8a29e;font-family:sans-serif;line-height:1.7;margin-bottom:14px">Photograph the soil report. Make sure the <b>Laboratory Results</b> table at the bottom is clear.</div><button class="st-btn-green btn-full" onclick="document.getElementById(\'st-cam-input\').click()" style="margin-top:0">📷 Open Camera</button><img id="snap-photo" class="photo-preview" style="display:none"></div>'
     +'<div id="snap-step2" class="st-card" style="display:none"><div class="sec-title">Step 2 — Copy Text from Photo</div><div style="font-size:14px;color:#a8a29e;font-family:sans-serif;line-height:1.7"><b>Tap and hold</b> on the photo above until text highlights. Then:<br>• Drag the handles to cover ALL text<br>• Tap <b>Copy</b> from the popup menu<br><br>Or open the photo in your <b>Photos app</b> and copy from there.</div></div>'
     +'<div id="snap-step3" class="st-card" style="display:none"><div class="sec-title">Step 3 — Paste & Extract</div>'+pasteBox()+'</div>');
 }
@@ -5135,6 +5138,7 @@ function renderSoilPage() {
     <div id="st-info-modal" class="st-modal-overlay" onclick="if(event.target===this)stCloseModal()"><div id="st-info-modal-body" class="st-modal"></div></div>
     <div id="st-app"></div>
   `;
+  stBindCam();
   stLoadAndShow();
 }
 
