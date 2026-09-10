@@ -368,6 +368,36 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
     .hub-tile-label{font-size:14px}
     .header-sync-btn{width:30px;height:30px;font-size:14px;margin-left:6px}
   }
+
+/* ── Equipment (shop reference) ── */
+.eq-card{cursor:pointer}
+.eq-card:hover{border-color:var(--accent)}
+.eq-serial{font-family:var(--font-mono);font-size:12px;color:var(--accent);letter-spacing:.02em;margin-top:2px}
+.eq-head{background:var(--bg-card);border:1px solid var(--border);border-top:3px solid var(--accent);border-radius:var(--radius);padding:14px;margin-bottom:10px}
+.eq-callout{background:var(--warn-bg);border-left:3px solid var(--warn);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px}
+.eq-callout-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.eq-callout p{margin:0;font-size:12.5px;color:var(--text);line-height:1.5}
+.eq-callout ul{margin:8px 0 0;padding-left:16px;font-size:12.5px;color:var(--text);line-height:1.5}
+.eq-callout li{margin-bottom:5px}
+.eq-part{display:grid;grid-template-columns:minmax(108px,auto) 1fr auto;gap:4px 12px;padding:8px 2px;border-bottom:1px solid var(--border)}
+.eq-part:last-child{border-bottom:none}
+.eq-pn{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);word-break:break-word}
+.eq-xref{display:block;font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--accent);margin-top:2px}
+.eq-part-d{font-size:12.5px;color:var(--text);line-height:1.4;min-width:0}
+.eq-part-q{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);white-space:nowrap;text-align:right}
+.eq-oem{font-size:11px;color:var(--text-muted);margin-top:2px;line-height:1.4}
+.eq-flag{font-size:11px;font-weight:600;margin-top:3px;line-height:1.4}
+.eq-part-group{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);padding:8px 2px 0}
+.eq-split{display:grid;grid-template-columns:minmax(120px,.9fr) 1.6fr;gap:4px 14px;padding:10px 2px;border-bottom:1px solid var(--border)}
+.eq-split:last-child{border-bottom:none}
+.eq-split-k{font-size:12.5px;font-weight:600;color:var(--text)}
+.eq-split-v{font-size:12.5px;color:var(--text-dim);line-height:1.45}
+a.btn{text-decoration:none}
+@media(max-width:600px){
+  .eq-part{grid-template-columns:1fr auto}
+  .eq-part-pn{grid-column:1/-1}
+  .eq-split{grid-template-columns:1fr}
+}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -411,6 +441,7 @@ main h2{font-size:15px;font-weight:700;margin:16px 0 8px}
       <div id="page-library" class="page"></div>
       <div id="page-mixrates" class="page"></div>
       <div id="page-logs" class="page"></div>
+      <div id="page-equipment" class="page"></div>
     </main>
   </div>
 </div>
@@ -663,6 +694,7 @@ const NAV_MORE = [
   { key:'ponds',     label:'Ponds',      emoji:'🌊' },
   { key:'aquaticid', label:'Aquatic ID', emoji:'🌿' },
   { key:'products',  label:'Products',   emoji:'🧪' },
+  { key:'equipment', label:'Equipment',  emoji:'🚜' },
   { key:'mixrates',  label:'Mix Rates',  emoji:'💧' },
   { key:'soil',      label:'Soil',       emoji:'🧪' },
   { key:'history',   label:'History',    emoji:'📜' },
@@ -733,6 +765,8 @@ function navigateTo(page) {
   filterService = 'all';
   detailCustomerId = null;
   detailRouteId = null;
+  equipDetailId = null;
+  equipSearch = '';
   renderNav();
   renderCurrentPage();
 }
@@ -758,6 +792,7 @@ function renderCurrentPage() {
       case 'soil': renderSoilPage(); break;
       case 'library': renderLibrary(); break;
       case 'logs': renderLogs(); break;
+      case 'equipment': renderEquipment(); break;
     }
     // Render any pending bait station maps
     if (window._pendingBaitMap) {
@@ -776,6 +811,7 @@ function renderLibrary() {
     { key:'mixrates',  label:'Mix Rates',  emoji:'💧', sub:'Rates by rig — Z-Spray & backpack' },
     { key:'aquaticid', label:'Aquatic ID', emoji:'🌿', sub:'Pond plant & algae lookup' },
     { key:'soil',      label:'Soil',       emoji:'🧪', sub:'Soil test reference' },
+    { key:'equipment', label:'Equipment',  emoji:'🚜', sub:'Parts numbers, serials & service specs' },
     { key:'ponds',     label:'Ponds',      emoji:'🌊', sub:'Customer pond setup' },
   ];
   const el = document.getElementById('page-library');
@@ -1454,6 +1490,675 @@ function renderMixRates() {
     <div class="search-bar"><input placeholder="Search product, pest, or ingredient..." value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderMixRates()"></div>
     <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">${escHtml(rigNote)}</p>
     ${items.length ? body : '<div class="card"><p style="color:var(--text-dim)">No matches on this rig. Try the “All” tab or a different word.</p></div>'}
+  `;
+}
+
+// ══════════ EQUIPMENT (shop reference) ══════════
+// Part numbers transcribed from each machine's factory manual.
+// On the L.T. Rich units the second number (x:) is Exmark/Z Turf's current
+// catalog number — they renumbered everything after buying L.T. Rich in 2020.
+// PDFs live on the shop PC: Desktop\z-spray-manuals and Desktop\LPP\equipment-manuals.
+
+const EQ_SUPPLIERS = {
+  zturf:   { name:'Z Turf Equipment',   note:'Legacy L.T. Rich cross-reference tool',            url:'https://www.zturfequipment.com/parts-and-accessories/cross-reference' },
+  exmark:  { name:'Exmark Shop',        note:'Genuinely Exmark — no cross-reference needed',     url:'https://shop.exmark.com/part-diagrams/Aerators/Stand-On%20Aerator/SAR481KA30/414241', phone:'1-888-396-2758' },
+  ppd:     { name:'ProPartsDirect',     note:'Z-Spray specialist, also stocks Ryan & Bluebird',  url:'https://www.propartsdirect.net/z-spray-spreader-parts.aspx', phone:'800-305-9255' },
+  classen: { name:'Classen Turf Care',  note:'Manufacturer direct — current parts, no renumbering', url:'https://classenturfcare.com/resources/manuals/' },
+  bobcat:  { name:'Bobcat / Ryan',      note:'Ryan Lawnaire is under Bobcat now',                url:'https://shop.bobcat.com/ryan-aerators-and-parts' },
+  briggs:  { name:'Briggs & Stratton',  note:'Look up by model/type/code on the blower housing', url:'https://shop.briggsandstratton.com/pages/parts-lookup' },
+  jacks:   { name:"Jack's Small Engines", note:'P18 seeder diagrams — most parts show discontinued', url:'https://www.jackssmallengines.com/' },
+};
+
+// Service facts shared by the two Z-Sprays and the Z-Plug
+const EQ_ZSERVICE = [
+  ['Serial plate',      'Under the kneepad. The factory wants this number before it will quote a hydraulic or electrical part.'],
+  ['Hydraulic fluid',   '5W-40 synthetic. Hydro-Gear calls for fluid + filter every 500 hours. System needs a 25 micron filter.'],
+  ['Draining hydraulics','Pull the line coming off the filter at the hydro pump end — that is the drain point.'],
+  ['Grease points',     'One per wheel assembly, one per front caster, one on the idler arm. Z-Plug adds the tine-head pillow blocks.'],
+  ['Bearing check',     'Wheels and casters every 25 hours — wear, damage, debris.'],
+  ['Spray system, weekly','Check the in-line filter screen and tip screens, and that the in-line filter gasket is seated. A missing or pinched gasket reads as lost pump pressure.'],
+];
+
+const EQUIPMENT = [
+  {
+    id:'zi-2011', name:'Z-Spray Intermediate', serial:'ZI-2011-087', emoji:'🚜',
+    brand:'L.T. Rich', engine:'16 HP Briggs Vanguard V-twin',
+    spec:'2011 · 18 gal tank · 220 lb Spyker hopper · 8 ft spread · 4 tips',
+    manual:'Z-Spray_ZMax-Intermediate-Junior_manual.pdf', manualDir:'Desktop\\z-spray-manuals',
+    suppliers:['zturf','ppd','briggs'], service:EQ_ZSERVICE,
+    warn:{
+      title:'Check these three before you order',
+      body:'Unit 087 of 2011 was built early in the year, which puts it right on top of three running changes. Walk out and look before you call in an order.',
+      items:[
+        'Hydraulic filter — the single-filter setup started May 2011. Count the filters: one means 80404 / 80405, two means the older dual setup.',
+        'Caster dust caps — steel through 2010, rubber from 2011. Look at what is on the spindle.',
+        'Wiring harness — 80206 covers 2011 and newer, so yours should be the newer one. Confirm against the plug count if you are replacing it.',
+      ],
+    },
+    groups:[
+      { name:'Engine & fuel', parts:[
+        {pn:'80500-B', x:'142-3079', d:'Engine, Briggs 16 HP (less fuel solenoid)', q:'1'},
+        {pn:'80522-B16/18', x:'135-9243', d:'Muffler, Briggs 16/18 HP', oem:'catalogued today as plain 80522', q:'1'},
+        {pn:'80220', x:'135-8955', d:'Fuel tank with cap', oem:'OEM 067506CE', q:'1'},
+        {pn:'80510', x:'135-5260', d:'Throttle cable', q:'1'},
+        {pn:'80511', x:'135-5707', d:'Choke cable', oem:'OEM 52460002', q:'1'},
+        {pn:'492932S', d:'Oil filter — Briggs, Vanguard V-twin', q:'1'},
+        {pn:'394018S', d:'Air filter cartridge — Vanguard V-twin', q:'1'},
+        {pn:'272490S', d:'Air pre-cleaner (foam wrap)', q:'1'},
+        {pn:'691035', d:'Fuel filter', q:'1'},
+        {pn:'RC12YC', d:'Spark plug, Champion', flag:'verify', oem:'check the model/type stamped on the blower housing', q:'2'},
+      ]},
+      { name:'Hydraulics & drive', parts:[
+        {pn:'80400', x:'135-5251', d:'Hydro pump, right, with fan', oem:'Hydro-Gear PG-3KBB-NA1C-XXXX', q:'1'},
+        {pn:'80400-AE', x:'135-5250', d:'Hydro pump, left, with aux', oem:'Hydro-Gear PG-2HBB-HB1X-XXX', q:'1'},
+        {pn:'80401-Parker', x:'135-6689', d:'Wheel motor, large, left', q:'1'},
+        {pn:'80402-Parker', x:'135-9044', d:'Wheel motor, large, right', q:'1'},
+        {pn:'80404', x:'142-3049', d:'Hydraulic filter, 25 micron', flag:'May 2011 → current', oem:'OEM AA0513', q:'1'},
+        {pn:'80405', x:'104-7836', d:'Hydraulic filter housing', flag:'May 2011 → current', q:'1'},
+        {pn:'80406', x:'135-9058', d:'Hydraulic tank cap', oem:'OEM AA2231', q:'1'},
+        {pn:'80413', x:'135-9070', d:'Drive belt (A51)', q:'1'},
+        {pn:'80003', x:'135-8585', d:'Idler pulley, 4" × 1/14", .50 bore', q:'1'},
+        {pn:'80004', x:'135-6833', d:'Idler pulley bracket weldment', q:'1'},
+        {pn:'80304', x:'256-132', d:'Idler pulley bracket bushings', oem:'Kaman EF 1620-12', q:'2'},
+        {pn:'80112', x:'135-5780', d:'Idler spring / boom spring', oem:'Century 80914-S', q:'1'},
+        {pn:'80411-Split', x:'135-9068', d:'Hydro pulley, split steel', q:'1'},
+        {pn:'80412-Split', x:'135-5657', d:'Engine drive pulley, 1" split steel', q:'1'},
+      ]},
+      { name:'Spray system — Intermediate config', parts:[
+        {pn:'60111', x:'135-8427', d:'18-gallon liquid tank', q:'1'},
+        {pn:'60014-A', x:'135-8332', d:'Delavan pump, 4.0 GPM, 12V', oem:'OEM 5940-111C', q:'1'},
+        {pn:'60000-Lavender', d:'Spray tip, AVI-110025', flag:'no Exmark match', oem:'TeeJet/Wilger sell this tip directly by its AVI-110025 number', q:'4'},
+        {pn:'60035', x:'126-3943', d:'Strainer, 50 mesh with check valve', oem:'OEM 4193A-PP-50-5 SS', q:'4'},
+        {pn:'60069', x:'135-5781', d:'Hypro black cap', oem:'OEM 402990-1', q:'4'},
+        {pn:'60114', x:'135-5788', d:'TeeJet nozzle body, left', oem:'QJ39685-1L-500-NYB', q:'—'},
+        {pn:'60116', x:'135-5790', d:'TeeJet nozzle body, right', oem:'QJ39685-1R-500-NYB', q:'—'},
+        {pn:'60115', x:'135-5789', d:'Center nozzle body — Z-Max only', flag:'not used', q:'0'},
+        {pn:'60061', x:'135-5765', d:'In-line strainer, 50 mesh', oem:'OEM 122-3/4/PP-50', q:'1'},
+        {pn:'60061-G', x:'126-2272', d:'Strainer gasket (sold separately)', q:'1'},
+        {pn:'60060', x:'135-5766', d:'50 mesh screen only (sold separately)', q:'1'},
+        {pn:'60032', x:'142-3437', d:'Pressure gauge, 60 PSI', oem:'Rich 60-25', q:'1'},
+        {pn:'60012', x:'135-5736', d:'Throttle valve', oem:'OEM 23520-3/4-PP', q:'1'},
+        {pn:'60010', x:'135-5721', d:'Directo valve', oem:'OEM AA6B', q:'3'},
+        {pn:'60040', x:'135-5773', d:'Spot spray gun', oem:'OEM 22650-PP-1/4"', q:'1'},
+        {pn:'60041', x:'135-5778', d:'Spot spray tip #12', oem:'OEM 5500-EPPB-X12', q:'1'},
+      ]},
+      { name:'Spreader — 220 lb Spyker', parts:[
+        {pn:'70049', x:'135-5985', d:'220 lb hopper tub', oem:'Intermediate and Z-Max', q:'1'},
+        {pn:'70009', x:'135-7981', d:'Large hopper cover', oem:'Intermediate and Z-Max', q:'1'},
+        {pn:'80440-REV', x:'135-9129', d:'Hydraulic hopper motor', oem:'Haldex 1300098', q:'1'},
+        {pn:'80430-PV', x:'142-8082', d:'Hopper motor flow control valve', q:'1'},
+      ]},
+      { name:'Wheels, casters & bearings', parts:[
+        {pn:'80019-A', x:'135-5974', d:'Front caster wheel assembly, single bolt, 16 × 6.5 × 8', q:'2'},
+        {pn:'80019-B', x:'135-5683', d:'Front wheel spacer', oem:'HSS-34', q:'2'},
+        {pn:'80309', x:'254-78', d:'Front wheel cone bearing', q:'2'},
+        {pn:'80311', x:'254-79', d:'Front wheel bearing cup (replacement only)', q:'2'},
+        {pn:'80021', x:'142-5507', d:'Rear wheel assembly, 20 × 10.5 × 8', oem:'Carlisle 15-640-419GK — listed under Z-Max in the book; confirm size on yours', q:'2'},
+        {pn:'80310', x:'103-0063', d:'Rim seal', q:'2'},
+        {pn:'80013-L', x:'135-5441-05', d:'Caster yoke, left, locking', oem:'2009 → current', q:'1'},
+        {pn:'80013-R', x:'135-5446-05', d:'Caster yoke, right, locking', oem:'2009 → current', q:'1'},
+        {pn:'80306-RUBBER', d:'Dust cap, rubber', flag:'yours — 2011 → current', oem:'no Exmark match; the steel 80306 maps to 241-119 — confirm which cap you have', q:'2'},
+        {pn:'80306', x:'241-119', d:'Dust cap, steel', flag:'2010 and past', q:'—'},
+        {pn:'80308', x:'254-92', d:'Caster bearing', oem:'L44649', q:'2'},
+        {pn:'80301', x:'254-72', d:'Caster yoke bearing cup', oem:'L44610', q:'2'},
+        {pn:'80302', x:'1-543511', d:'Caster bearing seal', oem:'SL-122', q:'2'},
+        {pn:'80009', x:'137-7942', d:'Castle nut', q:'1'},
+      ]},
+      { name:'Electrical', parts:[
+        {pn:'80206', x:'109103', d:'Wiring harness', flag:'yours — 2011 → current', q:'1'},
+        {pn:'80205', x:'135-8923', d:'Wiring harness', flag:'up to 2010', q:'—'},
+        {pn:'80204', x:'135-8911', d:'Foot switch assembly, spot spray', oem:'2010 and current', q:'1'},
+        {pn:'80204-RELAY', x:'135-8917', d:'Relay kit assembly', oem:'OEM 2010RK-01', q:'1'},
+        {pn:'80202', x:'100-8469', d:'Pump on/off switch', oem:'OEM CH-M-58031-01', q:'1'},
+        {pn:'80207', x:'135-8939', d:'Starter solenoid', oem:'OEM F492', q:'1'},
+        {pn:'80208', x:'116-6673', d:'Battery box', oem:'OEM 03188', q:'1'},
+        {pn:'80210', x:'104-4657', d:'12 volt battery', oem:'SS10UL1 — local pickup only, cannot ship', q:'1'},
+        {pn:'80214-A', x:'135-5259', d:'Tach / hour meter', oem:'OEM 809D-100-022', q:'1'},
+        {pn:'80215', x:'135-6052', d:'Key switch', oem:'OEM 4F463', q:'1'},
+        {pn:'—', d:'30 amp fuse', q:'1'},
+      ]},
+      { name:'Platform, controls & locking casters', parts:[
+        {pn:'80029-REV', d:'Foot plate', q:'1'},
+        {pn:'80181', x:'135-8867', d:'Foot pan tray', q:'1'},
+        {pn:'83067', x:'135-5654', d:'Compression spring, .225, foot plate suspension', q:'3'},
+        {pn:'80022-13', x:'135-8622', d:'Locking caster linkage rod, 13"', q:'1'},
+        {pn:'80022-24.5', x:'135-8626', d:'Locking caster linkage rod, 24.5"', q:'2'},
+        {pn:'80023-B', x:'2411-43', d:'Ball joint', q:'4'},
+        {pn:'83049', x:'135-5652', d:'Locking caster / brake spring', oem:'OEM 80706S', q:'4'},
+        {pn:'82018-L / 82018-R', x:'135-9692 / 135-9693', d:'Lock arm, left and right', q:'1 ea'},
+        {pn:'82019', x:'135-9694', d:'Locking front T', q:'1'},
+        {pn:'82027-PT', x:'135-9713', d:'Upper pivot tube, 7½"', q:'1'},
+        {pn:'82023', x:'135-9707', d:'Foot control pedal', q:'1'},
+        {pn:'80303', x:'135-5694', d:'Bronze bushing / joystick bushing', oem:'Kaman EF 0812-12', q:'2'},
+        {pn:'80025', x:'135-8640', d:'Joystick to hydro linkage rod', q:'1'},
+        {pn:'30675', x:'1-633257', d:'Joystick foam grip', oem:'Eezer 100130', q:'2'},
+        {pn:'30676', x:'1-633268', d:'Brake handle grip', oem:'Eezer 100095', q:'1'},
+        {pn:'30678', x:'135-5689', d:'Speed bar knob', q:'1'},
+        {pn:'30700', x:'135-6223', d:'Decal, Z-Spray control panel', q:'1'},
+        {pn:'30705', x:'135-6281', d:'Decal, spray/spread calibration', oem:'back of the kneepad, July 2010 and current', q:'1'},
+      ]},
+    ],
+  },
+
+  {
+    id:'zi-2014', name:'Z-Spray Intermediate', serial:'ZI-2014-106', emoji:'🚜',
+    brand:'L.T. Rich', engine:'16 HP Briggs Vanguard V-twin',
+    spec:'2014 · 18 gal tank · 220 lb Spyker hopper · 8 ft spread · 4 tips',
+    manual:'Z-Spray_ZMax-Intermediate-Junior_manual.pdf', manualDir:'Desktop\\z-spray-manuals',
+    suppliers:['zturf','ppd','briggs'], service:EQ_ZSERVICE,
+    sameAs:'zi-2011',
+    good:{
+      title:'Order it like the 2011, with no guessing',
+      body:'Same model, same manual, same part numbers as ZI-2011-087 — every table on that machine applies. The difference is certainty: a 2014 build sits on the current side of every running change in the book, so none of the "check first" items apply here.',
+    },
+    groups:[
+      { name:'Where the 2014 lands on each year split', splits:[
+        ['Hydraulic filter', '80404 (142-3049) filter + 80405 (104-7836) housing — single filter', 'Dual-filter setup ended May 2011'],
+        ['Wiring harness', '80206 → 109103', 'Not 80205 → 135-8923, which stopped in 2010'],
+        ['Caster dust caps', '80306-RUBBER', 'Not the steel 80306 → 241-119'],
+        ['Caster yokes', '80013-L → 135-5441-05 and 80013-R → 135-5446-05, locking', 'Non-locking 80013 → 135-8597 ended in 2009'],
+        ['Spot spray foot switch', '80204 → 135-8911 assembly + 80204-RELAY → 135-8917 kit', 'Rubber-boot switch ended with 2009 units'],
+        ['Calibration decal', '30705 → 135-6281 on the back of the kneepad', 'Standard since July 2010'],
+      ]},
+    ],
+  },
+
+  {
+    id:'zp-2010', name:'Z-Plug Aerator', serial:'ZP-2010-069', emoji:'🕳️',
+    brand:'L.T. Rich', engine:'18 HP Briggs Vanguard twin',
+    spec:'2010 · 36" aerator head · 120 lb Spyker hopper',
+    manual:'Z-Plug_4wheel_manual.pdf', manualDir:'Desktop\\z-spray-manuals',
+    suppliers:['zturf','ppd','briggs'], service:EQ_ZSERVICE,
+    warn:{
+      title:'This one is the odd machine out',
+      body:'The Z-Plug manual was written years after your unit was built, so a lot of its numbers carry "2011 and current" or "2013 to current" notes that do NOT describe a 2010 machine. Four places where ordering off the current number gets you the wrong part.',
+      items:[
+        'Drive belt — yours is 80413-BX53 → 135-9077. The 80413-B54 → 135-9075 printed as the Z-Plug belt is the May 2011 and newer part.',
+        'Lift valve — yours is the single-lever Prince valve, 80449-B → 135-9146. The electric Parker valve and thumb switch came in 2013.',
+        'Locking casters — yours is the rod-and-linkage setup used 2010 through early 2014, not the cable and bracket.',
+        'Front wheels — the book only documents 16" for Dec 2010–Jan 2011 and 13" after that. Yours predates both entries, so measure the wheel before ordering.',
+      ],
+    },
+    groups:[
+      { name:'Engine & fuel', parts:[
+        {pn:'80500-C', x:'142-3091', d:'Engine, 18 HP Briggs Vanguard twin', q:'1'},
+        {pn:'80220', x:'135-8955', d:'Fuel tank with cap', oem:'OEM 067506CE', q:'1'},
+        {pn:'80510', x:'135-5260', d:'Throttle cable', q:'1'},
+        {pn:'80511', x:'135-5707', d:'Choke cable', oem:'OEM 52460002', q:'1'},
+        {pn:'492932S', d:'Oil filter — same as the Z-Sprays', q:'1'},
+        {pn:'394018S', d:'Air filter cartridge — same as the Z-Sprays', q:'1'},
+        {pn:'272490S', d:'Air pre-cleaner (foam wrap)', q:'1'},
+        {pn:'691035', d:'Fuel filter', q:'1'},
+        {pn:'RC12YC', d:'Spark plug, Champion', flag:'verify', oem:'check the model/type on the blower housing', q:'2'},
+      ]},
+      { name:'Aerator head — 36"', parts:[
+        {pn:'80701', x:'126-2143', d:'Aerator tine', oem:'OEM R522361 — 60 ea on the 46" head', q:'48'},
+        {pn:'80714-B', x:'135-9385', d:'Aerator ½ disk plate', oem:'20 ea on the 46" head', q:'16'},
+        {pn:'80709', x:'135-9379', d:'Pillow block bearing', oem:'UCP205-16-10/32-Q · 153.001', q:'4'},
+        {pn:'HHCSC8-516134', d:'Tine bolt, 5/16-18 × 1-3/4 zinc', oem:'60 ea on the 46" head', q:'48'},
+        {pn:'TNUT51618', x:'142-1741', d:'Top lock nut', oem:'60 ea on the 46" head', q:'48'},
+        {pn:'80913', x:'135-9602', d:'Rear tray weight, 90 lb', oem:'80914 on the 46" head', q:'3'},
+        {pn:'80703', x:'135-9359', d:'Lift collar', oem:'OEM A-100', q:'2'},
+        {pn:'80704-B', x:'135-9368', d:'Lift pin, 7/8 × 4-1/2', oem:'OEM 21212', q:'1'},
+        {pn:'80705', x:'135-9371', d:'Lift arm / trailer draw pin, 1-1/8 × 5-1/4', oem:'OEM 21230', q:'1'},
+        {pn:'80706', x:'135-9372', d:'Lynch pin', oem:'OEM 21940', q:'1'},
+        {pn:'80716', x:'135-9389', d:'RH lift arm pin', q:'1'},
+        {pn:'80721', x:'135-9397', d:'Reel', oem:'80720 on the 46" head', q:'2'},
+        {pn:'80450', x:'135-9157', d:'Lift cylinder (red)', q:'1'},
+      ]},
+      { name:'Hydraulics & drive', parts:[
+        {pn:'80413-BX53', x:'135-9077', d:'Drive belt', flag:'your build', q:'1'},
+        {pn:'80413-B54', x:'135-9075', d:'Drive belt', flag:'May 2011 → current, NOT yours', q:'—'},
+        {pn:'80400-B', x:'135-9024', d:'Hydro pump, left, with aux, 16cc', oem:'PR-1HBB-PB1X-XXXX', q:'1'},
+        {pn:'80400-C', x:'135-9026', d:'Hydro pump, right, with fan, 16cc', oem:'PR-2KBB-GAIC-XXXX', q:'1'},
+        {pn:'80402-B', x:'135-9040', d:'Wheel motor, left', oem:'HGM-18E-3052', flag:'book says Parker 8/11 → current — confirm', q:'1'},
+        {pn:'80402-C', x:'135-7283', d:'Wheel motor, right', oem:'HGM-18E-3056', flag:'confirm', q:'1'},
+        {pn:'80407', x:'135-9059', d:'Pump to wheel motor hose, 21"', q:'2'},
+        {pn:'80408', x:'135-9061', d:'Pump to wheel motor hose, 15"', q:'2'},
+        {pn:'80404', x:'142-3049', d:'Hydraulic filter, 25 micron', oem:'OEM AA0513', q:'1'},
+        {pn:'80405', x:'104-7836', d:'Hydraulic filter housing', oem:'OEM AA0530', q:'1'},
+        {pn:'80410', x:'135-9065', d:'3/8" push lock hose', oem:'Gates 3/8 Python black, 300 PSI', q:'8'},
+        {pn:'80411', x:'135-5663', d:'Hydro pulley', oem:'Diamond 500469BZ', q:'1'},
+        {pn:'80412-Split', x:'135-5657', d:'Engine drive pulley, 1" split steel', q:'1'},
+        {pn:'80003', x:'135-8585', d:'Idler pulley, .50 bore', q:'1'},
+        {pn:'80304', x:'256-132', d:'Idler pulley bracket bushings', oem:'Kaman EF 1620-12', q:'6'},
+      ]},
+      { name:'Lift valve — know which one is on the machine', splits:[
+        ['2010 – 2013 — yours', 'Single-lever Prince valve, complete assembly: 80449-B → 135-9146', 'Prince valve cartridge alone: 80448 → 135-9138'],
+        ['2013 → current', '80449-electric → 135-9149 — electric Parker lift valve', '80204-THUMB → 135-8921 — thumb switch, 2 ea'],
+      ]},
+      { name:'Locking casters — linkage style, 2010 to early 2014', parts:[
+        {pn:'80022-13', x:'135-8622', d:'Linkage rod, 13"', q:'1'},
+        {pn:'80022-16', x:'143-0038', d:'Linkage rod, 16"', oem:'printed "8022-16" in the manual', q:'1'},
+        {pn:'80022-24.5', x:'135-8626', d:'Linkage rod, 24.5"', q:'2'},
+        {pn:'80023', x:'135-5718', d:'Ball joint', q:'2'},
+        {pn:'UPB734', d:'Upper pivot bracket, 7¾"', flag:'no Exmark match', q:'1'},
+        {pn:'LPB534', d:'Lower pivot bracket, 5¾"', flag:'no Exmark match', q:'1'},
+        {pn:'FCP', d:'Foot control pedal', flag:'no Exmark match', q:'1'},
+        {pn:'80746-L / 80746-R', x:'135-9480 / 135-9479', d:'Lock arm, left and right', q:'1 ea'},
+        {pn:'83049', x:'135-5652', d:'Spring', q:'4'},
+        {pn:'Collar516', d:'5/16" collar', flag:'no Exmark match', q:'2'},
+        {pn:'80023-aerator', x:'135-8632', d:'Locking caster cable', flag:'2014 → present, NOT yours', q:'—'},
+        {pn:'80952', x:'135-9658', d:'Locking caster cable mount', flag:'2014 → present, NOT yours', q:'—'},
+      ]},
+      { name:'Wheels & casters', parts:[
+        {pn:'80019-A', x:'135-5974', d:'Front wheel assembly, 16"', flag:'book: Dec 2010 – Jan 2011', q:'2'},
+        {pn:'80019-MM', x:'142-5510', d:'Front wheel assembly, 13"', flag:'book: Jan 2011 → current', q:'2'},
+        {pn:'80019-B', x:'135-5683', d:'Front wheel spacer', oem:'HSS-34', q:'4'},
+        {pn:'80309', x:'254-78', d:'Front wheel cone bearing', q:'2'},
+        {pn:'80311', x:'254-79', d:'Front wheel bearing cup (replacement only)', q:'2'},
+        {pn:'80021', x:'142-5507', d:'Rear wheel assembly', oem:'Carlisle 15-640-419GK', q:'2'},
+        {pn:'80013', x:'135-8597', d:'Caster yoke, new style — specify left or right', q:'1'},
+        {pn:'80306', x:'241-119', d:'Dust cap', q:'1'},
+        {pn:'80308', x:'254-92', d:'Caster bearing', oem:'L44649', q:'4'},
+        {pn:'80301', x:'254-72', d:'Caster yoke bearing cup', oem:'L44610', q:'4'},
+        {pn:'80302', x:'1-543511', d:'Caster bearing seal', oem:'SL-122', q:'2'},
+        {pn:'80009', x:'137-7942', d:'Castle nut', q:'1'},
+      ]},
+      { name:'Spreader — 120 lb Spyker', parts:[
+        {pn:'70042', x:'135-8519', d:'120 lb hopper tub', q:'1'},
+        {pn:'80440-REV', x:'135-9129', d:'Hydraulic hopper motor', oem:'Haldex 1300098', q:'1'},
+        {pn:'70046', x:'135-8522', d:'Hydraulic hopper bracket', q:'1'},
+        {pn:'70334', x:'135-8538', d:'Hopper screen', q:'2'},
+        {pn:'70019', x:'142-3359', d:'Hopper rate dial', q:'1'},
+        {pn:'70022', x:'142-3319', d:'Rate dial holder', q:'1'},
+        {pn:'70041', x:'135-5965', d:'Rate gate linkage', q:'1'},
+        {pn:'70040', x:'142-3316', d:'Rate gate and diffuser guide', q:'4'},
+        {pn:'70037', x:'142-3500', d:'Hopper bottom bearing', q:'1'},
+        {pn:'70047', x:'135-8523', d:'Hopper bottom plate', q:'1'},
+        {pn:'80155', d:'Hopper door', flag:'no Exmark match', q:'1'},
+        {pn:'70027', x:'126-0991', d:'Diffuser', q:'1'},
+        {pn:'70011-B', x:'142-3506', d:'Spinner', q:'1'},
+        {pn:'70029', x:'135-5961', d:'Cable wire & screen retainer', q:'1'},
+        {pn:'80152', x:'135-5569', d:'Cable retainer plate', q:'1'},
+        {pn:'70031 / 70031-B', x:'135-5569 / 135-8510', d:'Cable retainer screw plate / screw', q:'1 ea'},
+      ]},
+      { name:'Electrical & platform', parts:[
+        {pn:'80205', x:'135-8923', d:'Wiring harness', q:'1'},
+        {pn:'80207', x:'135-8939', d:'Starter solenoid', q:'1'},
+        {pn:'80208', x:'116-6673', d:'Battery box', oem:'OEM 03188', q:'1'},
+        {pn:'80210', x:'104-4657', d:'12 volt battery', oem:'SS10UL1', q:'1'},
+        {pn:'80214-A', x:'135-5259', d:'Tach / hour meter', oem:'OEM 809D-100-022', q:'1'},
+        {pn:'80215', x:'135-6052', d:'Key switch', oem:'OEM 4F463', q:'1'},
+        {pn:'80029-REV', d:'Foot plate, mild steel', q:'1'},
+        {pn:'80181', x:'135-8867', d:'Foot pan tray, mild steel', q:'1'},
+        {pn:'83067', x:'135-5654', d:'Compression spring, .225, foot plate suspension', q:'3'},
+        {pn:'30675', x:'1-633257', d:'Joystick foam grip', oem:'Eezer 100130', q:'2'},
+        {pn:'30676', x:'1-633268', d:'Brake handle grip', oem:'Eezer 100095', q:'1'},
+        {pn:'30678', x:'135-5689', d:'Speed bar knob', q:'2'},
+        {pn:'80025', x:'135-8640', d:'Joystick to hydro linkage rod', q:'2'},
+        {pn:'60040 / 60041', x:'135-5773 / 135-5778', d:'Spot spray gun and #12 tip (if equipped)', q:'1 ea'},
+      ]},
+    ],
+  },
+
+  {
+    id:'classen', name:'Turf Rake / Dethatcher', serial:'Classen TR-20K', emoji:'🌾',
+    brand:'Classen', engine:'Kohler CH245, 7 HP',
+    spec:'20" flail reel · converts to seeder · optional slicer reel',
+    manual:'Classen_TR20K_TurfRake_manual.pdf', manualDir:'Desktop\\LPP\\equipment-manuals',
+    suppliers:['classen'],
+    warn:{
+      title:'Not actually an Exmark',
+      body:'You call it the Exmark turf rake, and a decal probably says so — but Exmark\'s own Turf Rake (TR-5000) ended at serial 101,999, built no later than 1994, a decade before Kohler\'s Command Pro badge existed. The Kohler CH245 pins it to Classen\'s TR-20K. Order Classen parts, not Exmark.',
+      items:[],
+    },
+    groups:[
+      { name:'Engine & drive', parts:[
+        {pn:'102-0004-00', d:'Engine, Kohler CH245, 7 HP', q:'1'},
+        {pn:'C500001', d:'Belt, rake drive', q:'1'},
+        {pn:'C500083', d:'Pulley, drive', q:'1'},
+        {pn:'C500085', d:'Sheave, without key', q:'1'},
+        {pn:'C500240', d:'Idler w/ flanges, flat', q:'1'},
+        {pn:'C500074', d:'Bearing, control', q:'2'},
+        {pn:'C500072', d:'Bearing, flange', q:'2'},
+        {pn:'C100050', d:'Fitting, grease', q:'2'},
+      ]},
+      { name:'Main flail reel — standard blades', parts:[
+        {pn:'C700008', d:'Shaft, rake main', q:'1'},
+        {pn:'C300014', d:'Shaft, satellite', q:'4'},
+        {pn:'C300019', d:'Blade (finger), rake', q:'28'},
+        {pn:'C100056', d:'Spacer, finger', q:'52'},
+        {pn:'C500078', d:'E-clip, 1/2"', q:'8'},
+        {pn:'C900003', d:'Complete main shaft assembly', oem:'includes end plates, bearings, pulley, key & fasteners', q:'1'},
+      ]},
+      { name:'Optional reels — swap in for seeding or vertical cutting', splits:[
+        ['Multi-purpose blade assembly', 'Complete: C900026 — shaft C700025, 26 blades C100310', 'For light seeding/aeration passes'],
+        ['Slicer blade assembly', 'Complete: C900027 — shaft C700025, 26 blades C100427', 'Square slicer blades for vertical cutting / seed slots'],
+      ]},
+      { name:'Seeder box attachment', parts:[
+        {pn:'C900055', d:'Complete seeder box assembly', oem:'hopper, drum, flow control, gate — everything below', q:'1'},
+        {pn:'C400399.17', d:'Hopper weldment', q:'1'},
+        {pn:'C400400.17', d:'Spreader drum weldment', q:'1'},
+        {pn:'C100624', d:'Seeder box assembly', q:'1'},
+        {pn:'C400401.17', d:'Flow control', q:'1'},
+        {pn:'C400406.17', d:'Flow control handle weldment', q:'1'},
+        {pn:'C400407.17', d:'Seed gate weldment', q:'1'},
+        {pn:'C400408.17', d:'Seed gate flat', q:'2'},
+        {pn:'C100355', d:'Wheel, 8" seed box drive', q:'2'},
+        {pn:'C300128.17', d:'Wheel scrapers', q:'4'},
+        {pn:'C100078', d:'Cover, vinyl seed box', q:'1'},
+        {pn:'250-0002', d:'Bearing, flanged, 0.5" ID', q:'2'},
+      ]},
+    ],
+  },
+
+  {
+    id:'ryan', name:'Ryan Walk-Behind Aerator', serial:'Model tag NOT confirmed', emoji:'🕳️',
+    brand:'Ryan / Bobcat', engine:'Briggs & Stratton 92252, Type 0049, Code 95021603',
+    spec:'5-row reel · Briggs L-head, built ~Jan 1995',
+    manual:'Ryan_Aerator_5row_544908A_manual.pdf + Ryan_LawnaireIV_544863B_manual.pdf', manualDir:'Desktop\\LPP\\equipment-manuals',
+    suppliers:['bobcat','ppd','briggs'],
+    warn:{
+      title:'Get the model tag before ordering anything frame-specific',
+      body:'The engine code decodes to roughly January 1995 (95-021-603 = year, Julian day, plant). But every Ryan Lawnaire manual checked — Lawnaire IV (544863B) and V (544886, 544908/909/910/911) — specs a different Briggs engine (#093452), so the frame is unconfirmed.',
+      items:[
+        'Ryan\'s model tag is riveted to the aerator frame, usually near the engine mount or on the reel shroud. It reads 544xxx or 554xxx.',
+        'The two Ryan manuals on the shop PC are reference only — neither engine spec matches your 92252.',
+        'Engine service parts below are safe to order; anything tine/reel/frame is not, until the tag is read.',
+      ],
+    },
+    groups:[
+      { name:'Confirmed — engine service parts', parts:[
+        {pn:'491588S', d:'Air filter cartridge, Briggs L-head', oem:'standard for the 92000-series flathead family — confirm against the filter housing shape', q:'1'},
+        {pn:'691035', d:'Fuel filter, inline', q:'1'},
+        {pn:'RJ19LM', d:'Spark plug, Champion — standard for this Briggs family', q:'1'},
+        {pn:'—', d:'SAE 30 engine oil', oem:'18 oz crankcase is typical for this displacement — check the dipstick/fill neck on your unit', q:'—'},
+      ]},
+    ],
+  },
+
+  {
+    id:'bluebird', name:'Bluebird P18 Seeder', serial:'P185HDS02090091', emoji:'🌱',
+    brand:'Bluebird', engine:'5.5 HP Honda',
+    spec:'Delta reel · P18 line discontinued',
+    manual:'Bluebird_C18_P18_owners_manual.pdf + Bluebird_P18_seeder_parts.pdf', manualDir:'Desktop\\LPP\\equipment-manuals',
+    suppliers:['jacks','ppd'],
+    warn:{
+      title:'Model reads P185HDS, not P195HDS — and most parts are gone',
+      body:'The serial is the model plus a sequence tag: P185HDS + 02090091. H = Honda engine, D = Delta reel, S = Seeder. The whole P18 line was discontinued years ago and most individual parts show "No Longer Available" at major suppliers.',
+      items:[
+        'Budget for used/NOS parts or a compatible aftermarket reel bearing — do not expect a dealer counter to stock these.',
+        'A seized bearing or worn Delta blade set is worth pricing against a used complete unit before sinking money into NOS parts.',
+      ],
+    },
+    groups:[
+      { name:'Delta blade reel', parts:[
+        {pn:'5049', d:'Delta reel assembly, without blades or hardware', flag:'discontinued', q:'1'},
+        {pn:'5970', d:'Blade set, Delta (20 ea)', q:'1 set'},
+        {pn:'5061', d:'Shaft, Delta reel w/ nut & washers', flag:'discontinued', q:'1'},
+        {pn:'0315', d:'Bearing, 3/4" w/ lock collar', q:'2'},
+        {pn:'5062 / 5063', d:'Plate, blade carrier / blade spacer', flag:'discontinued', q:'1 ea'},
+        {pn:'5242', d:'Handle, folding', q:'1'},
+      ]},
+      { name:'Seed hopper & drive', parts:[
+        {pn:'54046', d:'Seed hopper', flag:'discontinued', q:'1'},
+        {pn:'54043', d:'Lid, seed hopper kit', oem:'lid, window, hardware', flag:'discontinued', q:'1'},
+        {pn:'54047', d:'Agitator bar', q:'1'},
+        {pn:'54044', d:'Dial, gage kit', oem:'rate dial, bracket, hardware', flag:'discontinued', q:'1'},
+        {pn:'54059', d:'Deflector, neoprene, for seeder', flag:'discontinued', q:'1'},
+        {pn:'54062', d:'Kit, gate, P18 seeder', flag:'discontinued', q:'1'},
+        {pn:'54018', d:'V-belt, B-34" special', flag:'discontinued', q:'1'},
+        {pn:'0339', d:'V-belt, B-36" special', flag:'discontinued', q:'1'},
+        {pn:'54024', d:'Clutch cable assembly', oem:'cable + S-hook', flag:'discontinued', q:'1'},
+        {pn:'54057', d:'Seeder handle assembly', oem:'handle, bail clutch, cable, S-hook, grip', flag:'discontinued', q:'1'},
+      ]},
+      { name:'Wheels & frame', parts:[
+        {pn:'5051', d:'Wheel, 8" x 1.75" semi-pneumatic, w/ ball bearing', q:'1'},
+        {pn:'54042', d:'Wheel, right rear kit', oem:'10" x 1.75", 5/8" bore', flag:'discontinued', q:'1'},
+        {pn:'54041', d:'Wheel, left rear kit', oem:'10" x 1.75", smooth bore', flag:'discontinued', q:'1'},
+        {pn:'54048', d:'Axle, 5/8" shaft, seeder', flag:'discontinued', q:'1'},
+        {pn:'54030', d:'Deck, P18', flag:'discontinued', q:'1'},
+        {pn:'54028', d:'Lift arm assembly kit', oem:'weldment + torsion spring', flag:'discontinued', q:'1'},
+      ]},
+    ],
+  },
+
+  {
+    id:'exmark-sar', name:'Stand-On Aerator', serial:'SAR481KA30 · SN 312619758', emoji:'🚜',
+    brand:'Exmark', engine:'Kawasaki FS730V',
+    spec:'30" coring width · 48 tines',
+    manual:'Exmark_SAR481KA30_2012_PartsManual.pdf + Exmark_SAR481KA30_OperatorManual_ToroBadged_3392-502.pdf',
+    manualDir:'Desktop\\LPP\\equipment-manuals',
+    suppliers:['exmark'],
+    service:[
+      ['Drive tire pressure', '12–14 psi.'],
+      ['Wheel hub nut',       '210–260 ft-lb, checked yearly.'],
+      ['Transmission output shaft nut', '210–260 ft-lb, checked yearly.'],
+      ['Traction control linkage', 'Set to a 1/16" gap at the front reference bar.'],
+      ['Drive hydraulics',    'Dual Hydro-Gear ZT-3400 expansion tank — Toro Hypr-Oil 500 or Mobil 1 15W-50.'],
+      ['Tine down-pressure',  'Separate tank, takes AW-32. Only THIS tank has an oil decal on it — easy to top the wrong reservoir from.'],
+    ],
+    warn:{
+      title:'Two manuals exist for this model — you need the earlier one',
+      body:'Exmark revised the parts book after serial 314,000,000, switching from the Kawasaki FS730V to an FS481V and renumbering several assemblies (axle/bearing went 116-7645 → 116-9545, for instance). Your serial 312619758 is in the earlier 312M–313M range.',
+      items:[
+        'Correct book is Part No. 4501-143 Rev. B. NOT the newer 4501-858.',
+        'Every part number below is from the correct-vintage manual.',
+      ],
+    },
+    groups:[
+      { name:'Engine & fuel', parts:[
+        {pn:'116-6666', d:'Engine, Kawasaki FS730V', q:'1'},
+        {pn:'116-3735', d:'Muffler, horizontal', q:'1'},
+        {pn:'116-2', d:'Fuel tank assembly', oem:'cap, grommet, rollover valve, bulkhead fitting w/ strainer', q:'1'},
+        {pn:'1-603770', d:'Valve, fuel', q:'1'},
+        {pn:'120-2235', d:'Filter, air', q:'1'},
+        {pn:'116-4346', d:'Hose, emissions', q:'1'},
+        {pn:'49065-7007', d:'Oil filter', oem:'Kawasaki OEM, not an Exmark number', q:'1'},
+        {pn:'11013-0752', d:'Air filter element', oem:'Kawasaki OEM equivalent to 120-2235', q:'1'},
+        {pn:'BPR4ES', d:'Spark plug, NGK', q:'1'},
+      ]},
+      { name:'Tine assembly — 30" coring width', parts:[
+        {pn:'116-6738', d:'RH tine wheel assembly, complete', q:'1'},
+        {pn:'116-6739', d:'LH tine wheel assembly, complete', q:'1'},
+        {pn:'121-4894', d:'Tine, coring', oem:'24 ea per side, 48 total', q:'48'},
+        {pn:'116-6727', d:'Tine shaft, RH', q:'1'},
+        {pn:'116-6728', d:'Tine shaft, LH', q:'1'},
+        {pn:'116-6731', d:'Float tine shaft assembly', q:'2'},
+        {pn:'116-7271', d:'Collar, locking, 1.00"', q:'2'},
+        {pn:'116-6895', d:'Roller chain, #50, 65 links', q:'2'},
+        {pn:'116-6719', d:'Sprocket, idler, 17T', q:'2'},
+        {pn:'116-6777', d:'Bearing, flange, 2-bolt', q:'2'},
+        {pn:'116-6756', d:'Bearing, pillow block, 1.00"', q:'2'},
+        {pn:'116-7327-01', d:'Plate, downstop', oem:'red', q:'1'},
+        {pn:'116-6553-03', d:'Trail arm assembly', q:'1'},
+      ]},
+      { name:'Hydraulics & drive', parts:[
+        {pn:'116-6618-03', d:'Belt, A-37', q:'1'},
+        {pn:'116-6751', d:'Pump, gear', q:'1'},
+        {pn:'116-6667', d:'Pulley', q:'1'},
+        {pn:'116-6760', d:'Pulley, idler, flat', q:'1'},
+        {pn:'116-7290', d:'Cylinder, hydraulic', q:'1'},
+        {pn:'103-1948', d:'Tank, hydraulic', q:'1'},
+        {pn:'104-7836', d:'Filter head', q:'1'},
+        {pn:'109-4180', d:'Filter, 25 micron, bi-directional', q:'1'},
+        {pn:'353-508', d:'Gauge, pressure', q:'1'},
+        {pn:'3245-1', d:'Valve', q:'1'},
+        {pn:'116-6994', d:'Belt A, tire drive', oem:'see Ground Drive Assembly in the manual for the full list', q:'1'},
+      ]},
+      { name:'Axle, bearings & electrical', parts:[
+        {pn:'116-6746-01', d:'Mount, wheel bearing', oem:'red', q:'1'},
+        {pn:'1-543509', d:'Cone, bearing, tapered roller', q:'2'},
+        {pn:'1-543511', d:'Seal, grease', q:'2'},
+        {pn:'126-0459', d:'Axle', q:'1'},
+        {pn:'117-2221', d:'Switch, ignition', q:'1'},
+        {pn:'92-6282', d:'Switch, seat', q:'1'},
+        {pn:'1-643275', d:'Relay, 12Vdc 40 amp', q:'2'},
+        {pn:'1-513374', d:'Meter, engine hours', q:'1'},
+        {pn:'116-6673', d:'Battery box assembly, U1', oem:'Pn03188 — same battery box as the Z-Sprays', q:'1'},
+        {pn:'1-816001', d:'Fuse, blade type, 20 amp', q:'2'},
+        {pn:'116-7589', d:'Harness, 30" aerator', q:'1'},
+      ]},
+    ],
+  },
+];
+
+let equipDetailId = null;
+let equipSearch = '';
+
+// Flatten every part on every machine once, for the cross-fleet search
+const EQ_PART_INDEX = (function() {
+  const rows = [];
+  EQUIPMENT.forEach(m => (m.groups || []).forEach(g => (g.parts || []).forEach(p => {
+    rows.push({
+      machine: m, group: g.name, part: p,
+      hay: [p.pn, p.x, p.d, p.oem, p.flag, g.name, m.name, m.serial, m.brand].join(' ').toLowerCase(),
+    });
+  })));
+  return rows;
+})();
+
+function eqPartRow(p, showX) {
+  const flagColor = /not yours|NOT yours|discontinued|not used|2010 and past|up to 2010/.test(p.flag || '') ? 'var(--danger)' : 'var(--warn)';
+  return `
+    <div class="eq-part">
+      <div class="eq-part-pn">
+        <span class="eq-pn">${escHtml(p.pn)}</span>
+        ${p.x ? `<span class="eq-xref">→ ${escHtml(p.x)}</span>` : ''}
+      </div>
+      <div class="eq-part-d">
+        <div>${escHtml(p.d)}</div>
+        ${p.oem ? `<div class="eq-oem">${escHtml(p.oem)}</div>` : ''}
+        ${p.flag ? `<div class="eq-flag" style="color:${flagColor}">⚠ ${escHtml(p.flag)}</div>` : ''}
+      </div>
+      <div class="eq-part-q">${escHtml(p.q || '')}</div>
+    </div>`;
+}
+
+function renderEquipment() {
+  const el = document.getElementById('page-equipment');
+
+  if (equipDetailId) { renderEquipmentDetail(el); return; }
+
+  const s = equipSearch.trim().toLowerCase();
+
+  // With a search term, this page becomes a parts counter: every matching
+  // part across all seven machines, with the machine it belongs to.
+  if (s) {
+    const hits = EQ_PART_INDEX.filter(r => r.hay.includes(s));
+    const byMachine = {};
+    hits.forEach(r => { (byMachine[r.machine.id] = byMachine[r.machine.id] || { m:r.machine, rows:[] }).rows.push(r); });
+
+    el.innerHTML = `
+      <h1 style="margin:0 0 4px">Equipment</h1>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px">Searching ${EQ_PART_INDEX.length} parts across all 7 machines.</p>
+      <div class="search-bar"><input id="eq-search" placeholder="Part number, belt, filter, bearing..." value="${escHtml(equipSearch)}" oninput="equipSearch=this.value;renderEquipment()"></div>
+      <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">${hits.length} match${hits.length === 1 ? '' : 'es'}</p>
+      ${Object.values(byMachine).map(b => `
+        <div class="section-label" style="color:var(--accent)">
+          ${b.m.emoji} ${escHtml(b.m.name)} · ${escHtml(b.m.serial)}
+          <button class="btn ghost sm" style="float:right;margin-top:-4px" onclick="equipDetailId='${b.m.id}';equipSearch='';renderEquipment()">Open</button>
+        </div>
+        <div class="card" style="padding:6px 10px">
+          ${b.rows.map(r => `<div class="eq-part-group">${escHtml(r.group)}</div>${eqPartRow(r.part)}`).join('')}
+        </div>
+      `).join('')}
+      ${hits.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">Nothing matches. Try a shorter piece of the number, or a word like belt, filter, tine, bearing.</p></div>' : ''}
+    `;
+    const inp = document.getElementById('eq-search');
+    if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+    return;
+  }
+
+  el.innerHTML = `
+    <h1 style="margin:0 0 4px">Equipment</h1>
+    <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px">Serials, part numbers and the year-split gotchas — search before you call a parts counter.</p>
+    <div class="search-bar"><input placeholder="Part number, belt, filter, bearing..." value="" oninput="equipSearch=this.value;renderEquipment()"></div>
+    ${EQUIPMENT.map(m => `
+      <div class="card eq-card" onclick="equipDetailId='${m.id}';renderEquipment()">
+        <div class="flex-row gap-10" style="align-items:flex-start">
+          <div style="font-size:22px;line-height:1">${m.emoji}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px">${escHtml(m.name)}</div>
+            <div class="eq-serial">${escHtml(m.serial)}</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${escHtml(m.spec)}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(m.engine)}</div>
+          </div>
+          ${m.warn ? '<span class="badge" style="background:var(--warn-bg);color:var(--warn)">Check first</span>' : ''}
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function renderEquipmentDetail(el) {
+  const m = EQUIPMENT.find(x => x.id === equipDetailId);
+  if (!m) { el.innerHTML = '<p>Machine not found.</p>'; return; }
+
+  const callout = m.warn || m.good;
+  const isWarn = !!m.warn;
+
+  el.innerHTML = `
+    <button class="btn ghost sm" onclick="equipDetailId=null;renderEquipment()" style="margin-bottom:14px">← All equipment</button>
+
+    <div class="eq-head">
+      <div style="font-size:26px;line-height:1;margin-bottom:6px">${m.emoji}</div>
+      <h1 style="margin:0 0 4px;font-size:20px">${escHtml(m.name)}</h1>
+      <div class="eq-serial" style="font-size:14px">${escHtml(m.serial)}</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:6px">${escHtml(m.spec)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escHtml(m.brand)} · ${escHtml(m.engine)}</div>
+    </div>
+
+    ${callout ? `
+      <div class="eq-callout" style="border-left-color:${isWarn ? 'var(--warn)' : 'var(--accent)'}">
+        <div class="eq-callout-title" style="color:${isWarn ? 'var(--warn)' : 'var(--accent)'}">${isWarn ? '⚠ ' : '✓ '}${escHtml(callout.title)}</div>
+        <p>${escHtml(callout.body)}</p>
+        ${(callout.items || []).length ? `<ul>${callout.items.map(i => `<li>${escHtml(i)}</li>`).join('')}</ul>` : ''}
+      </div>` : ''}
+
+    ${m.sameAs ? `
+      <div class="card" style="border-color:var(--accent-dim)">
+        <div style="font-size:12px;color:var(--text-dim)">Full parts tables live on the sister machine.</div>
+        <button class="btn primary sm" style="margin-top:8px" onclick="equipDetailId='${m.sameAs}';renderEquipment()">Open ${escHtml((EQUIPMENT.find(x => x.id === m.sameAs) || {}).serial || '')} parts</button>
+      </div>` : ''}
+
+    ${(m.service || []).length ? `
+      <div class="section-label" style="color:var(--accent)">Service facts</div>
+      <div class="card" style="padding:4px 12px">
+        ${m.service.map(([k, v]) => `
+          <div class="eq-split">
+            <div class="eq-split-k">${escHtml(k)}</div>
+            <div class="eq-split-v">${escHtml(v)}</div>
+          </div>`).join('')}
+      </div>` : ''}
+
+    ${(m.groups || []).map(g => `
+      <div class="section-label" style="color:var(--accent)">${escHtml(g.name)}</div>
+      <div class="card" style="padding:6px 10px">
+        ${g.splits ? g.splits.map(([k, v, off]) => `
+          <div class="eq-split">
+            <div class="eq-split-k">${escHtml(k)}</div>
+            <div class="eq-split-v">${escHtml(v)}${off ? `<div class="eq-oem">${escHtml(off)}</div>` : ''}</div>
+          </div>`).join('') : ''}
+        ${(g.parts || []).map(p => eqPartRow(p)).join('')}
+      </div>
+    `).join('')}
+
+    <div class="section-label" style="color:var(--accent)">Where to order</div>
+    ${(m.suppliers || []).map(k => {
+      const s = EQ_SUPPLIERS[k];
+      if (!s) return '';
+      return `
+        <div class="card" style="margin-bottom:6px">
+          <div style="font-weight:700;font-size:13px">${escHtml(s.name)}</div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${escHtml(s.note)}</div>
+          <div class="flex-row gap-6" style="margin-top:8px;flex-wrap:wrap">
+            ${s.phone ? `<a class="btn primary sm" href="tel:${escHtml(s.phone.replace(/[^0-9+]/g, ''))}">📞 ${escHtml(s.phone)}</a>` : ''}
+            <a class="btn secondary sm" href="${escHtml(s.url)}" target="_blank" rel="noopener">Parts lookup ↗</a>
+          </div>
+        </div>`;
+    }).join('')}
+
+    <div class="section-label" style="color:var(--accent)">Manual</div>
+    <div class="card">
+      <div style="font-size:12px;color:var(--text-dim)">PDF on the shop PC:</div>
+      <div class="eq-oem" style="margin-top:4px;word-break:break-all">${escHtml(m.manualDir)}\\${escHtml(m.manual)}</div>
+    </div>
+
+    <p style="font-size:11px;color:var(--text-muted);margin:14px 0 0;line-height:1.5">
+      Numbers transcribed from each machine's factory manual. On the L.T. Rich units the green number is Exmark/Z Turf's current catalog number — they renumbered everything after buying L.T. Rich. Engine parts are the engine maker's own numbers (Briggs, Kohler, Honda, Kawasaki); confirm against the model/type/code stamped on your engine.
+    </p>
   `;
 }
 
