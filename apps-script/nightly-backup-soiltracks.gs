@@ -15,7 +15,7 @@
 // If the top of your main script has a sheet ID, paste the same
 // one here. If your script uses getActiveSpreadsheet(), you can
 // leave this as '' and it will figure it out on its own.
-var BACKUP_SHEET_ID = '';
+var BACKUP_SHEET_ID = '10-2QSreupS-8sdtx3V5fDrZ4uqAHnwHMOuvGVRKL9u8';
 
 var BACKUP_LABEL    = 'SoilTracks';        // name shown on each copy
 var BACKUP_FOLDER   = 'LPP App Backups'; // Drive folder name
@@ -96,4 +96,5 @@ function _backupGetSpreadsheet_() {
     'between /d/ and /edit.'
   );
 }
+
 
