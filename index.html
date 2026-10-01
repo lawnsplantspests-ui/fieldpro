@@ -887,7 +887,7 @@ function getWorkboardItems() {
   const items = [];
   STATE.customerPrograms.forEach(cp => {
     const cust = STATE.customers.find(c => c.id === cp.customerId || c.ID === cp.customerId);
-    if (!cust) return;
+    if (!cust || isInactive(cp.customerId)) return;
     cp.rounds.forEach((r, idx) => {
       if (r.status === 'completed' || r.status === 'skipped') return;
       const due = isDue(r.windowStart, r.windowEnd);
@@ -947,7 +947,7 @@ function renderWorkboard() {
       <div class="stat-box"><div class="label">Overdue</div><div class="value" style="color:var(--overdue)">${items.filter(i=>i.overdue).length}</div></div>
       <div class="stat-box"><div class="label">Due Now</div><div class="value" style="color:var(--accent)">${items.filter(i=>i.due).length}</div></div>
       <div class="stat-box"><div class="label">Upcoming</div><div class="value" style="color:var(--text-dim)">${items.filter(i=>i.upcoming).length}</div></div>
-      <div class="stat-box"><div class="label">Customers</div><div class="value">${STATE.customers.length}</div></div>
+      <div class="stat-box"><div class="label">Customers</div><div class="value">${STATE.customers.filter(c => !isInactive(custIdStr(c))).length}</div></div>
     </div>
     ${(()=>{
       const pondAlerts = [];
@@ -1041,7 +1041,8 @@ function renderCustomers() {
     return;
   }
 
-  let custs = STATE.customers;
+  const nInactive = STATE.customers.filter(c => isInactive(custIdStr(c))).length;
+  let custs = STATE.customers.filter(c => showInactive || !isInactive(custIdStr(c)));
   if (searchTerm) {
     const s = searchTerm.toLowerCase();
     custs = custs.filter(c => {
@@ -1056,7 +1057,7 @@ function renderCustomers() {
 
   el.innerHTML = `
     <div class="flex-between mb-16">
-      <h1 style="margin:0">Customers <span style="font-size:15px;color:var(--text-dim);font-weight:500">(${STATE.customers.length})</span></h1>
+      <h1 style="margin:0">Customers <span style="font-size:15px;color:var(--text-dim);font-weight:500">(${STATE.customers.length - nInactive})</span></h1>
       <div class="flex-row gap-6">
         <button class="btn secondary sm" onclick="showCustomerMap()">🗺️ Map</button>
         <button class="btn secondary sm" onclick="geocodeAllCustomers()">📍 Geocode All</button>
@@ -1064,6 +1065,7 @@ function renderCustomers() {
       </div>
     </div>
     <div class="search-bar"><input placeholder="Search name, address, phone, ID..." value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderCustomers()"></div>
+    ${nInactive ? `<div style="margin:-6px 0 10px"><button class="btn ghost sm" onclick="showInactive=!showInactive;renderCustomers()">${showInactive ? 'Hide' : 'Show'} inactive (${nInactive})</button></div>` : ''}
     ${custs.map(c => {
       const name = c.Name || c.name || '?';
       const addr = c.Address || c.address || '';
@@ -1082,6 +1084,7 @@ function renderCustomers() {
             <div style="text-align:right;flex-shrink:0">
               <div style="font-size:11px;color:var(--text-dim)">${escHtml(phone)}</div>
               <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:3px">
+                ${isInactive(cid) ? '<span class="badge" style="background:var(--bg-input);color:var(--text-muted)">Inactive</span>' : ''}
                 ${cpList.length > 0 ? `<span class="badge" style="background:var(--accent-dim);color:var(--accent)">${cpList.length} prog</span>` : ''}
                 ${pending > 0 ? `<span class="badge" style="background:var(--warn-bg);color:var(--warn)">${pending} due</span>` : ''}
               </div>
@@ -1127,7 +1130,7 @@ function renderCustomerDetail(el) {
       <div class="flex-row gap-6">
         <button class="btn secondary sm" onclick="showLocationEditor('${cid}')">📍 Location</button>
         <button class="btn secondary sm" onclick="showCustomerForm('${cid}')">Edit</button>
-        <button class="btn danger sm" onclick="deleteCustomer('${cid}')">Delete</button>
+        <button class="btn ${isInactive(cid) ? 'primary' : 'secondary'} sm" onclick="schedSetActive('${cid}',${isInactive(cid)})">${isInactive(cid) ? 'Reactivate' : 'Mark inactive'}</button>
       </div>
     </div>
 
@@ -1235,15 +1238,6 @@ function renderCustomerDetail(el) {
     </div>
     ${renderBaitStationsForCustomer(cid)}
   `;
-}
-
-function deleteCustomer(cid) {
-  if (!confirm('Delete this customer and all their programs?')) return;
-  STATE.customers = STATE.customers.filter(c => (c.ID||c.customerId||c.id) !== cid);
-  STATE.customerPrograms = STATE.customerPrograms.filter(cp => cp.customerId !== cid);
-  saveState();
-  detailCustomerId = null;
-  renderCustomers();
 }
 
 function removeCustomerProgram(cpId) {
@@ -2805,6 +2799,17 @@ function inferTrack(entries) {
 
 // ── per-customer choices ──
 function getPlan(cid) { return STATE.customerPrograms.find(cp => cp.kind === 'plan' && cp.customerId === cid); }
+// Active / inactive: an inactive customer keeps their history, settings and map pin but is left off the
+// Schedule, the planner, the Today board and routes. Kept in their plan record, so it needs no sheet change.
+let showInactive = false;
+function isInactive(cid) { const p = getPlan(String(cid)); return !!(p && p.inactive); }
+function schedSetActive(cid, active) {
+  if (!active) {
+    const c = custById(cid);
+    if (!confirm('Mark ' + (c ? (c.Name || c.name) : 'this customer') + ' inactive?\n\nThey will drop off the Schedule, the planner and routes. Their history, settings and map pin are kept, and you can reactivate them any time.')) return;
+  }
+  editPlan(String(cid), p => { if (active) delete p.inactive; else p.inactive = true; });
+}
 function ensurePlan(cid) {
   let p = getPlan(cid);
   if (!p) { p = { id:uid(), kind:'plan', customerId:cid, programName:'Treatment plan', year:null, rounds:[], track:null, skip:{} }; STATE.customerPrograms.push(p); }
@@ -2949,6 +2954,7 @@ function buildSchedule() {
     if (!nk) return;
     if (seen[nk]) { dups.push(c.Name || c.name); return; }   // duplicate record: the first one gets the log
     seen[nk] = true;
+    if (isInactive(custIdStr(c))) return;   // inactive: not scheduled
     rows.push(schedFor(c, byCust[nk] || [], today));
   });
   const items = [];
@@ -3113,6 +3119,7 @@ function buildRouteFromSchedule() {
 
 // ── the card on each customer ──
 function schedCustomerCard(cid) {
+  if (isInactive(cid)) return `<div class="card mb-16" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>Inactive</strong> — not on the Schedule, the planner or routes. History, settings and the map pin are kept.</div><div style="margin-top:8px"><button class="btn primary sm" onclick="schedSetActive('${cid}',true)">Reactivate</button></div></div>`;
   const row = buildSchedule().rows.find(r => r.cid === String(cid));
   if (!row) return '';
   const Y = schedToday().slice(0,4);
@@ -4470,7 +4477,7 @@ function showCustomerMap() {
     
     // Get all customers with GPS coordinates (from geocoding or bait stations)
     const plotPoints = [];
-    STATE.customers.forEach(function(c) {
+    STATE.customers.filter(function(c) { return !isInactive(custIdStr(c)); }).forEach(function(c) {
       const lat = parseFloat(c.Lat);
       const lng = parseFloat(c.Lng);
       if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
@@ -4622,7 +4629,7 @@ function geocodeCustomer(customerId) {
 let geocodeRunning = false;
 function geocodeAllCustomers() {
   if (geocodeRunning) return;
-  const todo = STATE.customers.filter(c => fullAddress(c).length >= 8 && !(parseFloat(c.Lat) && parseFloat(c.Lng)));
+  const todo = STATE.customers.filter(c => !isInactive(custIdStr(c)) && fullAddress(c).length >= 8 && !(parseFloat(c.Lat) && parseFloat(c.Lng)));
   if (!todo.length) { alert('Every customer with an address already has a saved location.'); return; }
   if (!confirm('Find locations for ' + todo.length + ' customers?\n\nThis uses the free US Census address lookup, so roughly ' + Math.max(1, Math.ceil(todo.length * 0.8 / 60)) + ' minute(s). Keep this page open. Locations are saved as it goes.')) return;
   geocodeRunning = true;
