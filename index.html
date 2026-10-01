@@ -2714,20 +2714,20 @@ const SERVICES = {
   // LPP Log as PHC - ..., so they are recognised from it; oil and fertilizer are marked done in FieldPro). Dates are PROPOSED.
   TS:   { label:'Tree & shrub', svc:'Tree & Shrub Care', kind:'rounds', log:/^PHC\b/i, placeholder:true, rounds:[
             { code:'1', name:'Round 1 — Horticultural oil',                    start:'03-01', end:'04-10' },
-            { code:'2', name:'Round 2 — Fertilizer',                           start:'04-15', end:'05-20' },
-            { code:'3', name:'Round 3 — Fungicide, miticide, insecticide',     start:'05-20', end:'06-20', useLog:true },
-            { code:'4', name:'Round 4 — Fungicide, miticide, insecticide',     start:'06-20', end:'07-25', useLog:true },
-            { code:'5', name:'Round 5 — Fungicide, miticide, insecticide',     start:'07-25', end:'08-31', useLog:true },
+            { code:'2', name:'Round 2 — Fertilizer',                           start:'04-01', end:'04-24' },
+            { code:'3', name:'Round 3 — Fungicide (needle cast), miticide, insecticide', start:'04-25', end:'05-15', useLog:true },
+            { code:'4', name:'Round 4 — Fungicide, miticide, insecticide',     start:'06-01', end:'07-10', useLog:true },
+            { code:'5', name:'Round 5 — Fungicide, miticide, insecticide',     start:'07-15', end:'08-31', useLog:true },
             { code:'6', name:'Round 6 — Fertilizer',                           start:'09-05', end:'10-10' },
             { code:'7', name:'Round 7 — Horticultural oil',                    start:'10-25', end:'11-20' } ] },
-  // Round 9 of the tree & shrub program. Its own switch: only some customers get it.
-  ADES: { label:'Tree & shrub — Round 9 (anti-desiccant)', svc:'Tree & Shrub Care', kind:'window', start:'11-01', endFn:Y => seasonEnd(Y), placeholder:true },
+  // Round 8 of the tree & shrub program. Its own switch: only some customers get it.
+  ADES: { label:'Tree & shrub — Round 8 (anti-desiccant)', svc:'Tree & Shrub Care', kind:'window', start:'11-01', endFn:Y => seasonEnd(Y), placeholder:true },
 };
 function codeShort(c) {
   if (c === 'PEST') return 'Pest';
   if (c === 'SEED') return 'Seed';
   if (c === 'BAIT') return 'Bait stations';
-  if (c === 'ADES') return 'Rd 9 anti-desiccant';
+  if (c === 'ADES') return 'Rd 8 anti-desiccant';
   const k = Object.keys(SERVICES).find(k => c === k || (c.startsWith(k) && /^\d+$/.test(c.slice(k.length))));
   if (k) return SERVICES[k].label + (c !== k ? ' ' + c.slice(k.length) : '');
   return 'Rd ' + c;
