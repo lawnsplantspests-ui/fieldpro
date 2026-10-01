@@ -439,6 +439,7 @@ a.btn{text-decoration:none}
       <!-- Pages injected by JS -->
       <div id="page-workboard" class="page"></div>
       <div id="page-schedule" class="page"></div>
+      <div id="page-offers" class="page"></div>
       <div id="page-planner" class="page"></div>
       <div id="page-routes" class="page"></div>
       <div id="page-customers" class="page"></div>
@@ -644,6 +645,7 @@ function loadAll() {
   applyGeoToCustomers();
   loadTreatLogCache();
   wxLoadCache();
+  offerSoilLoadCache();
   refreshTreatLog();
   renderCurrentPage();
 
@@ -710,6 +712,7 @@ const NAV_ITEMS = [
 ];
 // Secondary — still reachable, just out of the way
 const NAV_MORE = [
+  { key:'offers',    label:'Offers',     emoji:'🎯' },
   { key:'routes',    label:'Routes',     emoji:'🗺️' },
   { key:'programs',  label:'Programs',   emoji:'📑' },
   { key:'ponds',     label:'Ponds',      emoji:'🌊' },
@@ -807,6 +810,7 @@ function renderCurrentPage() {
       case 'workboard': renderWorkboard(); break;
       case 'schedule': renderSchedule(); break;
       case 'planner': renderPlanner(); break;
+      case 'offers': renderOffers(); break;
       case 'routes': renderRoutes(); break;
       case 'customers': renderCustomers(); break;
       case 'programs': renderPrograms(); break;
@@ -3308,6 +3312,7 @@ function schedCustomerCard(cid) {
       <div style="font-size:13px;margin-bottom:8px">${row.next
         ? `<strong>Next:</strong> ${escHtml(row.next.label)} · ${schedBadge(row.next.status)} <span style="color:var(--text-dim)">${schedWhen(row.next)}</span>`
         : `<span style="color:var(--text-dim)">${row.track ? 'Nothing else scheduled this season.' : 'No lawn program set.'}</span>`}</div>
+      ${(offerSoilEnsure(), soilLine(row.c))}
       ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
         ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}
         <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>` : ''}
@@ -3633,6 +3638,156 @@ function smsTapStop(rid, i) {
   window.location.href = smsHref(phone, smsBody(c, (s.items || [{ code:s.code }]).map(x => x.code).filter(Boolean), rt.date));
 }
 const smsStopBtn = (rid, i, s) => `<button class="btn ghost sm" onclick="smsTapStop('${rid}',${i})" title="Text a call-ahead message">${s.textSent ? '✓ ' : ''}💬</button>`;
+
+// ══════════ ADD-ON OFFERS ══════════
+// Who could be offered what: lawn customers without a service, ranked by where you are already going, what is in season,
+// and (for lime) what their soil test says. Texting uses the same tap-to-text as the call-ahead messages.
+const OFFER_TPL_VISIT = "Hey {name}. I'll be out {when} for your {service}. Want me to add {offer} while I'm there? Let me know.";
+const OFFER_TPL_PLAIN = 'Hey {name}. Would you like me to add {offer} to your service? Let me know.';
+const OFFERS = {
+  PEST: { label:'Pest control',      phrase:'perimeter pest control (monthly)',                 months:[3,4,5,6,7,8,9],     why:'Lawn customer with no pest service' },
+  MOSQ: { label:'Mosquito',          phrase:'monthly mosquito treatment',                       months:[3,4,5,6,7],         why:'No mosquito service' },
+  TS:   { label:'Tree & shrub',      phrase:'tree and shrub care',                              months:[1,2,3,4,10,11,12],  why:'Not on the tree & shrub program' },
+  SEED: { label:'Aeration & seed',   phrase:'aeration and seed in September',                   months:[7,8,9],             why:'Not signed up for aeration & seed' },
+  GRUB: { label:'Grub control',      phrase:'grub control',                                     months:[2,3,4,5],           why:'On the no-grub round' },
+  LIME: { label:'Lime',              phrase:"a lime treatment (your soil test says it needs it)", months:[3,4,5,9,10,11],  why:'Soil test pH is low' },
+  ADES: { label:'Anti-desiccant',    phrase:'anti-desiccant for your evergreens',               months:[10,11],             why:'Tree & shrub customer without Round 8' },
+};
+let offerShowAll = false, offerFilter = 'PEST', offerSoil = null, offerSoilBusy = false, offerSoilErr = '', offerSoilTriedAt = 0;
+const OFFER_SOIL_KEY = 'fieldpro_soil';
+function offerSoilLoadCache() { try { const r = localStorage.getItem(OFFER_SOIL_KEY); if (r) offerSoil = JSON.parse(r); } catch(e) {} }
+// SoilTracks, read-only (the same call the Soil page already makes). The latest sample per customer is kept.
+function offerSoilEnsure(force) {
+  const fresh = offerSoil && offerSoil.at && Date.now() - offerSoil.at < 12 * 3600 * 1000;
+  if ((fresh && !force) || offerSoilBusy) return Promise.resolve();
+  if (!force && Date.now() - offerSoilTriedAt < 5 * 60 * 1000) return Promise.resolve();   // do not hammer it after a failure
+  offerSoilTriedAt = Date.now(); offerSoilBusy = true; offerSoilErr = '';
+  return stGasGet({ action:'getData' }).then(d => {
+    if (!d || !d.success) throw new Error((d && d.error) || 'no data');
+    const by = {};
+    (d.samples || []).forEach(x => {
+      const k = nameKey(x.CustomerName || x.customerName); if (!k || x.pH == null || x.pH === '') return;
+      if (!by[k] || Number(x.Year) > Number(by[k].Year)) by[k] = { Year:x.Year, pH:Number(x.pH), P:Number(x.Phosphorus_ppm), K:Number(x.Potassium_ppm), lime:Number(x.LimestoneLbs) || 0 };
+    });
+    offerSoil = { at:Date.now(), by };
+    try { localStorage.setItem(OFFER_SOIL_KEY, JSON.stringify(offerSoil)); } catch(e) {}
+  }).catch(e => { offerSoilErr = (e && e.message) || 'could not reach SoilTracks'; })
+    .then(() => { offerSoilBusy = false; if (currentPage === 'offers') renderOffers(); else if (currentPage === 'customers' && detailCustomerId) renderCustomers(); });
+}
+const soilFor = c => offerSoil && offerSoil.by ? offerSoil.by[nameKey(c.Name || c.name)] : null;
+function soilLine(c) {
+  const s = soilFor(c); if (!s) return '';
+  return `<div style="font-size:12px;color:var(--text-dim);margin:2px 0 8px">🧪 Soil ${s.Year}: pH <strong style="color:${s.pH < 6 ? 'var(--warn)' : 'var(--text)'}">${s.pH}</strong> · P ${Math.round(s.P)} ppm · K ${Math.round(s.K)} ppm${s.lime > 0 ? ' · lab lime rec ' + Math.round(s.lime) + ' lb/1000' : ''}</div>`;
+}
+
+const offerState = (cid, key) => { const p = getPlan(String(cid)); return p && p.offers && p.offers[key] || null; };
+function offerCandidates(key, S, near) {
+  const today = schedToday(), out = [];
+  S.rows.forEach(r => {
+    const c = r.c, cid = r.cid, st = offerState(cid, key);
+    if (!(r.sqLawn > 0 || r.track)) return;
+    if (st && (st.state === 'yes' || (st.state === 'no' && daysBetween(st.date, today) < 365))) return;
+    let tags = [], rank = 0, ok = false, needs = '';
+    const has = k => r.svcInfo[k] && r.svcInfo[k].enrolled;
+    if (key === 'PEST') { ok = !(r.sqPest > 0 && !r.pestOff) && !r.rounds.some(q => q.code === 'PEST'); if (r.sqPest <= 0) needs = 'needs a perimeter measurement'; }
+    else if (key === 'MOSQ') ok = !has('MOSQ') && !has('BAIT');
+    else if (key === 'TS') { ok = !has('TS'); const phc = (r.last && /^PHC\b/i.test(r.last.s)) || (TREATLOG && Object.values(TREATLOG.tabs).some(a => a.some(e => e.k === nameKey(c.Name) && /^PHC\b/i.test(e.s)))); if (phc) { tags.push('had tree & shrub work this year'); rank += 3; } }
+    else if (key === 'SEED') ok = !r.seed && r.sqLawn >= 5000;
+    else if (key === 'GRUB') ok = !!r.track && r.grub === false;
+    else if (key === 'LIME') { const s = soilFor(c); ok = !!s && (s.pH < 6.0 || s.lime >= 50); if (s) { tags.push('pH ' + s.pH + (s.lime > 0 ? ' · lab says ' + Math.round(s.lime) + ' lb/1000' : '')); rank += Math.max(0, 6.5 - s.pH) * 2; } }
+    else if (key === 'ADES') ok = has('TS') && !has('ADES');
+    if (!ok) return;
+    // where you are already going: a planned route that includes them, else what is open for them
+    let visit = null;
+    STATE.routes.forEach(rt => { if (rt.date && rt.date >= today && (rt.stops || []).some(s => String(s.customerId) === cid && s.status !== 'completed') && (!visit || rt.date < visit.date)) { const s = rt.stops.find(x => String(x.customerId) === cid); visit = { date:rt.date, code:((s.items && s.items[0] && s.items[0].code) || s.code) }; } });
+    if (visit && daysBetween(today, visit.date) <= 21 && SMS_SERVICE[visit.code]) { tags.unshift('you are there ' + smsWhen(visit.date)); rank += 5; } else visit = null;
+    const nxt = r.open.find(i => i.status === 'due' || i.status === 'late');
+    if (!visit && nxt) tags.push('due now: ' + codeShort(nxt.code));
+    if (near[cid] >= 8) { tags.push('dense area'); rank += 2; }
+    out.push({ r, c, cid, st, tags, rank, visit, needs });
+  });
+  return out.sort((a, b) => b.rank - a.rank || (a.c.Name || '').localeCompare(b.c.Name || ''));
+}
+function offerNeighbours(S) {
+  const pts = S.rows.map(r => ({ id:r.cid, p:custPoint(r.cid) })).filter(x => x.p), near = {};
+  pts.forEach(a => { near[a.id] = pts.reduce((t, b) => t + (b !== a && haversineMi(a.p, b.p) <= 3 ? 1 : 0), 0); });
+  return near;
+}
+function offerBody(cand, key) {
+  const cfg = getPlanCfg(), c = cand.c;
+  const t = cand.visit ? (cfg.offerTplVisit || OFFER_TPL_VISIT) : (cfg.offerTplPlain || OFFER_TPL_PLAIN);
+  return t.replace(/\{name\}/g, smsName(c) || 'there').replace(/\{offer\}/g, OFFERS[key].phrase)
+    .replace(/\{when\}/g, cand.visit ? smsWhen(cand.visit.date) : '').replace(/\{service\}/g, cand.visit ? smsServicePhrase([cand.visit.code]) : '');
+}
+function offerSet(cid, key, state) {
+  editPlan(String(cid), p => { p.offers = p.offers || {}; p.offers[key] = { state, date:schedToday() }; });
+}
+function offerText(cid, key) {
+  const S = buildSchedule(), cand = offerCandidates(key, S, offerNeighbours(S)).find(x => x.cid === String(cid)); if (!cand) return;
+  const phone = smsPhone(cand.c); if (!phone) { alert('No phone number on file.'); return; }
+  const href = smsHref(phone, offerBody(cand, key));
+  editPlan(String(cid), p => { p.offers = p.offers || {}; p.offers[key] = { state:'offered', date:schedToday() }; });
+  window.location.href = href;
+}
+function offerCopy(cid, key) {
+  const S = buildSchedule(), cand = offerCandidates(key, S, offerNeighbours(S)).find(x => x.cid === String(cid)); if (!cand) return;
+  const body = offerBody(cand, key);
+  (navigator.clipboard ? navigator.clipboard.writeText(body) : Promise.reject()).then(() => alert('Copied.')).catch(() => prompt('Copy this message:', body));
+}
+// they said yes: switch the service on (lime is only recorded; pest needs the perimeter size first)
+function offerYes(cid, key) {
+  cid = String(cid); const c = custById(cid); if (!c) return;
+  if (key === 'PEST' && !(Number(c.SqFt_Pest || c.perimeterLf) > 0)) { alert('Add the perimeter size first (the Perimeter / Pest box), then tap Yes again.'); showCustomerForm(cid); return; }
+  editPlan(cid, p => {
+    p.offers = p.offers || {}; p.offers[key] = { state:'yes', date:schedToday() };
+    if (key === 'PEST') { delete p.noPest; }
+    else if (key === 'SEED') p.seed = 'sep';
+    else if (key === 'GRUB') p.grub = true;
+    else if (key === 'MOSQ' || key === 'TS' || key === 'ADES') { p.svc = p.svc || {}; p.svc[key] = true; }
+  });
+}
+function offerSaveTemplates() {
+  const a = (document.getElementById('of-tpl-visit') || {}).value || '', b = (document.getElementById('of-tpl-plain') || {}).value || '';
+  savePlanCfg({ offerTplVisit:a.trim() || OFFER_TPL_VISIT, offerTplPlain:b.trim() || OFFER_TPL_PLAIN });
+  renderOffers();
+}
+function renderOffers() {
+  const el = document.getElementById('page-offers'); if (!el) return;
+  if (!offerSoil || !offerSoil.at) offerSoilEnsure();
+  const S = buildSchedule(), near = offerNeighbours(S), mon = +schedToday().slice(5, 7);
+  const lists = {}; Object.keys(OFFERS).forEach(k => { lists[k] = offerCandidates(k, S, near); });
+  if (!lists[offerFilter]) offerFilter = 'PEST';
+  const cfg = getPlanCfg(), list = lists[offerFilter], def = OFFERS[offerFilter];
+  const pills = Object.keys(OFFERS).map(k => `<button class="${offerFilter === k ? 'active' : ''}" onclick="offerFilter='${k}';offerShowAll=false;renderOffers()">${OFFERS[k].label} <span style="opacity:.7;font-size:9px">${lists[k].length}</span>${OFFERS[k].months.includes(mon) ? ' ★' : ''}</button>`).join('');
+  const card = c => {
+    const phone = smsPhone(c.c), st = c.st;
+    return `<div class="card" style="padding:10px 12px;margin-bottom:6px">
+      <div class="flex-between" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
+        <div style="min-width:0"><div style="font-weight:700;font-size:14px;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border)" onclick="detailCustomerId='${c.cid}';navigateTo('customers');detailCustomerId='${c.cid}';renderCustomers()">${escHtml(c.c.Name || c.c.name)}</div>
+          <div style="font-size:12px;color:var(--text-dim)">${escHtml([c.c.City, c.r.sqLawn ? Number(c.r.sqLawn).toLocaleString() + ' sq ft lawn' : ''].filter(Boolean).join(' · '))}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${[def.why].concat(c.tags).concat(c.needs ? [c.needs] : []).map(escHtml).join(' · ')}</div>
+          ${st && st.state === 'offered' ? `<div style="font-size:11px;color:var(--accent);margin-top:2px">Offered ${fmtDate(st.date)}</div>` : st && st.state === 'no' ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Said no ${fmtDate(st.date)}</div>` : ''}</div>
+        <div class="flex-row gap-6" style="flex-wrap:wrap;justify-content:flex-end">
+          ${phone ? `<button class="btn primary sm" onclick="offerText('${c.cid}','${offerFilter}')">💬 Offer</button>` : '<span class="badge" style="background:var(--bg-input);color:var(--text-muted)">No phone</span>'}
+          <button class="btn ghost sm" onclick="offerCopy('${c.cid}','${offerFilter}')">Copy</button>
+          <button class="btn success sm" onclick="offerYes('${c.cid}','${offerFilter}')">Yes</button>
+          <button class="btn ghost sm" onclick="offerSet('${c.cid}','${offerFilter}','no')">No</button></div></div></div>`;
+  };
+  el.innerHTML = `
+    <h1>Offers</h1>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Services your lawn customers don't have yet, best chances first: people you'll already be visiting, a dense area, and what's in season (★). Tap <strong>Offer</strong> to open a text. <strong>Yes</strong> turns the service on for them; <strong>No</strong> hides them for a year.</p>
+    <div class="filter-pills">${pills}</div>
+    ${offerFilter === 'LIME' && !offerSoil ? `<div class="card"><p style="color:var(--text-dim)">${offerSoilBusy ? '⏳ Reading your soil tests…' : 'Soil tests unavailable' + (offerSoilErr ? ': ' + escHtml(offerSoilErr) : '')}</p></div>` : ''}
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">${list.length} customer${list.length === 1 ? '' : 's'} for <strong>${escHtml(def.label)}</strong>${def.months.includes(mon) ? ' — a good time to offer it' : ''}.</div>
+    ${(offerShowAll ? list : list.slice(0, 25)).map(card).join('')}
+    ${list.length > 25 && !offerShowAll ? `<div style="text-align:center;margin:8px 0"><button class="btn secondary sm" onclick="offerShowAll=true;renderOffers()">Show all ${list.length}</button></div>` : ''}
+    ${list.length === 0 && !(offerFilter === 'LIME' && !offerSoil) ? '<div class="card"><p style="color:var(--text-dim)">Nobody to offer this to right now.</p></div>' : ''}
+    <div class="section-label">Offer message</div>
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Use {name}, {offer}, {when} and {service}. The first is used when you already have a visit planned for them.</div>
+      <textarea id="of-tpl-visit" rows="2" style="width:100%;margin-bottom:6px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplVisit || OFFER_TPL_VISIT)}</textarea>
+      <textarea id="of-tpl-plain" rows="2" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplPlain || OFFER_TPL_PLAIN)}</textarea>
+      <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save messages</button></div></div>`;
+}
 
 // ══════════ DAYS OF WORK (planner) ══════════
 // Builds days that fit between the first stop and the end of the day, using real road drive
