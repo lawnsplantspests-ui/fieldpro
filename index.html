@@ -2317,6 +2317,7 @@ function renderRouteDetail(el) {
       </div>
       <div class="flex-row gap-6" style="flex-wrap:wrap">
         <button class="btn primary sm" onclick="openInAppleMaps('${rt.id}')">🗺️ Maps</button>
+        <button class="btn secondary sm" onclick="showCallAhead('route','${rt.id}')">💬 Texts</button>
         <button class="btn secondary sm" onclick="reorderRoute('${rt.id}')">📍 Order by distance</button>
         <button class="btn secondary sm" onclick="showEditRoute('${rt.id}')">✏️ Edit</button>
         <button class="btn danger sm" onclick="deleteRoute('${rt.id}')">Delete</button>
@@ -2337,6 +2338,7 @@ function renderRouteDetail(el) {
         </div>
         <div class="flex-row gap-6" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
           ${s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('') : ''}
+          ${s.status !== 'completed' ? smsStopBtn(rt.id, i, s) : ''}
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
           <button class="btn ghost sm" onclick="removeRouteStop('${rt.id}',${i})" style="color:var(--danger)" title="Remove stop">✕</button>
         </div>
@@ -2923,6 +2925,7 @@ function schedSetSeed(cid, mode) {
 function schedSeedDate(cid, iso) { if (iso) editPlan(cid, p => { p.seed = iso; }); }
 function schedMarkDone(cid, key) { editPlan(cid, p => { p.done[key] = schedToday(); }); }
 function schedUnmarkDone(cid, key) { editPlan(cid, p => { delete p.done[key]; }); }
+function schedSetTextName(cid, v) { editPlan(cid, p => { const t = String(v || '').trim(); if (t) p.textName = t; else delete p.textName; }); }
 function schedSetWorkSqft(cid, v) { const n = Number(String(v).replace(/,/g, '')); editPlan(cid, p => { if (n > 0) p.workSqft = n; else delete p.workSqft; }); }
 function schedSetSvc(cid, key, on) { editPlan(cid, p => { p.svc = p.svc || {}; if (on === null) delete p.svc[key]; else p.svc[key] = on; }); }
 function schedSvcEndYear(cid, key) {
@@ -3312,6 +3315,10 @@ function schedCustomerCard(cid) {
         <span style="font-size:12px;color:var(--text-dim)">Area I normally treat (sq ft):</span>
         <input type="number" min="0" value="${row.workSqft || ''}" placeholder="${row.sqOnFile}" onchange="schedSetWorkSqft('${cid}',this.value)" style="width:110px;padding:6px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">
         <span style="font-size:11px;color:var(--text-muted)">${row.workSqft ? 'planning uses this; ' + Number(row.sqOnFile).toLocaleString() + ' is on file' : 'blank = the ' + Number(row.sqOnFile).toLocaleString() + ' on file'}</span></div>` : ''}
+      <div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px;align-items:center">
+        <span style="font-size:12px;color:var(--text-dim)">Name in texts:</span>
+        <input value="${escHtml((getPlan(cid) || {}).textName || '')}" placeholder="${escHtml(smsName(row.c) || 'none — says “Hey there”')}" onchange="schedSetTextName('${cid}',this.value)" style="width:170px;padding:6px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">
+        <span style="font-size:11px;color:var(--text-muted)">${smsPhone(row.c) ? 'phone on file' : 'no phone on file'}</span></div>
       ${row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
         <button class="btn ${row.grub ? 'primary' : 'secondary'} sm" onclick="schedSetGrub('${cid}',true)">Grub control — Rd 4</button>
         <button class="btn ${row.grub ? 'secondary' : 'primary'} sm" onclick="schedSetGrub('${cid}',false)">No grub — Rd 3</button>
@@ -3521,6 +3528,111 @@ function wxEnsure() {
     loadWeather().then(() => { if (currentPage === 'schedule') renderSchedule(); });
   }
 }
+
+// ══════════ TAP TO TEXT (call-ahead messages) ══════════
+// Opens the phone's own Messages app with the text already written. Nothing is sent from FieldPro: you read it and tap send there.
+const SMS_DEFAULT = 'Hey {name}. I have you scheduled for your {service} for {when}. Any questions let me know.';
+const SMS_TS_MIXED = 'tree and shrub round {n} fungicide, mite and insect treatment';
+const SMS_SERVICE = {
+  '1':'round 1 fertilizer', '2A':'round 2 pre-emergent and weed control', '2B':'round 2 pre-emergent and weed control', '3':'round 3 weed and feed',
+  '4':'round 4 grub control', '5':'round 5 insect and weed control', '5A':'round 5 insect control', '5B':'round 5 grassy weed control',
+  '5C':'round 5 insect and grassy weed control', '6':'round 6 fall weed and feed', '7':'round 7 winterizer',
+  PEST:'perimeter pest control', MOSQ:'mosquito treatment', BAIT:'mosquito bait station service', SEED:'aeration and seed', ADES:'anti-desiccant treatment',
+  TS1:'tree and shrub round 1 horticultural oil', TS2:'tree and shrub round 2 fertilizer', TS3:SMS_TS_MIXED.replace('{n}', '3'), TS4:SMS_TS_MIXED.replace('{n}', '4'),
+  TS5:SMS_TS_MIXED.replace('{n}', '5'), TS6:'tree and shrub round 6 fertilizer', TS7:'tree and shrub round 7 horticultural oil',
+};
+const SMS_BUSINESS = /landscap|lawn care|\binc\b|\bllc\b|company|corp|church|school|credit union|authority|association|assoc|village|upmc|federal|\bten\b|bees|classics/i;
+function smsName(c) {
+  const plan = getPlan(custIdStr(c)); if (plan && plan.textName) return plan.textName;
+  const n = String(c.Name || c.name || '').split(':')[0].trim();
+  if (!n || SMS_BUSINESS.test(n)) return '';
+  if (n.includes('&')) { const [a, b] = n.split('&').map(x => x.trim()); return (a.split(' ')[0] + ' & ' + b.split(' ')[0]).trim(); }
+  return n.split(' ')[0];
+}
+function smsServicePhrase(codes) {
+  const ph = [...new Set(codes.map(c => SMS_SERVICE[c] || (SERVICES[c] ? SERVICES[c].label.toLowerCase() : 'service')))];
+  return ph.length <= 1 ? (ph[0] || 'service') : ph.slice(0, -1).join(', ') + ' and ' + ph[ph.length - 1];
+}
+function smsWhen(date) {
+  const today = schedToday(), d = new Date(date + 'T12:00:00');
+  const dayName = d.toLocaleDateString('en-US', { weekday:'long' }), md = (d.getMonth() + 1) + '/' + d.getDate();
+  if (date === today) return 'today';
+  if (date === addDays(today, 1)) return 'tomorrow ' + dayName + ' ' + md;
+  return dayName + ' ' + md;
+}
+function smsBody(c, codes, date) {
+  const t = getPlanCfg().smsTemplate || SMS_DEFAULT;
+  return t.replace(/\{name\}/g, smsName(c) || 'there').replace(/\{service\}/g, smsServicePhrase(codes)).replace(/\{when\}/g, smsWhen(date));
+}
+function smsPhone(c) {
+  const d = String(c.Phone || c.phone || '').replace(/\D/g, '');
+  return d.length === 10 ? '+1' + d : (d.length === 11 && d[0] === '1' ? '+' + d : '');
+}
+const smsHref = (phone, body) => 'sms:' + phone + '?&body=' + encodeURIComponent(body);
+
+// rows for one planned day or one route: customer, work codes, date
+let smsRows = [], smsDate = '', smsSrc = null;
+function smsRowsFor(kind, key) {
+  if (kind === 'plan') {
+    const d = plannerResult && plannerResult.days[Number(key)]; if (!d) return null;
+    return { date:d.date, rows:d.rows.map(r => ({ cid:r.s.cid, codes:r.s.items.map(i => i.code), sent:!!r.smsSent, ref:r })) };
+  }
+  const rt = STATE.routes.find(x => x.id === key); if (!rt) return null;
+  return { date:rt.date, rows:rt.stops.filter(s => s.status !== 'completed').map(s => ({ cid:String(s.customerId), codes:(s.items || [{ code:s.code }]).map(i => i.code).filter(Boolean), sent:!!s.textSent, ref:s })) };
+}
+function showCallAhead(kind, key) {
+  const src = smsRowsFor(kind, key); if (!src) return;
+  smsSrc = { kind, key }; smsDate = src.date; smsRows = src.rows;
+  const tpl = getPlanCfg().smsTemplate || SMS_DEFAULT;
+  const items = src.rows.map((r, i) => {
+    const c = custById(r.cid); if (!c) return '';
+    const body = smsBody(c, r.codes, src.date), phone = smsPhone(c);
+    return `<div class="card" style="padding:10px 12px;margin-bottom:6px;${r.sent ? 'opacity:.6' : ''}">
+      <div class="flex-between" style="gap:8px;flex-wrap:wrap"><div style="font-weight:700;font-size:13px">${r.sent ? '✓ ' : ''}${escHtml(c.Name || c.name)}</div>
+        <div class="flex-row gap-6">${phone ? `<button class="btn primary sm" onclick="smsTap(${i})">💬 Text</button>` : '<span class="badge" style="background:var(--bg-input);color:var(--text-muted)">No phone</span>'}
+        <button class="btn ghost sm" onclick="smsCopy(${i})">Copy</button></div></div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:4px">${escHtml(body)}</div></div>`;
+  }).join('');
+  showModal('Call-ahead texts — ' + smsWhen(src.date), `
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Tap <strong>Text</strong> and your Messages app opens with this written. Read it, then send. Nothing is sent from here.</div>
+    ${items || '<p style="color:var(--text-dim)">No stops.</p>'}
+    <div class="section-label">Message</div>
+    <textarea id="sms-tpl" rows="3" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(tpl)}</textarea>
+    <div style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Use {name}, {service} and {when}.</div>
+    <div class="flex-row gap-6" style="justify-content:flex-end"><button class="btn secondary" onclick="closeModal()">Close</button><button class="btn primary" onclick="smsSaveTemplate()">Save message</button></div>`, true);
+}
+function smsMark(i) {
+  const r = smsRows[i]; if (!r) return;
+  r.sent = true;
+  if (r.ref) { if (smsSrc && smsSrc.kind === 'plan') r.ref.smsSent = true; else { r.ref.textSent = schedToday(); saveState(); } }
+}
+function smsTap(i) {
+  const r = smsRows[i]; if (!r) return;
+  const c = custById(r.cid); if (!c) return;
+  smsMark(i);
+  const href = smsHref(smsPhone(c), smsBody(c, r.codes, smsDate));
+  showCallAhead(smsSrc.kind, smsSrc.key);
+  window.location.href = href;
+}
+function smsCopy(i) {
+  const r = smsRows[i]; const c = r && custById(r.cid); if (!c) return;
+  const body = smsBody(c, r.codes, smsDate);
+  (navigator.clipboard ? navigator.clipboard.writeText(body) : Promise.reject()).then(() => alert('Copied.')).catch(() => prompt('Copy this message:', body));
+}
+function smsSaveTemplate() {
+  const t = (document.getElementById('sms-tpl') || {}).value || '';
+  savePlanCfg({ smsTemplate:t.trim() || SMS_DEFAULT });
+  showCallAhead(smsSrc.kind, smsSrc.key);
+}
+// one stop on a route
+function smsTapStop(rid, i) {
+  const rt = STATE.routes.find(x => x.id === rid), s = rt && rt.stops[i]; if (!s) return;
+  const c = custById(s.customerId); const phone = c && smsPhone(c);
+  if (!phone) { alert('No phone number on file for ' + s.customerName + '.'); return; }
+  s.textSent = schedToday(); saveState();
+  window.location.href = smsHref(phone, smsBody(c, (s.items || [{ code:s.code }]).map(x => x.code).filter(Boolean), rt.date));
+}
+const smsStopBtn = (rid, i, s) => `<button class="btn ghost sm" onclick="smsTapStop('${rid}',${i})" title="Text a call-ahead message">${s.textSent ? '✓ ' : ''}💬</button>`;
 
 // ══════════ DAYS OF WORK (planner) ══════════
 // Builds days that fit between the first stop and the end of the day, using real road drive
@@ -3871,7 +3983,7 @@ function plannerResultHtml(R) {
       <div class="flex-between" style="gap:10px;flex-wrap:wrap;margin-bottom:6px">
         <div><div style="font-weight:800;font-size:15px">${dayName(d.date)}</div>
         <div style="font-size:12px;color:var(--text-dim)">${d.rows.length} stops · work ${hm(d.workMin)} · driving ${hm(d.driveMin)} (${d.miles} mi)${d.leaveHome != null ? ' · leave home ' + clock(d.leaveHome) : ''} · ${d.back != null ? 'home by ' + clock(d.back) : 'last stop done ' + clock(d.finish)}</div></div>
-        <span class="flex-row gap-6">${d.ok === false ? '<span class="badge" style="background:var(--danger-bg);color:var(--overdue)">Over time</span>' : ''}<button class="btn primary sm" onclick="planCreateRoute(${di})">Create this day</button></span>
+        <span class="flex-row gap-6">${d.ok === false ? '<span class="badge" style="background:var(--danger-bg);color:var(--overdue)">Over time</span>' : ''}<button class="btn secondary sm" onclick="showCallAhead('plan',${di})">💬 Texts</button><button class="btn primary sm" onclick="planCreateRoute(${di})">Create this day</button></span>
       </div>
       ${wxLine(d.date, d.rows.flatMap(r => r.s.items))}
       ${d.rows.map((r, k) => {
