@@ -2825,6 +2825,10 @@ function schedSetSeed(cid, mode) {
 function schedSeedDate(cid, iso) { if (iso) editPlan(cid, p => { p.seed = iso; }); }
 function schedMarkDone(cid, key) { editPlan(cid, p => { p.done[key] = schedToday(); }); }
 function schedUnmarkDone(cid, key) { editPlan(cid, p => { delete p.done[key]; }); }
+function schedPestDoneYear(cid) {
+  const Y = Number(schedToday().slice(0, 4));
+  editPlan(cid, p => { if (Number(p.pestEnd) >= Y) delete p.pestEnd; else p.pestEnd = Y; });
+}
 function schedTogglePest(cid) { editPlan(cid, p => { p.noPest = !p.noPest; }); }
 function schedToggleSkip(cid, key) { editPlan(cid, p => { if (p.skip[key]) delete p.skip[key]; else p.skip[key] = true; }); }
 
@@ -2891,6 +2895,7 @@ function schedFor(c, mine, today) {
     const mkMonth = (y, m0) => {
       const ym = y + '-' + String(m0 + 1).padStart(2,'0');
       if (!PEST_MONTHS.includes(m0 + 1)) return;
+      if (plan.pestEnd && y <= Number(plan.pestEnd)) return;   // finished with pest control for that year
       const ws = ym + '-01', we = ym + '-' + String(PEST_WEEK_END).padStart(2,'0');
       const doneOn = pestDates.filter(d => d.startsWith(ym)).sort()[0];
       const label = 'Pest control — ' + MONTH_NAMES[m0];
@@ -2930,7 +2935,7 @@ function schedFor(c, mine, today) {
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
   const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
   const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
-  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, pestOff:!!plan.noPest, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
 }
 
 function buildSchedule() {
@@ -3135,7 +3140,7 @@ function schedCustomerCard(cid) {
         <button class="btn ${row.grub ? 'primary' : 'secondary'} sm" onclick="schedSetGrub('${cid}',true)">Grub control — Rd 4</button>
         <button class="btn ${row.grub ? 'secondary' : 'primary'} sm" onclick="schedSetGrub('${cid}',false)">No grub — Rd 3</button>
         <span style="font-size:11px;color:var(--text-muted)">${row.grubSource === 'set' ? 'set by you' : row.grubSource === 'history' ? 'from what was logged' : 'assumed — nothing logged yet'}</span></div>` : ''}
-      ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button><span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : 'first week of every month'}</span></div>` : ''}
+      ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button>${row.pestOff ? '' : `<button class="btn ${Number(row.pestEnd) >= Number(Y) ? 'primary' : 'secondary'} sm" onclick="schedPestDoneYear('${cid}')">${Number(row.pestEnd) >= Number(Y) ? 'Done for ' + Y + ' — undo' : 'Done for ' + Y}</button>`}<span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : Number(row.pestEnd) >= Number(Y) ? 'no more pest visits this year' : 'first week of every month'}</span></div>` : ''}
       <div class="flex-row gap-6" style="flex-wrap:wrap;margin:4px 0;align-items:center">
         <span style="font-size:12px;color:var(--text-dim)">Aeration &amp; seed:</span>
         <button class="btn ${!row.seed ? 'primary' : 'secondary'} sm" onclick="schedSetSeed('${cid}','off')">Off</button>
