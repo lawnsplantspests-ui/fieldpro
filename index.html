@@ -2332,9 +2332,10 @@ function renderRouteDetail(el) {
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(s.customerName)}</div>
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(s.address||'No address')}</div>
-          <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
+          <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.viaLog ? '✓ logged ' + fmtDate(s.completedDate) + ' · ' : ''}${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
         </div>
-        <div class="flex-row gap-6" style="flex-shrink:0">
+        <div class="flex-row gap-6" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+          ${s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('') : ''}
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
           <button class="btn ghost sm" onclick="removeRouteStop('${rt.id}',${i})" style="color:var(--danger)" title="Remove stop">✕</button>
         </div>
@@ -2746,6 +2747,62 @@ const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+// ── One-tap logging: open the LPP Log with the customer and service already chosen ──
+// The log stays the single source of truth for the regulatory record; FieldPro never writes entries itself.
+// Only the work that goes in the pesticide log gets a button (not seed, fertilizer-only or oil rounds).
+const LPP_LOG_APP = 'https://lawnsplantspests-ui.github.io/lpp-log/';
+const loggableCode = c => /^\d[ABC]?$/.test(c) || c === 'PEST' || c === 'MOSQ' || c === 'BAIT' || /^TS[345]$/.test(c);
+function lastLoggedService(name, re) {
+  const k = nameKey(name); let best = null;
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && re.test(e.s) && (!best || e.d > best.d)) best = e; }));
+  return best ? best.s : '';
+}
+function lppLogUrl(name, code) {
+  if (!name || !loggableCode(code)) return null;
+  const q = new URLSearchParams({ c:name });
+  if (/^\d[ABC]?$/.test(code)) q.set('rd', code);
+  else if (code === 'PEST') { q.set('pfx', 'Pest Control'); const l = lastLoggedService(name, /^Pest Control/i); if (l) q.set('svc', l); }
+  else if (code === 'BAIT') q.set('svc', 'Mosquito - Bait Station');
+  else if (code === 'MOSQ') { q.set('pfx', 'Mosquito'); q.set('not', 'Bait'); const l = lastLoggedService(name, /^Mosquito(?!\s*-\s*Bait)/i); if (l) q.set('svc', l); }
+  else q.set('pfx', 'PHC -');
+  return LPP_LOG_APP + '?' + q.toString();
+}
+function lppLogBtn(name, code, label) {
+  const u = lppLogUrl(name, code);
+  return u ? `<button class="btn secondary sm" data-url="${escHtml(u)}" onclick="window.open(this.dataset.url,'_blank')" title="Open the LPP Log with this customer and service filled in">📋 ${label || 'Log'}</button>` : '';
+}
+// does the log show this kind of work for this customer on or after a date?
+function logDoneSince(name, code, since) {
+  const k = nameKey(name); let first = null;
+  const match = e => {
+    if (/^\d[ABC]?$/.test(code)) return svcCode(e.s) === code;
+    if (code === 'PEST') return svcCode(e.s) === 'PEST';
+    if (code === 'MOSQ') return /^Mosquito(?!\s*-\s*Bait)/i.test(e.s);
+    if (code === 'BAIT') return /^Mosquito\s*-\s*Bait/i.test(e.s);
+    if (/^TS[345]$/.test(code)) return /^PHC\b/i.test(e.s);
+    return false;
+  };
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && e.d >= since && match(e) && (!first || e.d < first)) first = e.d; }));
+  return first;
+}
+// a stop on a route is checked off once the log shows its work was done on or after that route's day
+function syncRoutesFromLog() {
+  let changed = 0;
+  STATE.routes.forEach(rt => (rt.stops || []).forEach(stop => {
+    if (stop.status === 'completed' || !rt.date) return;
+    const items = (stop.items || [{ code:stop.code }]).filter(it => it.code && loggableCode(it.code));
+    if (!items.length) return;
+    const dates = items.map(it => logDoneSince(stop.customerName, it.code, rt.date));
+    if (dates.every(Boolean)) { stop.status = 'completed'; stop.completedDate = dates.sort().pop(); stop.viaLog = true; changed++; }
+  }));
+  if (changed) { saveState(); renderCurrentPage(); }
+  return changed;
+}
+document.addEventListener('visibilitychange', () => {
+  // coming back from the LPP Log: re-read it so what you just logged shows up here
+  if (document.visibilityState === 'visible' && TREATLOG.fetchedAt && Date.now() - new Date(TREATLOG.fetchedAt).getTime() > 45000 && apiLoaded) refreshTreatLog();
+});
+
 // ── LPP Log loading ──
 function loadTreatLogCache() {
   try { const raw = localStorage.getItem(TREATLOG_KEY); if (raw) TREATLOG = JSON.parse(raw); } catch(e) {}
@@ -2790,7 +2847,7 @@ function refreshTreatLog(force) {
     })
     .then(() => { TREATLOG.fetchedAt = new Date().toISOString(); saveTreatLogCache(); })
     .catch(e => { treatLogError = (e && e.message) || 'Could not reach the LPP Log'; })
-    .then(() => { treatLogLoading = false; renderCurrentPage(); });
+    .then(() => { treatLogLoading = false; try { syncRoutesFromLog(); } catch(e) {} renderCurrentPage(); });
 }
 
 // ── what a log service name means to the scheduler ──
@@ -3154,6 +3211,7 @@ function renderSchedule() {
           ${blanketNote(i) ? '<div style="margin-top:2px">' + blanketNote(i) + '</div>' : ''}
           ${i.note && (i.svcKey || schedToday() < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn);margin-top:2px">' + escHtml(i.note) + '</div>' : ''}
         </div>
+        ${(i.status === 'due' || i.status === 'late') ? lppLogBtn(i.name, i.code) : ''}
         ${i.manual ? `<button class="btn success sm" onclick="schedMarkDone('${i.cid}','${i.period}:${i.code}')" title="Mark this done">Done</button>` : ''}
         <button class="btn ghost sm" onclick="schedToggleSkip('${i.cid}','${i.period}:${i.code}')" title="Skip this one">Skip</button>
       </div>
@@ -3234,6 +3292,7 @@ function schedCustomerCard(cid) {
         ${blanketNote(r) ? '<div>' + blanketNote(r) + '</div>' : ''}
       </div>
       ${schedBadge(r.status)}
+      ${(r.status === 'due' || r.status === 'late') ? lppLogBtn(r.name, r.code) : ''}
       ${r.manual ? (r.status === 'done' ? `<button class="btn ghost sm" onclick="schedUnmarkDone('${cid}','${r.period}:${r.code}')">Undo done</button>` : `<button class="btn success sm" onclick="schedMarkDone('${cid}','${r.period}:${r.code}')">Mark done</button>`) : ''}
       ${(r.status === 'done' || r.extra) ? '' : `<button class="btn ghost sm" onclick="schedToggleSkip('${cid}','${r.period}:${r.code}')">${r.status === 'skipped' ? 'Undo skip' : 'Skip'}</button>`}
     </div>`).join('');
