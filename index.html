@@ -1217,6 +1217,8 @@ function renderCustomerDetail(el) {
       return lv.slice(0,10).map(v=>'<div class="card" style="padding:10px"><div class="flex-between"><span style="font-weight:700;font-size:13px">'+fmtDateFull(v.date)+' <span class="badge" style="background:var(--bg-input);color:var(--text-dim);font-size:9px">'+escHtml(v.type)+'</span></span><button class="btn ghost sm" onclick="if(confirm(\'Delete?\')){{STATE.lawnVisits=STATE.lawnVisits.filter(x=>x.id!==\''+v.id+'\');saveState();renderCurrentPage();}}" style="color:var(--danger)">✕</button></div><div style="font-size:12px;color:var(--text-dim);margin-top:4px">Rating: '+escHtml(v.rating||'—')+' · Color: '+escHtml(v.color||'—')+' · Weeds: '+escHtml(v.weedPressure||'—')+'</div>'+(v.weeds?'<div style="font-size:11px;color:var(--warn);margin-top:2px">Weeds: '+escHtml(v.weeds)+'</div>':'')+(v.diseases?'<div style="font-size:11px;color:var(--danger);margin-top:2px">Disease: '+escHtml(v.diseases)+'</div>':'')+(v.insects?'<div style="font-size:11px;color:var(--warn);margin-top:2px">Insects: '+escHtml(v.insects)+'</div>':'')+(v.notes?'<div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-style:italic">'+escHtml(v.notes)+'</div>':'')+'</div>').join('');
     })()}
 
+    ${treesCard(cid)}
+
     <!-- PHC VISIT LOG -->
     <div class="flex-between" style="margin:20px 0 10px">
       <h2 style="margin:0">🌳 PHC Visits</h2>
@@ -2777,6 +2779,7 @@ function lppLogUrl(name, code) {
   else if (code === 'TS1') q.set('pfx', 'PHC - Horticultural Oil - Spring');
   else if (code === 'TS7') q.set('pfx', 'PHC - Horticultural Oil - Fall');
   else q.set('svc', 'PHC - Round 3-5 Treatment (pick product)');   // rounds 3-5: one generic service, the product is picked at logging
+  if (!/^\d[ABC]?$/.test(code) && code !== 'PEST' && code !== 'MOSQ' && code !== 'BAIT') treeLinkParams(name, q);
   return LPP_LOG_APP + '?' + q.toString();
 }
 function lppLogBtn(name, code, label) {
@@ -3797,6 +3800,84 @@ function renderOffers() {
       <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save messages</button></div></div>`;
 }
 
+// ══════════ TREES & PLANTS (saved per customer) ══════════
+// Trees treated one at a time (root-zone spikes, trunk injections, imidacloprid drenches, lanternfly on maples and grapevines)
+// are dosed by trunk diameter, so each group is saved once: how many, what, inches across, where. The LPP Log fills its
+// trunk-diameter boxes from this when it is opened from a FieldPro button.
+// Foundation plants (azaleas, boxwoods) are dosed by the gallon of mix through the backpack, so they keep a usual-gallons figure.
+// Kept in the customer's plan record, so it needs no sheet change.
+const TREE_STALE_DAYS = 365;
+function plantGroups(cid) { const p = getPlan(String(cid)); return (p && p.trees) || []; }
+function treeWhen(d) { return d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month:'short', year:'numeric' }) : ''; }
+function treeStale(t) { return !!(t.date && (Date.parse(schedToday()) - Date.parse(t.date)) / 864e5 >= TREE_STALE_DAYS); }
+function treesCard(cid) {
+  const g = plantGroups(cid);
+  const rows = g.map(t => {
+    const bed = t.kind === 'bed', stale = !bed && treeStale(t);
+    const main = bed
+      ? `<strong>${escHtml(t.label || 'Foundation plants')}</strong> · usually about ${escHtml(String(t.gal || '?'))} gal per application`
+      : `<strong>${t.count || 1} × ${escHtml(t.label || 'tree')}</strong> · ${t.dbh} in across each (${Math.round((t.count || 1) * t.dbh * 10) / 10} in total)`;
+    const sub = [t.where ? escHtml(t.where) : '',
+      !bed && t.date ? (stale ? `<span style="color:var(--warn)">measured ${treeWhen(t.date)} — trees grow, check the size</span>` : 'measured ' + treeWhen(t.date)) : ''].filter(Boolean).join(' · ');
+    return `<div class="card" style="padding:10px 12px;margin-bottom:6px"><div class="flex-between" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
+      <div style="min-width:0"><div style="font-size:14px">${main}</div>${sub ? `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">${sub}</div>` : ''}</div>
+      <div class="flex-row gap-6">${stale ? `<button class="btn secondary sm" onclick="treeStillRight('${cid}','${t.id}')">Still right</button>` : ''}<button class="btn ghost sm" onclick="showTreeForm('${cid}','${t.id}')">Edit</button></div></div></div>`;
+  }).join('');
+  return `<div class="flex-between mt-24 mb-8" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">🌳 Trees &amp; plants</h2>
+      <div class="flex-row gap-6"><button class="btn success sm" onclick="showTreeForm('${cid}','','tree')">+ Trees</button><button class="btn secondary sm" onclick="showTreeForm('${cid}','','bed')">+ Foundation plants</button></div></div>
+    ${rows || '<div class="card"><p style="color:var(--text-dim);margin:0;font-size:13px">Nothing saved yet. Add the trees you treat by trunk diameter (spikes, drenches, injections) or the foundation plants you spray by the gallon, and the LPP Log will fill the numbers in for you.</p></div>'}`;
+}
+function showTreeForm(cid, id, kind) {
+  const t = plantGroups(cid).find(x => x.id === id) || {};
+  const k = t.kind || kind || 'tree';
+  showModal(id ? 'Edit trees & plants' : 'Add trees & plants', `
+    <div class="input-group"><label>What is it?</label><select id="tf-kind" onchange="treeFormKind()"><option value="tree"${k === 'tree' ? ' selected' : ''}>Trees — dosed by trunk diameter</option><option value="bed"${k === 'bed' ? ' selected' : ''}>Foundation plants — sprayed by the gallon</option></select></div>
+    <div class="input-group"><label>Name</label><input id="tf-label" value="${escHtml(t.label || '')}" placeholder="${k === 'bed' ? 'Azaleas, boxwoods' : 'Serbian spruce'}"></div>
+    <div id="tf-tree"><div class="flex-row gap-6">
+      <div class="input-group" style="flex:1"><label>How many</label><input id="tf-count" type="number" inputmode="numeric" min="1" step="1" value="${t.count || ''}" placeholder="8"></div>
+      <div class="input-group" style="flex:1"><label>Inches across each (DBH)</label><input id="tf-dbh" type="number" inputmode="decimal" min="0" step="0.5" value="${t.dbh || ''}" placeholder="5"></div></div></div>
+    <div id="tf-bed"><div class="input-group"><label>Usual gallons per application (4 gal = one backpack)</label><input id="tf-gal" type="number" inputmode="decimal" min="0" step="0.5" value="${t.gal || ''}" placeholder="4"></div></div>
+    <div class="input-group"><label>Where (optional)</label><input id="tf-where" value="${escHtml(t.where || '')}" placeholder="Front lawn, left of the driveway"></div>
+    <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px">${id ? `<button class="btn ghost" style="margin-right:auto;color:var(--overdue)" onclick="treeRemove('${cid}','${id}')">Remove</button>` : ''}<button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="treeSave('${cid}','${id || ''}')">Save</button></div>`);
+  treeFormKind();
+}
+function treeFormKind() {
+  const bed = document.getElementById('tf-kind').value === 'bed';
+  document.getElementById('tf-tree').style.display = bed ? 'none' : 'block';
+  document.getElementById('tf-bed').style.display = bed ? 'block' : 'none';
+}
+function treeSave(cid, id) {
+  const kind = document.getElementById('tf-kind').value, label = document.getElementById('tf-label').value.trim(), where = document.getElementById('tf-where').value.trim();
+  const count = parseInt(document.getElementById('tf-count').value, 10) || 1, dbh = parseFloat(document.getElementById('tf-dbh').value), gal = parseFloat(document.getElementById('tf-gal').value);
+  if (kind === 'tree' && !(dbh > 0)) { alert('Enter the inches across (DBH) for these trees.'); return; }
+  if (kind === 'bed' && !(gal > 0)) { alert('Enter the usual gallons per application.'); return; }
+  closeModal();
+  editPlan(String(cid), p => {
+    p.trees = p.trees || [];
+    const old = p.trees.find(x => x.id === id);
+    const rec = kind === 'bed' ? { kind, label, gal, where } : { kind, label, count, dbh, where, date: old && old.kind === 'tree' && old.dbh === dbh ? old.date : schedToday() };
+    if (old) { Object.keys(old).forEach(key => delete old[key]); Object.assign(old, rec, { id }); } else p.trees.push(Object.assign({ id:uid() }, rec));
+  });
+}
+function treeStillRight(cid, id) { editPlan(String(cid), p => { const t = (p.trees || []).find(x => x.id === id); if (t) t.date = schedToday(); }); }
+function treeRemove(cid, id) {
+  if (!confirm('Remove this from the customer?')) return;
+  closeModal();
+  editPlan(String(cid), p => { p.trees = (p.trees || []).filter(x => x.id !== id); });
+}
+// What the LPP Log is given when it opens from a FieldPro button: ?tr=8x5~Serbian spruce|1x12~Red maple &gal=4 &tm=2026-10-01
+function treeLinkParams(name, q) {
+  const c = STATE.customers.find(x => nameKey(x.Name || x.name) === nameKey(name));
+  if (!c) return;
+  const g = plantGroups(custIdStr(c));
+  if (!g.length) return;
+  const trees = g.filter(t => t.kind !== 'bed' && t.dbh > 0), bed = g.find(t => t.kind === 'bed' && t.gal > 0);
+  if (trees.length) q.set('tr', trees.map(t => (t.count || 1) + 'x' + t.dbh + (t.label ? '~' + t.label.replace(/[|~]/g, ' ') : '')).join('|'));
+  if (bed) q.set('gal', bed.gal);
+  const dates = trees.map(t => t.date).filter(Boolean).sort();
+  if (dates.length) q.set('tm', dates[0]);   // the oldest measurement, so the LPP Log can warn when it is over a year old
+}
+
 // ══════════ NEAR ME (find the customer I'm standing at) ══════════
 // Uses the phone's location, once or live while the window is open, and ranks customers by distance from their saved pins.
 // The location is used on this device only: it is never saved or sent anywhere.
@@ -3841,7 +3922,7 @@ function renderNearMe() {
       ${sure ? `<div class="card" style="border-left:3px solid var(--accent);padding:8px 12px;margin-bottom:8px;font-size:13px">You’re probably at <strong>${escHtml(top.c.Name || top.c.name)}</strong>.</div>` : ''}
       ${list.map((x, i) => {
         const code = x.due && loggableCode(x.due.code) ? x.due.code : null;
-        const url = code ? lppLogUrl(x.c.Name || x.c.name, code) : LPP_LOG_APP + '?c=' + encodeURIComponent(x.c.Name || x.c.name);
+        const url = code ? lppLogUrl(x.c.Name || x.c.name, code) : (() => { const q = new URLSearchParams({ c:x.c.Name || x.c.name }); treeLinkParams(x.c.Name || x.c.name, q); return LPP_LOG_APP + '?' + q.toString(); })();
         return `<div class="card" style="padding:10px 12px;margin-bottom:6px;${i === 0 && sure ? 'border-color:var(--accent)' : ''}">
           <div class="flex-between" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
             <div style="min-width:0"><div style="font-weight:700;font-size:14px">${escHtml(x.c.Name || x.c.name)} <span style="font-size:12px;color:var(--accent);font-weight:600">${nearFmt(x.m)}</span></div>
