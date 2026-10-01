@@ -2723,9 +2723,9 @@ const SERVICES = {
   TS:   { label:'Tree & shrub', svc:'Tree & Shrub Care', kind:'rounds', log:/^PHC\b/i, placeholder:true, rounds:[
             { code:'1', name:'Round 1 — Horticultural oil',                    start:'03-01', end:'04-10' },
             { code:'2', name:'Round 2 — Fertilizer',                           start:'04-01', end:'04-24', useLog:true, logRe:/^PHC\s*-\s*Fertiliz/i },
-            { code:'3', name:'Round 3 — Fungicide (needle cast), miticide, insecticide', start:'04-25', end:'05-15', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
-            { code:'4', name:'Round 4 — Fungicide, miticide, insecticide',     start:'06-01', end:'07-10', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
-            { code:'5', name:'Round 5 — Fungicide, miticide, insecticide',     start:'07-15', end:'08-31', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
+            { code:'3', name:'Round 3 — Fungicide, miticide or insecticide (needle cast fungicide in late April)', start:'04-25', end:'05-15', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
+            { code:'4', name:'Round 4 — Fungicide, miticide or insecticide',     start:'06-01', end:'07-10', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
+            { code:'5', name:'Round 5 — Fungicide, miticide or insecticide',     start:'07-15', end:'08-31', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
             { code:'6', name:'Round 6 — Fertilizer',                           start:'09-05', end:'10-10', useLog:true, logRe:/^PHC\s*-\s*Fertiliz/i },
             { code:'7', name:'Round 7 — Horticultural oil',                    start:'10-25', end:'11-20' } ] },
   // Round 8 of the tree & shrub program. Its own switch: only some customers get it.
@@ -3540,7 +3540,7 @@ function wxEnsure() {
 // ══════════ TAP TO TEXT (call-ahead messages) ══════════
 // Opens the phone's own Messages app with the text already written. Nothing is sent from FieldPro: you read it and tap send there.
 const SMS_DEFAULT = 'Hey {name}. I have you scheduled for your {service} for {when}. Any questions let me know.';
-const SMS_TS_MIXED = 'tree and shrub round {n} fungicide, mite and insect treatment';
+const SMS_TS_MIXED = 'tree and shrub round {n} treatment';
 const SMS_SERVICE = {
   '1':'round 1 fertilizer', '2A':'round 2 pre-emergent and weed control', '2B':'round 2 pre-emergent and weed control', '3':'round 3 weed and feed',
   '4':'round 4 grub control', '5':'round 5 insect and weed control', '5A':'round 5 insect control', '5B':'round 5 grassy weed control',
