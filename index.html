@@ -2722,11 +2722,11 @@ const SERVICES = {
   // LPP Log as PHC - ..., so they are recognised from it; oil and fertilizer are marked done in FieldPro). Dates are PROPOSED.
   TS:   { label:'Tree & shrub', svc:'Tree & Shrub Care', kind:'rounds', log:/^PHC\b/i, placeholder:true, rounds:[
             { code:'1', name:'Round 1 — Horticultural oil',                    start:'03-01', end:'04-10' },
-            { code:'2', name:'Round 2 — Fertilizer',                           start:'04-01', end:'04-24' },
-            { code:'3', name:'Round 3 — Fungicide (needle cast), miticide, insecticide', start:'04-25', end:'05-15', useLog:true },
-            { code:'4', name:'Round 4 — Fungicide, miticide, insecticide',     start:'06-01', end:'07-10', useLog:true },
-            { code:'5', name:'Round 5 — Fungicide, miticide, insecticide',     start:'07-15', end:'08-31', useLog:true },
-            { code:'6', name:'Round 6 — Fertilizer',                           start:'09-05', end:'10-10' },
+            { code:'2', name:'Round 2 — Fertilizer',                           start:'04-01', end:'04-24', useLog:true, logRe:/^PHC\s*-\s*Fertiliz/i },
+            { code:'3', name:'Round 3 — Fungicide (needle cast), miticide, insecticide', start:'04-25', end:'05-15', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
+            { code:'4', name:'Round 4 — Fungicide, miticide, insecticide',     start:'06-01', end:'07-10', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
+            { code:'5', name:'Round 5 — Fungicide, miticide, insecticide',     start:'07-15', end:'08-31', useLog:true, logRe:/^PHC\b(?!\s*-\s*Fertiliz)/i },
+            { code:'6', name:'Round 6 — Fertilizer',                           start:'09-05', end:'10-10', useLog:true, logRe:/^PHC\s*-\s*Fertiliz/i },
             { code:'7', name:'Round 7 — Horticultural oil',                    start:'10-25', end:'11-20' } ] },
   // Round 8 of the tree & shrub program. Its own switch: only some customers get it.
   ADES: { label:'Tree & shrub — Round 8 (anti-desiccant)', svc:'Tree & Shrub Care', kind:'window', start:'11-01', endFn:Y => seasonEnd(Y), placeholder:true },
@@ -2758,7 +2758,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 // The log stays the single source of truth for the regulatory record; FieldPro never writes entries itself.
 // Only the work that goes in the pesticide log gets a button (not seed, fertilizer-only or oil rounds).
 const LPP_LOG_APP = 'https://lawnsplantspests-ui.github.io/lpp-log/';
-const loggableCode = c => /^\d[ABC]?$/.test(c) || c === 'PEST' || c === 'MOSQ' || c === 'BAIT' || /^TS[345]$/.test(c);
+const loggableCode = c => /^\d[ABC]?$/.test(c) || c === 'PEST' || c === 'MOSQ' || c === 'BAIT' || /^TS[2-6]$/.test(c);
 function lastLoggedService(name, re) {
   const k = nameKey(name); let best = null;
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && re.test(e.s) && (!best || e.d > best.d)) best = e; }));
@@ -2771,7 +2771,8 @@ function lppLogUrl(name, code) {
   else if (code === 'PEST') { q.set('pfx', 'Pest Control'); const l = lastLoggedService(name, /^Pest Control/i); if (l) q.set('svc', l); }
   else if (code === 'BAIT') q.set('svc', 'Mosquito - Bait Station');
   else if (code === 'MOSQ') { q.set('pfx', 'Mosquito'); q.set('not', 'Bait'); const l = lastLoggedService(name, /^Mosquito(?!\s*-\s*Bait)/i); if (l) q.set('svc', l); }
-  else q.set('pfx', 'PHC -');
+  else if (code === 'TS2' || code === 'TS6') q.set('pfx', 'PHC - Fertilization');
+  else { q.set('pfx', 'PHC -'); q.set('not', 'Fertiliz'); }
   return LPP_LOG_APP + '?' + q.toString();
 }
 function lppLogBtn(name, code, label) {
@@ -2786,7 +2787,8 @@ function logDoneSince(name, code, since) {
     if (code === 'PEST') return svcCode(e.s) === 'PEST';
     if (code === 'MOSQ') return /^Mosquito(?!\s*-\s*Bait)/i.test(e.s);
     if (code === 'BAIT') return /^Mosquito\s*-\s*Bait/i.test(e.s);
-    if (/^TS[345]$/.test(code)) return /^PHC\b/i.test(e.s);
+    if (code === 'TS2' || code === 'TS6') return /^PHC\s*-\s*Fertiliz/i.test(e.s);
+    if (/^TS[345]$/.test(code)) return /^PHC\b(?!\s*-\s*Fertiliz)/i.test(e.s);
     return false;
   };
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && e.d >= since && match(e) && (!first || e.d < first)) first = e.d; }));
@@ -3088,11 +3090,12 @@ function schedFor(c, mine, today) {
       mk(key, label, def.svc, st, Object.assign(o, { last:lastThisYear || null }));
     } else {
       const wins = def.kind === 'rounds'
-        ? def.rounds.map(r => ({ code:key + r.code, label:def.label + ' — ' + r.name, start:Y + '-' + r.start, end:Y + '-' + r.end, useLog:!!r.useLog }))
+        ? def.rounds.map(r => ({ code:key + r.code, label:def.label + ' — ' + r.name, start:Y + '-' + r.start, end:Y + '-' + r.end, useLog:!!r.useLog, logRe:r.logRe }))
         : [{ code:key, label:def.label, start:Y + '-' + def.start, end:def.endFn ? def.endFn(Y) : Y + '-' + def.end, useLog:!!def.log }];
       wins.forEach(w => {
         const o = Object.assign({ start:w.start, end:w.end, avail:w.start, period:String(Y) }, base2);
-        const doneOn = manualDone[o.period + ':' + w.code] || (w.useLog ? logDates.filter(d => d >= w.start && d <= w.end)[0] : undefined);
+        const rDates = w.logRe ? thisYr.concat(lastYr).filter(e => w.logRe.test(e.s)).map(e => e.d).sort() : logDates;
+        const doneOn = manualDone[o.period + ':' + w.code] || (w.useLog ? rDates.filter(d => d >= w.start && d <= w.end)[0] : undefined);
         if (doneOn) return mk(w.code, w.label, def.svc, 'done', Object.assign(o, { doneOn }));
         if (skip[o.period + ':' + w.code]) return mk(w.code, w.label, def.svc, 'skipped', o);
         let st;
