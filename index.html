@@ -2359,6 +2359,7 @@ function completeRouteStop(routeId, stopIdx) {
   if (stop.cpId && stop.roundIdx != null) {
     completeRound(stop.cpId, stop.roundIdx);
   }
+  if (stop.code === 'SEED' && stop.period) ensurePlan(String(stop.customerId)).done[stop.period + ':SEED'] = schedToday();   // seed is not in the LPP Log, so this is where it gets recorded
   saveState();
   renderRoutes();
 }
@@ -2368,6 +2369,8 @@ function undoRouteStop(routeId, stopIdx) {
   if (!rt) return;
   rt.stops[stopIdx].status = 'pending';
   rt.stops[stopIdx].completedDate = null;
+  const us = rt.stops[stopIdx];
+  if (us.code === 'SEED' && us.period) { const pl = getPlan(String(us.customerId)); if (pl && pl.done) delete pl.done[us.period + ':SEED']; }
   saveState();
   renderRoutes();
 }
@@ -2675,17 +2678,25 @@ const BLANKET_CAP = 2;         // ...and 2 broadcast passes per site per year
 const LATE_GRACE_DAYS = 14;    // a missed window stays "late" this long, then "missed"
 const SOON_DAYS = 21;          // "opening soon" horizon
 
+// Thanksgiving is the 4th Thursday of November. Devon wants the year finished by the week before it
+// (the Friday before Thanksgiving week), and never later than the Wednesday before Thanksgiving.
+function thanksgiving(Y) { const off = (4 - new Date(Y, 10, 1).getDay() + 7) % 7; return isoLocal(new Date(Y, 10, 1 + off + 21)); }
+const seasonEnd = Y => addDays(thanksgiving(Y), -6);
+const seasonLimit = Y => addDays(thanksgiving(Y), -1);
+
 // Windows come from when the rounds were actually logged in 2026, padded a little.
 // Rd 7 (winterizer) has no log history yet; its window is the winterizer window from the old templates.
 const SCHED_ROUNDS = {
-  '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'03-01', end:'03-31' },
+  '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'02-14', end:'03-31', note:'Can start Feb 14 if soil temps are decent and there is no snow on the ground' },
   '2A': { label:'Rd 2A — Pre-emergent + 3-way',   svc:'Lawn Fert & Weed', start:'03-25', end:'04-30', blanket:true },
   '2B': { label:'Rd 2B — Dimension + 3-way',      svc:'Lawn Fert & Weed', start:'04-20', end:'05-10', blanket:true },
   '3':  { label:'Rd 3 — Weed & feed (no grub)',   svc:'Lawn Fert & Weed', start:'05-15', end:'06-30', blanket:true },
-  '4':  { label:'Rd 4 — Grub control',            svc:'Grub Control',     start:'05-20', end:'06-30', blanket:true },
+  '4':  { label:'Rd 4 — Grub control',            svc:'Grub Control',     start:'05-15', end:'06-30', blanket:true },
   '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-20', end:'08-31' },
   '6':  { label:'Rd 6 — Fall weed & feed',        svc:'Lawn Fert & Weed', start:'09-15', end:'10-31', blanket:true },
-  '7':  { label:'Rd 7 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-15', end:'12-01' },
+  '7':  { label:'Rd 7 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-15', end:'11-20', endFn:Y => seasonEnd(Y) },   // done by the week before Thanksgiving
+  // Aeration & seed is a per-customer add-on Devon tracks himself (not a pesticide, so never in the LPP Log)
+  'SEED': { label:'Aeration & seed',                svc:'Aeration & Seed',  start:'09-01', end:'09-14' },
 };
 const SCHED_TRACKS = {
   // 'S' = the late-May/June slot: Rd 4 (grub control) if the customer buys grub, else Rd 3 (weed & feed, no grub)
@@ -2794,16 +2805,26 @@ function inferTrack(entries) {
 
 // ── per-customer choices ──
 function getPlan(cid) { return STATE.customerPrograms.find(cp => cp.kind === 'plan' && cp.customerId === cid); }
-function editPlan(cid, fn) {
+function ensurePlan(cid) {
   let p = getPlan(cid);
   if (!p) { p = { id:uid(), kind:'plan', customerId:cid, programName:'Treatment plan', year:null, rounds:[], track:null, skip:{} }; STATE.customerPrograms.push(p); }
-  p.skip = p.skip || {};
+  p.skip = p.skip || {}; p.done = p.done || {};
+  return p;
+}
+function editPlan(cid, fn) {
+  const p = ensurePlan(cid);
   fn(p);
   saveState();
   renderCurrentPage();
 }
 function schedSetTrack(cid, track) { editPlan(cid, p => { p.track = track || null; }); }
 function schedSetGrub(cid, v) { editPlan(cid, p => { p.grub = v; }); }
+function schedSetSeed(cid, mode) {
+  editPlan(cid, p => { if (mode === 'off') delete p.seed; else if (mode === 'sep') p.seed = 'sep'; else p.seed = (p.seed && p.seed !== 'sep') ? p.seed : isoLocal(new Date(Date.now() + 7 * 86400000)); });
+}
+function schedSeedDate(cid, iso) { if (iso) editPlan(cid, p => { p.seed = iso; }); }
+function schedMarkDone(cid, key) { editPlan(cid, p => { p.done[key] = schedToday(); }); }
+function schedUnmarkDone(cid, key) { editPlan(cid, p => { delete p.done[key]; }); }
 function schedTogglePest(cid) { editPlan(cid, p => { p.noPest = !p.noPest; }); }
 function schedToggleSkip(cid, key) { editPlan(cid, p => { if (p.skip[key]) delete p.skip[key]; else p.skip[key] = true; }); }
 
@@ -2844,8 +2865,8 @@ function schedFor(c, mine, today) {
       const alts = c0 === 'S' ? [code, code === '4' ? '3' : '4'] : (code === '2A' || code === '2B') ? ['2A', '2B'] : [code];
       alts.forEach(k => covered.add(k));
       const dc = alts.find(k => done[k]);
-      const R = SCHED_ROUNDS[dc || code], ws = Y + '-' + R.start, we = Y + '-' + R.end;
-      const o = { start:ws, end:we, period:String(Y), asNeeded:!!R.asNeeded, blanket:R.blanket ? blanketDates.length : null };
+      const R = SCHED_ROUNDS[dc || code], ws = Y + '-' + R.start, we = R.endFn ? R.endFn(Y) : Y + '-' + R.end;
+      const o = { start:ws, end:we, period:String(Y), asNeeded:!!R.asNeeded, note:R.note || '', blanket:R.blanket ? blanketDates.length : null };
       if (dc) return mk(dc, R.label, R.svc, 'done', Object.assign(o, { doneOn:done[dc] }));
       if (skip[Y + ':' + code]) return mk(code, R.label, R.svc, 'skipped', o);
       let avail = ws;
@@ -2888,12 +2909,28 @@ function schedFor(c, mine, today) {
     mkMonth(nx.getFullYear(), nx.getMonth());
   }
 
+  // aeration & seed — an add-on set per customer; September 1-14 by default, or a date he picks
+  if (plan.seed) {
+    const custom = plan.seed !== 'sep' && /^\d{4}-\d{2}-\d{2}$/.test(plan.seed);
+    const ws = custom ? plan.seed : Y + '-09-01', we = custom ? addDays(plan.seed, 13) : Y + '-09-14', period = custom ? plan.seed : String(Y);
+    const R = SCHED_ROUNDS.SEED, o = { start:ws, end:we, avail:ws, period, seed:true };
+    const doneOn = (plan.done || {})[period + ':SEED'];
+    if (doneOn) mk('SEED', R.label, R.svc, 'done', Object.assign(o, { doneOn }));
+    else if (skip[period + ':SEED']) mk('SEED', R.label, R.svc, 'skipped', o);
+    else {
+      let st;
+      if (today > we) st = daysBetween(we, today) > LATE_GRACE_DAYS ? 'missed' : 'late';
+      else if (today >= ws) st = 'due';
+      else st = daysBetween(today, ws) <= SOON_DAYS ? 'soon' : 'later';
+      mk('SEED', R.label, R.svc, st, o);
+    }
+  }
   const last = mine.slice().sort((a,b) => b.d.localeCompare(a.d))[0] || null;
   rounds.forEach(r => { r.last = last; });
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
   const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
   const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
-  return { cid, c, track, trackSource, needsTrack, grub, grubSource, pestOff:!!plan.noPest, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, pestOff:!!plan.noPest, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
 }
 
 function buildSchedule() {
@@ -3001,7 +3038,9 @@ function renderSchedule() {
           <div style="font-size:12px;margin-top:2px">${escHtml(i.label)}${i.sqft && !i.pest ? ' · ' + Number(i.sqft).toLocaleString() + ' sqft' : ''}</div>
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${schedWhen(i)}${i.last ? ' · last: ' + escHtml(shortSvc(i.last.s)) + ' ' + fmtDate(i.last.d) : ''}</div>
           ${blanketNote(i) ? '<div style="margin-top:2px">' + blanketNote(i) + '</div>' : ''}
+          ${i.note && schedToday() < i.period + '-03-01' ? '<div style="font-size:11px;color:var(--warn);margin-top:2px">' + escHtml(i.note) + '</div>' : ''}
         </div>
+        ${i.seed ? `<button class="btn success sm" onclick="schedMarkDone('${i.cid}','${i.period}:SEED')" title="Mark aeration & seed done">Done</button>` : ''}
         <button class="btn ghost sm" onclick="schedToggleSkip('${i.cid}','${i.period}:${i.code}')" title="Skip this one">Skip</button>
       </div>
     </div>`;
@@ -3080,6 +3119,7 @@ function schedCustomerCard(cid) {
         ${blanketNote(r) ? '<div>' + blanketNote(r) + '</div>' : ''}
       </div>
       ${schedBadge(r.status)}
+      ${r.code === 'SEED' ? (r.status === 'done' ? `<button class="btn ghost sm" onclick="schedUnmarkDone('${cid}','${r.period}:SEED')">Undo done</button>` : `<button class="btn success sm" onclick="schedMarkDone('${cid}','${r.period}:SEED')">Mark done</button>`) : ''}
       ${(r.status === 'done' || r.extra) ? '' : `<button class="btn ghost sm" onclick="schedToggleSkip('${cid}','${r.period}:${r.code}')">${r.status === 'skipped' ? 'Undo skip' : 'Skip'}</button>`}
     </div>`).join('');
   return `
@@ -3096,6 +3136,13 @@ function schedCustomerCard(cid) {
         <button class="btn ${row.grub ? 'secondary' : 'primary'} sm" onclick="schedSetGrub('${cid}',false)">No grub — Rd 3</button>
         <span style="font-size:11px;color:var(--text-muted)">${row.grubSource === 'set' ? 'set by you' : row.grubSource === 'history' ? 'from what was logged' : 'assumed — nothing logged yet'}</span></div>` : ''}
       ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button><span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : 'first week of every month'}</span></div>` : ''}
+      <div class="flex-row gap-6" style="flex-wrap:wrap;margin:4px 0;align-items:center">
+        <span style="font-size:12px;color:var(--text-dim)">Aeration &amp; seed:</span>
+        <button class="btn ${!row.seed ? 'primary' : 'secondary'} sm" onclick="schedSetSeed('${cid}','off')">Off</button>
+        <button class="btn ${row.seed === 'sep' ? 'primary' : 'secondary'} sm" onclick="schedSetSeed('${cid}','sep')">September</button>
+        <button class="btn ${row.seed && row.seed !== 'sep' ? 'primary' : 'secondary'} sm" onclick="schedSetSeed('${cid}','date')">Pick a date</button>
+        ${row.seed && row.seed !== 'sep' ? `<input type="date" value="${escHtml(row.seed)}" onchange="schedSeedDate('${cid}',this.value)" style="padding:6px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">` : ''}
+      </div>
       ${roundRows}
       ${row.other.length ? `<div style="font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:6px;margin-top:4px">Other treatments logged this year: ${row.other.map(e => escHtml(shortSvc(e.s)) + ' ' + fmtDate(e.d)).join(' · ')}</div>` : ''}
       ${!row.rounds.length && !row.other.length ? '<div style="font-size:12px;color:var(--text-dim)">Nothing logged yet this year.</div>' : ''}
@@ -3187,7 +3234,7 @@ function locStatus(c) {
 // Builds days that fit between the first stop and the end of the day, using real road drive
 // times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
 // Lawn time is measured from Devon's 2026 log (real-time days): about 32 min at the stop + 0.8 min per 1,000 sq ft
-const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, satOk:false, base:null };
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, satOk:false, base:null };
 function planRecord(create) {
   let r = STATE.customerPrograms.find(cp => cp.kind === 'settings');
   if (!r && create) { r = { id:uid(), kind:'settings', customerId:'_settings', programName:'Planner settings', year:null, rounds:[], cfg:{} }; STATE.customerPrograms.push(r); }
@@ -3226,7 +3273,7 @@ function renderPlanner() {
       <div class="section-label" style="margin-top:0">Your day</div>
       <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:10px">
         ${field('pl-start', 'Leave home at', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
-        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}
+        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days.</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
@@ -3259,7 +3306,7 @@ function planSaveCfg() {
   const addr = v('pl-base').trim();
   const patch = {
     start:v('pl-start') || '09:00', end:v('pl-end') || '17:00',
-    lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0,
+    lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0, seedSetup:Number(v('pl-ssetup')) || 0, seedPerK:Number(v('pl-sperk')) || 0,
     returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked,
   };
   if (base && base.addr !== addr) patch.base = addr ? { addr, lat:null, lng:null } : null;   // address changed: needs finding again
@@ -3370,10 +3417,11 @@ async function planBuild() {
     const ctx = { D:(a, b) => M[a][b], hasBase, startMin:toMin(cfg.start), endMin:toMin(cfg.end), ret:hasBase && cfg.returnHome };
     const { D, startMin, endMin, ret } = ctx;
     const itemWork = (list, sqft) => {
-      const lawn = list.filter(i => !i.pest), pest = list.filter(i => i.pest);
+      const lawn = list.filter(i => !i.pest && !i.seed), pest = list.filter(i => i.pest), seed = list.filter(i => i.seed);
       let m = 0;
       if (lawn.length) m += cfg.lawnSetup + cfg.lawnPerK * ((sqft || 8000) / 1000) * lawn.length;
       if (pest.length) m += cfg.pestMin * pest.length;
+      if (seed.length) m += cfg.seedSetup + cfg.seedPerK * ((sqft || 8000) / 1000);
       return round5(m);
     };
     const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft), end:items.map(i => i.end || '9999').sort()[0] });
@@ -3384,6 +3432,7 @@ async function planBuild() {
     const todayIso = schedToday(); if (date <= todayIso) date = addDays(todayIso, 1);
     for (let guard = 0; left.length && guard < 60; guard++) {
       date = nextWorkday(date, cfg.satOk);
+      if (date > seasonLimit(+date.slice(0, 4))) break;   // nothing after the Wednesday before Thanksgiving
       const open = left.filter(i => openOn(i, date));
       if (!open.length) { date = addDays(date, 1); continue; }
       const by = {}; open.forEach(i => { (by[i.cid] = by[i.cid] || []).push(i); });
@@ -3452,7 +3501,7 @@ async function planBuild() {
         workMin:ev.rows.reduce((t, r) => t + r.s.work, 0), miles:Math.round(miles * 10) / 10 };
     });
     const driveAfter = out.reduce((t, d) => t + d.driveMin, 0);
-    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, driveBefore, driveAfter };
+    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, driveBefore, driveAfter, limit:seasonLimit(+(plannerStart || schedToday()).slice(0, 4)) };
     plannerMsg = (source === 'road' ? 'Drive times are real road times.' : source === 'mixed' ? 'Some drive times are estimates (the road service was partly unreachable).' : 'The road-time service was unreachable, so drive times are straight-line estimates (about 30 mph). Run it again for real times.')
       + (moved && driveBefore > driveAfter ? ' Moving ' + moved + ' stops between days cut the driving by about ' + Math.round(driveBefore - driveAfter) + ' minutes (' + Math.round(100 * (1 - driveAfter / driveBefore)) + '%).' : '');
   } catch (e) { plannerMsg = 'Could not build the plan: ' + escHtml(e.message || String(e)); }
@@ -3479,11 +3528,12 @@ function plannerResultHtml(R) {
             <div style="font-size:11px;color:var(--text-dim)">${escHtml(r.s.items[0].addr)}</div>
             <div style="font-size:11px;color:var(--text-muted)">${r.s.items.map(i => escHtml(i.label)).join(' + ')} · ${r.s.work} min</div>
             ${late.length ? '<div style="font-size:11px;color:var(--overdue)">After the window closed (' + late.map(i => fmtDate(i.end)).join(', ') + ')</div>' : ''}
+            ${r.s.items.some(i => i.note && d.date < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn)">Before March 1: only if soil temps are decent and there is no snow on the ground</div>' : ''}
           </div></div>`;
       }).join('')}
     </div>`).join('');
   const note = (R.tooLong.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">Too long for one day, so not planned: ${R.tooLong.map(s => escHtml(s.items[0].name)).join(', ')}</div>` : '')
-    + (R.notPlanned.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">${R.notPlanned.length} stops don't open soon enough to plan yet (e.g. ${escHtml(R.notPlanned[0].name)}, opens ${fmtDate(R.notPlanned[0].avail || R.notPlanned[0].start)}).</div>` : '');
+    + (R.notPlanned.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">${R.notPlanned.length} stops were not planned: they open too late, or there isn't room before Thanksgiving week (last day ${fmtDate(R.limit)}). For example ${escHtml(R.notPlanned[0].name)}, opens ${fmtDate(R.notPlanned[0].avail || R.notPlanned[0].start)}.</div>` : '');
   return (R.days.length ? `<div class="flex-between mb-8"><h2 style="margin:0">${R.days.length} day${R.days.length === 1 ? '' : 's'} of work</h2><button class="btn secondary sm" onclick="planCreateAll()">Create all days</button></div>` : '') + out + note
     + (R.hasBase ? '' : '<div style="font-size:12px;color:var(--warn);margin:8px 0">No home location set, so the drive to the first stop and home is not counted.</div>');
 }
