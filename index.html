@@ -3816,7 +3816,7 @@ function treesCard(cid) {
     const bed = t.kind === 'bed', stale = !bed && treeStale(t);
     const main = bed
       ? `<strong>${escHtml(t.label || 'Foundation plants')}</strong> · usually about ${escHtml(String(t.gal || '?'))} gal per application`
-      : `<strong>${t.count || 1} × ${escHtml(t.label || 'tree')}</strong> · ${t.dbh} in across each (${Math.round((t.count || 1) * t.dbh * 10) / 10} in total)`;
+      : `<strong>${t.count || 1} × ${escHtml(t.label || 'tree')}</strong> · ${t.dbh} in across each (${Math.round((t.count || 1) * t.dbh * 10) / 10} in total)${t.feed === 'sp' ? ' · fertilize with spikes' : t.feed === 'fo' ? ' · fertilize with BioRush foliar' : ''}`;
     const sub = [t.where ? escHtml(t.where) : '',
       !bed && t.date ? (stale ? `<span style="color:var(--warn)">measured ${treeWhen(t.date)} — trees grow, check the size</span>` : 'measured ' + treeWhen(t.date)) : ''].filter(Boolean).join(' · ');
     return `<div class="card" style="padding:10px 12px;margin-bottom:6px"><div class="flex-between" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
@@ -3835,7 +3835,8 @@ function showTreeForm(cid, id, kind) {
     <div class="input-group"><label>Name</label><input id="tf-label" value="${escHtml(t.label || '')}" placeholder="${k === 'bed' ? 'Azaleas, boxwoods' : 'Serbian spruce'}"></div>
     <div id="tf-tree"><div class="flex-row gap-6">
       <div class="input-group" style="flex:1"><label>How many</label><input id="tf-count" type="number" inputmode="numeric" min="1" step="1" value="${t.count || ''}" placeholder="8"></div>
-      <div class="input-group" style="flex:1"><label>Inches across each (DBH)</label><input id="tf-dbh" type="number" inputmode="decimal" min="0" step="0.5" value="${t.dbh || ''}" placeholder="5"></div></div></div>
+      <div class="input-group" style="flex:1"><label>Inches across each (DBH)</label><input id="tf-dbh" type="number" inputmode="decimal" min="0" step="0.5" value="${t.dbh || ''}" placeholder="5"></div></div>
+      <div class="input-group"><label>How do you fertilize it?</label><select id="tf-feed"><option value="">Not set</option><option value="sp"${t.feed === 'sp' ? ' selected' : ''}>Root-zone spikes (can't be foliar sprayed)</option><option value="fo"${t.feed === 'fo' ? ' selected' : ''}>BioRush foliar spray</option></select></div></div>
     <div id="tf-bed"><div class="input-group"><label>Usual gallons per application (4 gal = one backpack)</label><input id="tf-gal" type="number" inputmode="decimal" min="0" step="0.5" value="${t.gal || ''}" placeholder="4"></div></div>
     <div class="input-group"><label>Where (optional)</label><input id="tf-where" value="${escHtml(t.where || '')}" placeholder="Front lawn, left of the driveway"></div>
     <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px">${id ? `<button class="btn ghost" style="margin-right:auto;color:var(--overdue)" onclick="treeRemove('${cid}','${id}')">Remove</button>` : ''}<button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="treeSave('${cid}','${id || ''}')">Save</button></div>`);
@@ -3848,6 +3849,7 @@ function treeFormKind() {
 }
 function treeSave(cid, id) {
   const kind = document.getElementById('tf-kind').value, label = document.getElementById('tf-label').value.trim(), where = document.getElementById('tf-where').value.trim();
+  const feed = document.getElementById('tf-feed').value;
   const count = parseInt(document.getElementById('tf-count').value, 10) || 1, dbh = parseFloat(document.getElementById('tf-dbh').value), gal = parseFloat(document.getElementById('tf-gal').value);
   if (kind === 'tree' && !(dbh > 0)) { alert('Enter the inches across (DBH) for these trees.'); return; }
   if (kind === 'bed' && !(gal > 0)) { alert('Enter the usual gallons per application.'); return; }
@@ -3855,7 +3857,7 @@ function treeSave(cid, id) {
   editPlan(String(cid), p => {
     p.trees = p.trees || [];
     const old = p.trees.find(x => x.id === id);
-    const rec = kind === 'bed' ? { kind, label, gal, where } : { kind, label, count, dbh, where, date: old && old.kind === 'tree' && old.dbh === dbh ? old.date : schedToday() };
+    const rec = kind === 'bed' ? { kind, label, gal, where } : { kind, label, count, dbh, feed, where, date: old && old.kind === 'tree' && old.dbh === dbh ? old.date : schedToday() };
     if (old) { Object.keys(old).forEach(key => delete old[key]); Object.assign(old, rec, { id }); } else p.trees.push(Object.assign({ id:uid() }, rec));
   });
 }
@@ -3872,7 +3874,7 @@ function treeLinkParams(name, q) {
   const g = plantGroups(custIdStr(c));
   if (!g.length) return;
   const trees = g.filter(t => t.kind !== 'bed' && t.dbh > 0), bed = g.find(t => t.kind === 'bed' && t.gal > 0);
-  if (trees.length) q.set('tr', trees.map(t => (t.count || 1) + 'x' + t.dbh + (t.label ? '~' + t.label.replace(/[|~]/g, ' ') : '')).join('|'));
+  if (trees.length) q.set('tr', trees.map(t => (t.count || 1) + 'x' + t.dbh + (t.label || t.feed ? '~' + (t.label || '').replace(/[|~]/g, ' ') : '') + (t.feed ? '~' + t.feed : '')).join('|'));
   if (bed) q.set('gal', bed.gal);
   const dates = trees.map(t => t.date).filter(Boolean).sort();
   if (dates.length) q.set('tm', dates[0]);   // the oldest measurement, so the LPP Log can warn when it is over a year old
