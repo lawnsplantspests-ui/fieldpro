@@ -2353,7 +2353,9 @@ function completeRouteStop(routeId, stopIdx) {
   if (stop.cpId && stop.roundIdx != null) {
     completeRound(stop.cpId, stop.roundIdx);
   }
-  if (stop.code === 'SEED' && stop.period) ensurePlan(String(stop.customerId)).done[stop.period + ':SEED'] = schedToday();   // seed is not in the LPP Log, so this is where it gets recorded
+  // work that is not in the LPP Log (seed, anti-desiccant, ...) is recorded as done here
+  if (stop.items) stop.items.filter(x => x.manual).forEach(x => { ensurePlan(String(stop.customerId)).done[x.period + ':' + x.code] = schedToday(); });
+  else if (stop.code === 'SEED' && stop.period) ensurePlan(String(stop.customerId)).done[stop.period + ':SEED'] = schedToday();
   saveState();
   renderRoutes();
 }
@@ -2364,7 +2366,7 @@ function undoRouteStop(routeId, stopIdx) {
   rt.stops[stopIdx].status = 'pending';
   rt.stops[stopIdx].completedDate = null;
   const us = rt.stops[stopIdx];
-  if (us.code === 'SEED' && us.period) { const pl = getPlan(String(us.customerId)); if (pl && pl.done) delete pl.done[us.period + ':SEED']; }
+  { const pl = getPlan(String(us.customerId)); if (pl && pl.done) { if (us.items) us.items.filter(x => x.manual).forEach(x => { delete pl.done[x.period + ':' + x.code]; }); else if (us.code === 'SEED' && us.period) delete pl.done[us.period + ':SEED']; } }
   saveState();
   renderRoutes();
 }
@@ -2698,6 +2700,27 @@ const SCHED_TRACKS = {
   std:  { label:'Maintenance program', rounds:['2A','S','6'] },
 };
 
+// Other services. Each is its own service with its own customers, windows, log matching and work time, so
+// mosquito and pest control are never mixed up. A customer is enrolled per service on their page.
+//   monthly = once per listed month, due the first week (like pest); rounds = dated rounds; window = one dated window.
+//   log = how the LPP Log's service names are recognised as that service being done; services with no log match
+//   (or unlogged work) are marked done in FieldPro.
+const SERVICES = {
+  MOSQ: { label:'Mosquito', svc:'Mosquito Control', kind:'monthly', months:[5,6,7,8,9,10], weekEnd:7, log:/^Mosquito/i, infer:true },
+  TS:   { label:'Tree & shrub', svc:'Tree & Shrub Care', kind:'rounds', log:/^PHC\b/i, placeholder:true, rounds:[
+            { code:'1', name:'Round 1', start:'03-01', end:'04-15' },
+            { code:'2', name:'Round 2', start:'05-15', end:'06-30' },
+            { code:'3', name:'Round 3', start:'09-01', end:'10-15' } ] },
+  ADES: { label:'Anti-desiccant', svc:'Tree & Shrub Care', kind:'window', start:'11-01', endFn:Y => seasonEnd(Y), placeholder:true },
+};
+function codeShort(c) {
+  if (c === 'PEST') return 'Pest';
+  if (c === 'SEED') return 'Seed';
+  const k = Object.keys(SERVICES).find(k => c === k || (c.startsWith(k) && /^\d+$/.test(c.slice(k.length))));
+  if (k) return SERVICES[k].label + (c !== k ? ' ' + c.slice(k.length) : '');
+  return 'Rd ' + c;
+}
+
 let TREATLOG = { tabs:{}, fetchedAt:null };
 let treatLogLoading = false, treatLogError = '';
 let schedFilter = { status:'ready', code:'all', city:'all' };
@@ -2831,6 +2854,11 @@ function schedSeedDate(cid, iso) { if (iso) editPlan(cid, p => { p.seed = iso; }
 function schedMarkDone(cid, key) { editPlan(cid, p => { p.done[key] = schedToday(); }); }
 function schedUnmarkDone(cid, key) { editPlan(cid, p => { delete p.done[key]; }); }
 function schedSetWorkSqft(cid, v) { const n = Number(String(v).replace(/,/g, '')); editPlan(cid, p => { if (n > 0) p.workSqft = n; else delete p.workSqft; }); }
+function schedSetSvc(cid, key, on) { editPlan(cid, p => { p.svc = p.svc || {}; if (on === null) delete p.svc[key]; else p.svc[key] = on; }); }
+function schedSvcEndYear(cid, key) {
+  const Y = Number(schedToday().slice(0, 4));
+  editPlan(cid, p => { p.svcEnd = p.svcEnd || {}; if (Number(p.svcEnd[key]) >= Y) delete p.svcEnd[key]; else p.svcEnd[key] = Y; });
+}
 function schedPestDoneYear(cid) {
   const Y = Number(schedToday().slice(0, 4));
   editPlan(cid, p => { if (Number(p.pestEnd) >= Y) delete p.pestEnd; else p.pestEnd = Y; });
@@ -2924,7 +2952,7 @@ function schedFor(c, mine, today) {
   if (plan.seed) {
     const custom = plan.seed !== 'sep' && /^\d{4}-\d{2}-\d{2}$/.test(plan.seed);
     const ws = custom ? plan.seed : Y + '-09-01', we = custom ? addDays(plan.seed, 13) : Y + '-09-14', period = custom ? plan.seed : String(Y);
-    const R = SCHED_ROUNDS.SEED, o = { start:ws, end:we, avail:ws, period, seed:true };
+    const R = SCHED_ROUNDS.SEED, o = { start:ws, end:we, avail:ws, period, seed:true, manual:true, noSqft:false };
     const doneOn = (plan.done || {})[period + ':SEED'];
     if (doneOn) mk('SEED', R.label, R.svc, 'done', Object.assign(o, { doneOn }));
     else if (skip[period + ':SEED']) mk('SEED', R.label, R.svc, 'skipped', o);
@@ -2936,12 +2964,57 @@ function schedFor(c, mine, today) {
       mk('SEED', R.label, R.svc, st, o);
     }
   }
+  // other services (mosquito, tree & shrub, anti-desiccant): enrolled per customer; mosquito is also picked up from the log
+  const svcInfo = {};
+  Object.keys(SERVICES).forEach(key => {
+    const def = SERVICES[key], want = (plan.svc || {})[key];
+    const svcDates = def.log ? thisYr.concat(lastYr).filter(e => def.log.test(e.s)).map(e => e.d) : [];
+    const enrolled = want === true || (want !== false && !!def.infer && svcDates.length > 0);
+    svcInfo[key] = { enrolled, source: want === true ? 'set' : (enrolled ? 'history' : (want === false ? 'off' : '')) };
+    if (!enrolled) return;
+    const manualDone = plan.done || {};
+    const base2 = { svcKey:key, noSqft:true, manual:true, note:def.placeholder ? 'Dates not confirmed yet — check before routing' : '' };
+    if (def.kind === 'monthly') {
+      const endY = Number((plan.svcEnd || {})[key]) || 0;
+      const mkMonth = (y, m0) => {
+        if (!def.months.includes(m0 + 1) || y <= endY) return;
+        const ym = y + '-' + String(m0 + 1).padStart(2, '0'), ws = ym + '-01', we = ym + '-' + String(def.weekEnd).padStart(2, '0');
+        const label = def.label + ' — ' + MONTH_NAMES[m0], o = Object.assign({ start:ws, end:we, avail:ws, period:ym }, base2);
+        const doneOn = manualDone[ym + ':' + key] || svcDates.filter(d => d.startsWith(ym)).sort()[0];
+        if (doneOn) return mk(key, label, def.svc, 'done', Object.assign(o, { doneOn }));
+        if (skip[ym + ':' + key]) return mk(key, label, def.svc, 'skipped', o);
+        let st;
+        if (today < ws) st = daysBetween(today, ws) <= SOON_DAYS ? 'soon' : 'later';
+        else if (today <= we) st = 'due';
+        else st = today.slice(0, 7) === ym ? 'late' : 'missed';
+        mk(key, label, def.svc, st, o);
+      };
+      const t = new Date(today + 'T12:00:00');
+      mkMonth(t.getFullYear(), t.getMonth());
+      const nx = new Date(t.getFullYear(), t.getMonth() + 1, 1); mkMonth(nx.getFullYear(), nx.getMonth());
+    } else {
+      const wins = def.kind === 'rounds'
+        ? def.rounds.map(r => ({ code:key + r.code, label:def.label + ' — ' + r.name, start:Y + '-' + r.start, end:Y + '-' + r.end }))
+        : [{ code:key, label:def.label, start:Y + '-' + def.start, end:def.endFn ? def.endFn(Y) : Y + '-' + def.end }];
+      wins.forEach(w => {
+        const o = Object.assign({ start:w.start, end:w.end, avail:w.start, period:String(Y) }, base2);
+        const doneOn = manualDone[o.period + ':' + w.code] || svcDates.filter(d => d >= w.start && d <= w.end).sort()[0];
+        if (doneOn) return mk(w.code, w.label, def.svc, 'done', Object.assign(o, { doneOn }));
+        if (skip[o.period + ':' + w.code]) return mk(w.code, w.label, def.svc, 'skipped', o);
+        let st;
+        if (today > w.end) st = daysBetween(w.end, today) > LATE_GRACE_DAYS ? 'missed' : 'late';
+        else if (today >= w.start) st = 'due';
+        else st = daysBetween(today, w.start) <= SOON_DAYS ? 'soon' : 'later';
+        mk(w.code, w.label, def.svc, st, o);
+      });
+    }
+  });
   const last = mine.slice().sort((a,b) => b.d.localeCompare(a.d))[0] || null;
   rounds.forEach(r => { r.last = last; });
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
   const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
   const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
-  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, workSqft:Number(plan.workSqft) || null, sqOnFile, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, svcInfo, svcEnd:plan.svcEnd || {}, workSqft:Number(plan.workSqft) || null, sqOnFile, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
 }
 
 function buildSchedule() {
@@ -3047,12 +3120,12 @@ function renderSchedule() {
         <div style="flex:1;min-width:0">
           <div class="flex-row gap-6" style="flex-wrap:wrap"><span style="font-weight:700;font-size:14px;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border)" onclick="detailCustomerId='${i.cid}';navigateTo('customers');detailCustomerId='${i.cid}';renderCustomers()">${escHtml(i.name)}</span>${schedBadge(i.status)}</div>
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(i.addr || 'No address')}</div>
-          <div style="font-size:12px;margin-top:2px">${escHtml(i.label)}${i.sqft && !i.pest ? ' · ' + Number(i.sqft).toLocaleString() + ' sqft' : ''}</div>
+          <div style="font-size:12px;margin-top:2px">${escHtml(i.label)}${i.sqft && !i.pest && !i.noSqft ? ' · ' + Number(i.sqft).toLocaleString() + ' sqft' : ''}</div>
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${schedWhen(i)}${i.last ? ' · last: ' + escHtml(shortSvc(i.last.s)) + ' ' + fmtDate(i.last.d) : ''}</div>
           ${blanketNote(i) ? '<div style="margin-top:2px">' + blanketNote(i) + '</div>' : ''}
-          ${i.note && schedToday() < i.period + '-03-01' ? '<div style="font-size:11px;color:var(--warn);margin-top:2px">' + escHtml(i.note) + '</div>' : ''}
+          ${i.note && (i.svcKey || schedToday() < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn);margin-top:2px">' + escHtml(i.note) + '</div>' : ''}
         </div>
-        ${i.seed ? `<button class="btn success sm" onclick="schedMarkDone('${i.cid}','${i.period}:SEED')" title="Mark aeration & seed done">Done</button>` : ''}
+        ${i.manual ? `<button class="btn success sm" onclick="schedMarkDone('${i.cid}','${i.period}:${i.code}')" title="Mark this done">Done</button>` : ''}
         <button class="btn ghost sm" onclick="schedToggleSkip('${i.cid}','${i.period}:${i.code}')" title="Skip this one">Skip</button>
       </div>
     </div>`;
@@ -3060,7 +3133,7 @@ function renderSchedule() {
 
   el.innerHTML = `
     <h1>Schedule</h1>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What's next for each customer, worked out from the treatments already logged in the LPP Log. Pest control opens the 1st of each month and is due the first week.</p>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What's next for each customer, worked out from the treatments already logged in the LPP Log. Pest control and mosquito (May–Oct) are separate services; each opens the 1st of the month and is due the first week.</p>
     ${schedLogStatusHtml()}
     ${geoCoverageHtml(S.items)}
     <div class="stat-row">
@@ -3072,7 +3145,7 @@ function renderSchedule() {
     <div class="filter-pills">${pill('ready','Ready',count(READY))}${pill('soon','Opens soon',count(SOON))}</div>
     <div class="filter-pills">
       <button class="${f.code === 'all' ? 'active' : ''}" onclick="schedFilter.code='all';renderSchedule()">All rounds</button>
-      ${codes.sort().map(c => `<button class="${f.code === c ? 'active' : ''}" onclick="schedFilter.code='${c}';renderSchedule()">${c === 'PEST' ? 'Pest' : 'Rd ' + c}</button>`).join('')}
+      ${codes.sort().map(c => `<button class="${f.code === c ? 'active' : ''}" onclick="schedFilter.code='${c}';renderSchedule()">${codeShort(c)}</button>`).join('')}
     </div>
     <div class="flex-row gap-10 mb-8" style="flex-wrap:wrap">
       <div class="search-bar" style="flex:1;min-width:150px;margin:0"><input placeholder="Search name or address…" value="${escHtml(schedSearch)}" oninput="schedSearch=this.value;renderSchedule()"></div>
@@ -3105,7 +3178,7 @@ function buildRouteFromSchedule() {
   const chosen = (window._schedView || []).filter(i => schedSel[i.cid + '|' + i.code + '|' + i.period]);
   if (!chosen.length) { alert('Select at least one stop.'); return; }
   const o = orderStops(chosen.map(i => ({ customerId:i.cid, customerName:i.name, address:i.addr, cpId:null, roundIdx:null,
-    roundName:i.label, serviceType:i.svc, status:'pending', code:i.code, period:i.period })));
+    roundName:i.label, serviceType:i.svc, status:'pending', code:i.code, period:i.period, items:[{ code:i.code, period:i.period, manual:!!i.manual }] })));
   const route = { id:uid(), name:fmtDate(date) + ' Route', date, serviceFilter:'Mixed', createdAt:todayStr(), miles:o.miles, stops:o.stops };
   if (o.unlocated) alert(describeOrdering(o) + '\n\nUse "Locate customers" on the Schedule page to fix that.');
   STATE.routes.push(route);
@@ -3132,7 +3205,7 @@ function schedCustomerCard(cid) {
         ${blanketNote(r) ? '<div>' + blanketNote(r) + '</div>' : ''}
       </div>
       ${schedBadge(r.status)}
-      ${r.code === 'SEED' ? (r.status === 'done' ? `<button class="btn ghost sm" onclick="schedUnmarkDone('${cid}','${r.period}:SEED')">Undo done</button>` : `<button class="btn success sm" onclick="schedMarkDone('${cid}','${r.period}:SEED')">Mark done</button>`) : ''}
+      ${r.manual ? (r.status === 'done' ? `<button class="btn ghost sm" onclick="schedUnmarkDone('${cid}','${r.period}:${r.code}')">Undo done</button>` : `<button class="btn success sm" onclick="schedMarkDone('${cid}','${r.period}:${r.code}')">Mark done</button>`) : ''}
       ${(r.status === 'done' || r.extra) ? '' : `<button class="btn ghost sm" onclick="schedToggleSkip('${cid}','${r.period}:${r.code}')">${r.status === 'skipped' ? 'Undo skip' : 'Skip'}</button>`}
     </div>`).join('');
   return `
@@ -3160,6 +3233,15 @@ function schedCustomerCard(cid) {
         <button class="btn ${row.seed && row.seed !== 'sep' ? 'primary' : 'secondary'} sm" onclick="schedSetSeed('${cid}','date')">Pick a date</button>
         ${row.seed && row.seed !== 'sep' ? `<input type="date" value="${escHtml(row.seed)}" onchange="schedSeedDate('${cid}',this.value)" style="padding:6px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">` : ''}
       </div>
+      ${Object.keys(SERVICES).map(key => {
+        const def = SERVICES[key], inf = row.svcInfo[key] || {}, Yn = Number(Y), ended = Number((row.svcEnd || {})[key]) >= Yn;
+        return `<div class="flex-row gap-6" style="flex-wrap:wrap;margin:4px 0;align-items:center">
+          <span style="font-size:12px;color:var(--text-dim);min-width:92px">${escHtml(def.label)}:</span>
+          <button class="btn ${!inf.enrolled ? 'primary' : 'secondary'} sm" onclick="schedSetSvc('${cid}','${key}',false)">Off</button>
+          <button class="btn ${inf.enrolled ? 'primary' : 'secondary'} sm" onclick="schedSetSvc('${cid}','${key}',true)">${def.kind === 'monthly' ? 'Monthly' : 'On'}</button>
+          ${inf.enrolled && def.kind === 'monthly' ? `<button class="btn ${ended ? 'primary' : 'secondary'} sm" onclick="schedSvcEndYear('${cid}','${key}')">${ended ? 'Done for ' + Y + ' — undo' : 'Done for ' + Y}</button>` : ''}
+          <span style="font-size:11px;color:var(--text-muted)">${inf.source === 'history' ? 'from what was logged' : inf.source === 'set' ? 'set by you' : ''}${inf.enrolled && def.placeholder ? ' · dates not confirmed yet' : ''}</span></div>`;
+      }).join('')}
       ${roundRows}
       ${row.other.length ? `<div style="font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:6px;margin-top:4px">Other treatments logged this year: ${row.other.map(e => escHtml(shortSvc(e.s)) + ' ' + fmtDate(e.d)).join(' · ')}</div>` : ''}
       ${!row.rounds.length && !row.other.length ? '<div style="font-size:12px;color:var(--text-dim)">Nothing logged yet this year.</div>' : ''}
@@ -3251,7 +3333,7 @@ function locStatus(c) {
 // Builds days that fit between the first stop and the end of the day, using real road drive
 // times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
 // Lawn time is measured from Devon's 2026 log (real-time days): about 32 min at the stop + 0.8 min per 1,000 sq ft
-const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, maxDetour:20, mileWeight:0.5, attempts:6, satOk:false, base:null };
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, mileWeight:0.5, attempts:6, satOk:false, base:null };
 function planRecord(create) {
   let r = STATE.customerPrograms.find(cp => cp.kind === 'settings');
   if (!r && create) { r = { id:uid(), kind:'settings', customerId:'_settings', programName:'Planner settings', year:null, rounds:[], cfg:{} }; STATE.customerPrograms.push(r); }
@@ -3290,7 +3372,7 @@ function renderPlanner() {
       <div class="section-label" style="margin-top:0">Your day</div>
       <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:10px">
         ${field('pl-start', 'Leave home at', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
-        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}
+        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days.</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
@@ -3323,7 +3405,7 @@ function planSaveCfg() {
   const addr = v('pl-base').trim();
   const patch = {
     start:v('pl-start') || '09:00', end:v('pl-end') || '17:00',
-    lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0, seedSetup:Number(v('pl-ssetup')) || 0, seedPerK:Number(v('pl-sperk')) || 0, maxDetour:Number(v('pl-detour')) || PLAN_DEFAULTS.maxDetour,
+    lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0, seedSetup:Number(v('pl-ssetup')) || 0, seedPerK:Number(v('pl-sperk')) || 0, mosqMin:Number(v('pl-mosq')) || 0, tsMin:Number(v('pl-ts')) || 0, maxDetour:Number(v('pl-detour')) || PLAN_DEFAULTS.maxDetour,
     returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked,
   };
   if (base && base.addr !== addr) patch.base = addr ? { addr, lat:null, lng:null } : null;   // address changed: needs finding again
@@ -3450,8 +3532,9 @@ async function planBuild() {
     const ctx = { D:(a, b) => M[a][b], C:(a, b) => M[a][b] + W * Mi[a][b], hasBase, startMin:toMin(cfg.start), endMin:toMin(cfg.end), ret:hasBase && cfg.returnHome };
     const { D, startMin, endMin, ret } = ctx;
     const itemWork = (list, sqft) => {
-      const lawn = list.filter(i => !i.pest && !i.seed), pest = list.filter(i => i.pest), seed = list.filter(i => i.seed);
+      const lawn = list.filter(i => !i.pest && !i.seed && !i.svcKey), pest = list.filter(i => i.pest), seed = list.filter(i => i.seed), others = list.filter(i => i.svcKey);
       let m = 0;
+      others.forEach(i => { m += i.svcKey === 'MOSQ' ? cfg.mosqMin : cfg.tsMin; });
       if (lawn.length) m += cfg.lawnSetup + cfg.lawnPerK * ((sqft || 8000) / 1000) * lawn.length;
       if (pest.length) m += cfg.pestMin * pest.length;
       if (seed.length) m += cfg.seedSetup + cfg.seedPerK * ((sqft || 8000) / 1000);
@@ -3663,7 +3746,7 @@ function planCreateRoute(di, quiet) {
     id:uid(), name:fmtDate(d.date) + ' — planned day', date:d.date, serviceFilter:'Mixed', createdAt:todayStr(), planned:true,
     miles:d.miles, driveMin:d.driveMin, workMin:d.workMin, leaveHome:d.leaveHome != null ? clock(d.leaveHome) : '', backHome:d.back != null ? clock(d.back) : '',
     stops: d.rows.map(r => ({ customerId:r.s.cid, customerName:r.s.items[0].name, address:r.s.items[0].addr, cpId:null, roundIdx:null,
-      roundName:r.s.items.map(i => i.label).join(' + '), serviceType:r.s.items[0].svc, status:'pending', code:r.s.items[0].code, period:r.s.items[0].period,
+      roundName:r.s.items.map(i => i.label).join(' + '), serviceType:r.s.items[0].svc, status:'pending', code:r.s.items[0].code, period:r.s.items[0].period, items:r.s.items.map(i => ({ code:i.code, period:i.period, manual:!!i.manual })),
       eta:clock(r.arrive), workMin:r.s.work, driveMin:r.drive }))
   };
   STATE.routes.push(route);
