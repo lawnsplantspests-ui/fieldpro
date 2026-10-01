@@ -423,13 +423,16 @@ a.btn{text-decoration:none}
     <div class="logo">
       <img id="logo-img" alt="LPP" src="">
       <div class="divider"></div>
-      <div class="app-name">FieldPro</div>
+      <div class="app-name">FieldPro <span id="appVer" style="font-size:9px;opacity:.6;font-weight:400"></span></div>
     </div>
     <div class="meta" id="header-date"></div>
     <button id="header-near-btn" class="header-sync-btn" onclick="showNearMe()" title="Which customer am I at?">📍</button>
     <button id="header-sync-btn" class="header-sync-btn" onclick="navigateTo('sync')" title="Sync settings &amp; status">🔄</button>
   </header>
   <div class="offline-banner" id="offline-banner">⚠ Offline — using cached data</div>
+  <div id="updBar" style="display:none;background:#9a6700;color:#fff;padding:10px 14px;font-size:14px;text-align:center">
+    <span id="updTxt">A newer version is ready.</span> <button type="button" onclick="applyUpdate()" style="margin-left:8px;background:#fff;color:#9a6700;border:none;border-radius:6px;padding:6px 12px;font-weight:700">Update now</button>
+  </div>
 
   <div class="app-body">
     <!-- NAV -->
@@ -3799,6 +3802,28 @@ function renderOffers() {
       <textarea id="of-tpl-plain" rows="2" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplPlain || OFFER_TPL_PLAIN)}</textarea>
       <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save messages</button></div></div>`;
 }
+
+// ══════════ VERSION CHECK ══════════
+// Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
+// Bump APP_BUILD whenever the page is changed.
+var APP_BUILD = '2026-10-01-d';
+setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
+function checkForUpdate() {
+  try {
+    fetch(location.pathname + '?cb=' + Date.now(), { cache:'no-store' }).then(r => r.ok ? r.text() : '').then(t => {
+      const m = t.match(/var APP_BUILD\s*=\s*'([^']+)'/);
+      if (m && m[1] !== APP_BUILD) {
+        const b = document.getElementById('updBar'), x = document.getElementById('updTxt');
+        if (x) x.textContent = 'A newer version is ready (' + m[1] + '). You are on ' + APP_BUILD + '.';
+        if (b) b.style.display = 'block';
+      }
+    }).catch(() => {});
+  } catch (e) {}
+}
+function applyUpdate() { location.replace(location.pathname + '?u=' + Date.now()); }
+setTimeout(checkForUpdate, 4000);
+setInterval(checkForUpdate, 20 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 
 // ══════════ TREES & PLANTS (saved per customer) ══════════
 // Trees treated one at a time (root-zone spikes, trunk injections, imidacloprid drenches, lanternfly on maples and grapevines)
