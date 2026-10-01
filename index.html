@@ -439,6 +439,7 @@ a.btn{text-decoration:none}
       <!-- Pages injected by JS -->
       <div id="page-workboard" class="page"></div>
       <div id="page-schedule" class="page"></div>
+      <div id="page-planner" class="page"></div>
       <div id="page-routes" class="page"></div>
       <div id="page-customers" class="page"></div>
       <div id="page-programs" class="page"></div>
@@ -663,6 +664,7 @@ function loadAll() {
       if (d.phcVisits) STATE.phcVisits = d.phcVisits;
       if (d.soilSamples) STATE.soilSamples = d.soilSamples;
       if (d.baitStations) STATE.baitStations = d.baitStations;
+      apiLoaded = true;
       applyGeoToCustomers();
       saveToCache();
       renderCurrentPage();
@@ -676,9 +678,11 @@ function loadAll() {
   );
 }
 
+let apiLoaded = false;   // true once the sheet has been read this session
 function saveState() {
   syncGeoFromCustomers();
   saveToCache();
+  if (!apiLoaded && STATE.customers.length === 0) { console.warn('Not saving: nothing has been loaded yet.'); return; }
   // Fire API save in background
   api({ action: 'fpSaveAll', data: {
     programs: STATE.programs,
@@ -801,6 +805,7 @@ function renderCurrentPage() {
     switch(currentPage) {
       case 'workboard': renderWorkboard(); break;
       case 'schedule': renderSchedule(); break;
+      case 'planner': renderPlanner(); break;
       case 'routes': renderRoutes(); break;
       case 'customers': renderCustomers(); break;
       case 'programs': renderPrograms(); break;
@@ -1117,8 +1122,10 @@ function renderCustomerDetail(el) {
         <h1 style="margin:0">${escHtml(name)} ${cid ? `<span style="font-size:14px;color:var(--text-muted);font-weight:500;font-family:var(--font-mono)">#${escHtml(cid.toString())}</span>` : ''}</h1>
         <div style="font-size:13px;color:var(--text-dim)">${escHtml(addr)}</div>
         <div style="font-size:13px;color:var(--text-dim)">${escHtml(phone)}${email ? ' · ' + escHtml(email) : ''}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">📍 ${locStatus(c)}</div>
       </div>
       <div class="flex-row gap-6">
+        <button class="btn secondary sm" onclick="showLocationEditor('${cid}')">📍 Location</button>
         <button class="btn secondary sm" onclick="showCustomerForm('${cid}')">Edit</button>
         <button class="btn danger sm" onclick="deleteCustomer('${cid}')">Delete</button>
       </div>
@@ -2311,7 +2318,7 @@ function renderRouteDetail(el) {
     <div class="flex-between mb-16" style="flex-wrap:wrap;gap:10px">
       <div>
         <h1 style="margin:0">${escHtml(rt.name || fmtDateFull(rt.date))}</h1>
-        <div style="font-size:13px;color:var(--text-dim)">${total} stops · ${completed} completed · ${escHtml(rt.serviceFilter||'Mixed')}${rt.miles ? ' · about ' + rt.miles + ' mi' : ''}</div>
+        <div style="font-size:13px;color:var(--text-dim)">${total} stops · ${completed} completed · ${escHtml(rt.serviceFilter||'Mixed')}${rt.miles ? ' · about ' + rt.miles + ' mi' : ''}${rt.leaveHome ? ' · leave ' + escHtml(rt.leaveHome) : ''}${rt.backHome ? ' · home by ' + escHtml(rt.backHome) : ''}</div>
       </div>
       <div class="flex-row gap-6" style="flex-wrap:wrap">
         <button class="btn primary sm" onclick="openInAppleMaps('${rt.id}')">🗺️ Maps</button>
@@ -2331,7 +2338,7 @@ function renderRouteDetail(el) {
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(s.customerName)}</div>
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(s.address||'No address')}</div>
-          <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${escHtml(s.roundName)} · ${escHtml(s.serviceType)}</div>
+          <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
         </div>
         <div class="flex-row gap-6" style="flex-shrink:0">
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
@@ -3024,7 +3031,7 @@ function renderSchedule() {
     </div>
     <div class="flex-between mb-8">
       <span style="font-size:12px;color:var(--text-dim)">${list.length} shown${selKeys.length ? ' · <strong style="color:var(--accent)">' + selKeys.length + ' selected</strong>' : ''}</span>
-      <span class="flex-row gap-6"><button class="btn ghost sm" onclick="schedSelectShown(true)">Select shown</button>${selKeys.length ? '<button class="btn ghost sm" onclick="schedSel={};renderSchedule()">Clear</button>' : ''}</span>
+      <span class="flex-row gap-6"><button class="btn secondary sm" onclick="openPlanner()">🗓️ Plan days of work</button><button class="btn ghost sm" onclick="schedSelectShown(true)">Select shown</button>${selKeys.length ? '<button class="btn ghost sm" onclick="schedSel={};renderSchedule()">Clear</button>' : ''}</span>
     </div>
     ${selKeys.length ? `<div class="card" style="border-left:3px solid var(--accent)"><div class="flex-row gap-10" style="flex-wrap:wrap;align-items:flex-end">
       <div class="input-group" style="margin:0"><label>Route date</label><input type="date" id="sched-date" value="${tomorrow}"></div>
@@ -3093,6 +3100,346 @@ function schedCustomerCard(cid) {
       ${row.other.length ? `<div style="font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:6px;margin-top:4px">Other treatments logged this year: ${row.other.map(e => escHtml(shortSvc(e.s)) + ' ' + fmtDate(e.d)).join(' · ')}</div>` : ''}
       ${!row.rounds.length && !row.other.length ? '<div style="font-size:12px;color:var(--text-dim)">Nothing logged yet this year.</div>' : ''}
     </div>`;
+}
+
+// ══════════ MAP PIN EDITOR ══════════
+let _locMap = null, _locMarker = null, _locTarget = null, _locLayers = null;
+function custById(cid) { return STATE.customers.find(c => custIdStr(c) === String(cid)); }
+function showLocationEditor(target) {
+  _locTarget = target;
+  let title, pt, addr;
+  if (target === '_home') {
+    const b = getPlanCfg().base;
+    title = 'Home location'; pt = b && isFinite(b.lat) ? { lat:b.lat, lng:b.lng } : null; addr = b ? b.addr : '';
+  } else {
+    const c = custById(target); if (!c) return;
+    title = (c.Name || c.name || 'Customer') + ' — location'; pt = custPoint(target); addr = fullAddress(c);
+  }
+  showModal(title, `
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">${escHtml(addr || 'No address')}</div>
+    <div id="loc-map" style="height:340px;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;background:var(--bg-input)"></div>
+    <div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
+      <button class="btn secondary sm" onclick="locSetLayer('sat')">🛰️ Satellite</button>
+      <button class="btn secondary sm" onclick="locSetLayer('street')">🗺️ Street</button>
+      <button class="btn secondary sm" onclick="locLookup()">Look up the address again</button>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">${pt ? 'Drag the pin, or tap the map, to put it on the house.' : 'No location yet — tap the map where the property is.'}</div>
+    <div class="flex-row gap-6" style="justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="locSave()">Save location</button>
+    </div>`, true);
+  setTimeout(() => initLocMap(pt), 60);
+}
+function initLocMap(pt) {
+  const el = document.getElementById('loc-map'); if (!el) return;
+  if (typeof L === 'undefined') { el.innerHTML = '<div style="padding:20px;color:var(--text-dim)">The map needs an internet connection.</div>'; return; }
+  if (_locMap) { try { _locMap.remove(); } catch(e) {} }
+  _locMap = L.map('loc-map', { zoomControl:true, maxZoom:19 });
+  _locLayers = {
+    sat:    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom:19, attribution:'Esri' }),
+    street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap' }),
+  };
+  _locLayers.sat.addTo(_locMap);
+  const start = pt || GEO_HOME;
+  _locMap.setView([start.lat, start.lng], pt ? 18 : 11);
+  _locMarker = L.marker([start.lat, start.lng], { draggable:true }).addTo(_locMap);
+  if (!pt) _locMarker.setOpacity(0.4);
+  _locMap.on('click', e => { _locMarker.setLatLng(e.latlng); _locMarker.setOpacity(1); });
+  _locMarker.on('dragend', () => _locMarker.setOpacity(1));
+  setTimeout(() => _locMap && _locMap.invalidateSize(), 120);
+}
+function locSetLayer(which) {
+  if (!_locMap || !_locLayers) return;
+  Object.values(_locLayers).forEach(l => _locMap.removeLayer(l));
+  _locLayers[which].addTo(_locMap);
+}
+function locLookup() {
+  const c = _locTarget === '_home' ? null : custById(_locTarget);
+  const p = _locTarget === '_home'
+    ? censusLookup(getPlanCfg().base && getPlanCfg().base.addr || '').then(pt => pt && { lat:pt.lat, lng:pt.lng })
+    : geocodeLookup(c);
+  p.then(r => {
+    if (!r) { alert('Could not find that address. Tap the map to place the pin by hand.'); return; }
+    _locMarker.setLatLng([r.lat, r.lng]); _locMarker.setOpacity(1); _locMap.setView([r.lat, r.lng], 18);
+  });
+}
+function locSave() {
+  if (!_locMarker) return;
+  const ll = _locMarker.getLatLng();
+  if (_locMarker.options.opacity === 0.4) { alert('Tap the map to place the pin first.'); return; }
+  if (_locTarget === '_home') {
+    const cfg = getPlanCfg();
+    savePlanCfg({ base:{ addr:(cfg.base && cfg.base.addr) || '', lat:ll.lat, lng:ll.lng } });
+  } else {
+    const c = custById(_locTarget); if (!c) return;
+    c.Lat = ll.lat; c.Lng = ll.lng; c.GeoApprox = false; c.GeoManual = true;
+    saveState();
+  }
+  closeModal();
+  renderCurrentPage();
+}
+function locStatus(c) {
+  if (!(parseFloat(c.Lat) && parseFloat(c.Lng))) return 'no location yet';
+  return c.GeoManual ? 'pin set by hand' : c.GeoApprox ? 'zip code only — adjust the pin' : 'found from the address';
+}
+
+// ══════════ DAYS OF WORK (planner) ══════════
+// Builds days that fit between the first stop and the end of the day, using real road drive
+// times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:10, lawnPerK:2.5, pestMin:25, satOk:false, base:null };
+function planRecord(create) {
+  let r = STATE.customerPrograms.find(cp => cp.kind === 'settings');
+  if (!r && create) { r = { id:uid(), kind:'settings', customerId:'_settings', programName:'Planner settings', year:null, rounds:[], cfg:{} }; STATE.customerPrograms.push(r); }
+  return r;
+}
+function getPlanCfg() { const r = planRecord(false); return Object.assign({}, PLAN_DEFAULTS, (r && r.cfg) || {}); }
+function savePlanCfg(patch) { const r = planRecord(true); r.cfg = Object.assign({}, r.cfg, patch); saveState(); }
+const toMin = hhmm => { const [h, m] = String(hhmm).split(':').map(Number); return h * 60 + (m || 0); };
+const clock = min => { min = Math.round(min); let h = Math.floor(min / 60), m = min % 60; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ' ' + ap; };
+const round5 = n => Math.max(5, Math.round(n / 5) * 5);
+
+let plannerItems = [], plannerResult = null, plannerBusy = false, plannerMsg = '', plannerStart = '';
+
+function openPlanner() {
+  const S = buildSchedule();
+  const sel = Object.keys(schedSel).filter(k => schedSel[k]);
+  const key = i => i.cid + '|' + i.code + '|' + i.period;
+  plannerItems = sel.length ? S.items.filter(i => schedSel[key(i)]) : (window._schedView || []).slice();
+  plannerResult = null; plannerMsg = '';
+  plannerStart = plannerStart || isoLocal(new Date(Date.now() + 86400000));
+  currentPage = 'planner';
+  renderCurrentPage();
+}
+
+function renderPlanner() {
+  const el = document.getElementById('page-planner'); if (!el) return;
+  const cfg = getPlanCfg();
+  const nLawn = plannerItems.filter(i => !i.pest).length, nPest = plannerItems.filter(i => i.pest).length;
+  const noLoc = plannerItems.filter(i => !custPoint(i.cid));
+  const field = (id, label, val, type, extra) => `<div class="input-group" style="margin:0;min-width:110px;flex:1"><label>${label}</label><input id="${id}" type="${type || 'number'}" value="${val}" ${extra || ''}></div>`;
+  el.innerHTML = `
+    <button class="btn ghost sm" onclick="navigateTo('schedule')" style="margin-bottom:14px">← Back to Schedule</button>
+    <h1>Days of work</h1>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Fills each day with stops in driving order, using real drive times and how long each stop takes, so the day ends on time.</p>
+    <div class="card mb-16">
+      <div class="section-label" style="margin-top:0">Your day</div>
+      <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:10px">
+        ${field('pl-start', 'First stop', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
+        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop.</div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-sat" ${cfg.satOk ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Include Saturdays</label>
+      <div class="flex-row gap-10" style="flex-wrap:wrap;align-items:flex-end">
+        <div class="input-group" style="margin:0;flex:2;min-width:220px"><label>Home address (where the day starts and ends)</label><input id="pl-base" value="${escHtml(cfg.base ? cfg.base.addr : '')}" placeholder="Street, town, PA zip"></div>
+        <button class="btn secondary sm" onclick="planLocateHome()">📍 Find it</button>
+        <button class="btn secondary sm" onclick="planSaveCfg();showLocationEditor('_home')">🗺️ Adjust on map</button>
+      </div>
+      <div style="font-size:11px;margin-top:6px;color:${cfg.base && isFinite(cfg.base.lat) ? 'var(--accent)' : 'var(--warn)'}">${cfg.base && isFinite(cfg.base.lat) ? 'Home location saved.' : 'No home location yet — drive to and from home is left out until you add one.'}</div>
+      <div class="flex-row gap-6" style="margin-top:10px;justify-content:flex-end"><button class="btn secondary sm" onclick="planSaveCfg();renderPlanner()">Save settings</button></div>
+    </div>
+    <div class="card mb-16">
+      <div class="section-label" style="margin-top:0">What to plan</div>
+      <div style="font-size:13px"><strong>${plannerItems.length}</strong> stops from the Schedule (${nLawn} lawn, ${nPest} pest). To change which ones, go back and select stops or filter the list first.</div>
+      ${noLoc.length ? `<div style="font-size:12px;color:var(--warn);margin-top:6px">${noLoc.length} have no saved location and will be left out: ${[...new Set(noLoc.map(i => escHtml(i.name)))].join(', ')}</div>` : ''}
+      <div class="flex-row gap-10" style="margin-top:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="input-group" style="margin:0"><label>Start planning from</label><input type="date" id="pl-date" value="${plannerStart}"></div>
+        <button class="btn primary" onclick="planBuild()" ${plannerBusy || !plannerItems.length ? 'disabled' : ''}>${plannerBusy ? '⏳ Working it out…' : 'Build days of work'}</button>
+      </div>
+      ${plannerMsg ? `<div style="font-size:12px;color:var(--text-dim);margin-top:8px">${plannerMsg}</div>` : ''}
+    </div>
+    <div id="planner-out">${plannerResult ? plannerResultHtml(plannerResult) : ''}</div>`;
+}
+function planSaveCfg() {
+  const v = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+  if (!document.getElementById('pl-start')) return;
+  const cfg = getPlanCfg();
+  const base = cfg.base ? Object.assign({}, cfg.base) : null;
+  const addr = v('pl-base').trim();
+  const patch = {
+    start:v('pl-start') || '09:00', end:v('pl-end') || '17:00',
+    lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0,
+    returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked,
+  };
+  if (base && base.addr !== addr) patch.base = addr ? { addr, lat:null, lng:null } : null;   // address changed: needs finding again
+  else if (!base && addr) patch.base = { addr, lat:null, lng:null };
+  const dt = v('pl-date'); if (dt) plannerStart = dt;
+  savePlanCfg(patch);
+}
+function planLocateHome() {
+  planSaveCfg();
+  const b = getPlanCfg().base;
+  if (!b || !b.addr) { alert('Type your home address first.'); return; }
+  const q = /\bPA\b/i.test(b.addr) ? b.addr : b.addr + ', PA';
+  censusLookup(q).then(pt => {
+    if (!pt) { alert('Could not find that address. Use "Adjust on map" and tap where home is.'); return; }
+    savePlanCfg({ base:{ addr:b.addr, lat:pt.lat, lng:pt.lng } });
+    renderPlanner();
+  });
+}
+
+// drive times (minutes) between all points: real roads from OSRM, straight-line estimate if it can't be reached
+const estMinutes = (a, b) => Math.round(haversineMi(a, b) * 1.3 / 30 * 60);
+async function driveMatrix(pts) {
+  const n = pts.length, M = Array.from({ length:n }, (_, i) => Array.from({ length:n }, (_, j) => i === j ? 0 : estMinutes(pts[i], pts[j])));
+  let road = 0, total = 0;
+  const CH = 50, chunks = [];
+  for (let i = 0; i < n; i += CH) chunks.push([i, Math.min(n, i + CH)]);
+  const range = c => Array.from({ length:c[1] - c[0] }, (_, k) => c[0] + k);
+  const fmt = p => p.lng.toFixed(5) + ',' + p.lat.toFixed(5);
+  for (const a of chunks) for (const b of chunks) {
+    const same = a[0] === b[0], idx = same ? range(a) : range(a).concat(range(b));
+    const src = range(a).map((_, k) => k), dst = same ? src : range(b).map((_, k) => (a[1] - a[0]) + k);
+    try {
+      const r = await fetch('https://router.project-osrm.org/table/v1/driving/' + idx.map(i => fmt(pts[i])).join(';') + '?annotations=duration&sources=' + src.join(';') + '&destinations=' + dst.join(';'));
+      const j = await r.json();
+      if (j.code !== 'Ok') throw new Error(j.code);
+      range(a).forEach((gi, si) => range(b).forEach((gj, di) => {
+        total++;
+        const s = j.durations[si][di];
+        if (s != null && gi !== gj) { M[gi][gj] = Math.max(1, Math.ceil(s / 60)); road++; }
+      }));
+    } catch (e) { total += (a[1] - a[0]) * (b[1] - b[0]); }
+  }
+  return { M, source: road >= total * 0.9 ? 'road' : (road ? 'mixed' : 'estimate') };
+}
+
+function nextWorkday(iso, satOk) {
+  let d = iso;
+  for (let k = 0; k < 14; k++) { const w = new Date(d + 'T12:00:00').getDay(); if (w !== 0 && (w !== 6 || satOk)) return d; d = addDays(d, 1); }
+  return d;
+}
+
+async function planBuild() {
+  planSaveCfg();
+  const cfg = getPlanCfg();
+  plannerBusy = true; plannerMsg = ''; plannerResult = null; renderPlanner();
+  try {
+    const usable = plannerItems.filter(i => custPoint(i.cid));
+    const custIds = [...new Set(usable.map(i => i.cid))];
+    const hasBase = !!(cfg.base && isFinite(cfg.base.lat));
+    const pts = (hasBase ? [{ lat:cfg.base.lat, lng:cfg.base.lng }] : []).concat(custIds.map(id => custPoint(id)));
+    const off = hasBase ? 1 : 0, node = {}; custIds.forEach((id, k) => { node[id] = k + off; });
+    const { M, source } = await driveMatrix(pts);
+    const D = (a, b) => M[a][b];
+    const startMin = toMin(cfg.start), endMin = toMin(cfg.end), ret = hasBase && cfg.returnHome;
+    const itemWork = (list, sqft) => {
+      const lawn = list.filter(i => !i.pest), pest = list.filter(i => i.pest);
+      let m = 0;
+      if (lawn.length) m += cfg.lawnSetup + cfg.lawnPerK * ((sqft || 8000) / 1000) * lawn.length;
+      if (pest.length) m += cfg.pestMin * pest.length;
+      return round5(m);
+    };
+    let left = usable.slice(), date = plannerStart, days = [], tooLong = [];
+    const todayIso = schedToday(); if (date <= todayIso) date = addDays(todayIso, 1);
+    for (let guard = 0; left.length && guard < 40; guard++) {
+      date = nextWorkday(date, cfg.satOk);
+      const open = left.filter(i => (i.avail || i.start || '') <= date);
+      if (!open.length) { date = addDays(date, 1); continue; }
+      const by = {}; open.forEach(i => { (by[i.cid] = by[i.cid] || []).push(i); });
+      const cands = Object.keys(by).map(cid => ({ cid, items:by[cid], node:node[cid], work:itemWork(by[cid], by[cid][0].sqft), end:by[cid].map(i => i.end || '9999').sort()[0], c:custById(cid) }));
+      const farFromHome = s => hasBase ? D(0, s.node) : 0;
+      const fits = (s, from, depart) => {
+        const arrive = from == null ? startMin : depart + D(from, s.node);
+        const fin = arrive + s.work;
+        return { arrive, fin, ok: fin + (ret ? D(s.node, 0) : 0) <= endMin };
+      };
+      // seed with the stop whose window closes first (then the one farthest from home)
+      cands.sort((a, b) => a.end.localeCompare(b.end) || farFromHome(b) - farFromHome(a));
+      let seed = null;
+      for (const s of cands) { if (fits(s, null, 0).ok) { seed = s; break; } tooLong.push(s); left = left.filter(i => i.cid !== s.cid); }
+      if (!seed) continue;
+      const order = [seed]; let depart = startMin + seed.work, pool = cands.filter(s => s !== seed && !tooLong.includes(s));
+      for (;;) {
+        const last = order[order.length - 1];
+        const ok = pool.filter(s => fits(s, last.node, depart).ok);
+        if (!ok.length) break;
+        ok.sort((a, b) => (D(last.node, a.node) + (ret ? 0.3 * D(a.node, 0) : 0)) - (D(last.node, b.node) + (ret ? 0.3 * D(b.node, 0) : 0)));
+        const nx = ok[0]; depart = fits(nx, last.node, depart).fin; order.push(nx); pool = pool.filter(s => s !== nx);
+      }
+      // tighten the order (2-opt), keep it only if the day still fits
+      const cost = o => { let t = 0; for (let k = 1; k < o.length; k++) t += D(o[k - 1].node, o[k].node); return t + (ret ? D(o[o.length - 1].node, 0) : 0); };
+      const timeline = o => {
+        let t = startMin, prev = null; const rows = [];
+        o.forEach(s => { const drive = prev ? D(prev.node, s.node) : (hasBase ? D(0, s.node) : 0); const arrive = prev ? t + drive : startMin; const dep = arrive + s.work; rows.push({ s, arrive, depart:dep, drive }); t = dep; prev = s; });
+        const back = ret ? t + D(prev.node, 0) : null;
+        return { rows, finish:t, back };
+      };
+      let best = order.slice();
+      for (let pass = 0, imp = true; imp && pass < 30; pass++) {
+        imp = false;
+        for (let i = 0; i < best.length - 1; i++) for (let j = i + 1; j < best.length; j++) {
+          const cand = best.slice(0, i).concat(best.slice(i, j + 1).reverse(), best.slice(j + 1));
+          if (cost(cand) < cost(best) - 1e-9) { const tl = timeline(cand); if ((ret ? tl.back : tl.finish) <= endMin) { best = cand; imp = true; } }
+        }
+      }
+      const tl = timeline(best);
+      const done = new Set(best.map(s => s.cid));
+      const dayItems = open.filter(i => done.has(i.cid));
+      left = left.filter(i => !dayItems.includes(i));
+      let miles = 0; for (let k = 1; k < best.length; k++) miles += haversineMi(custPoint(best[k - 1].cid), custPoint(best[k].cid)) * 1.3;
+      days.push({
+        date, rows:tl.rows, finish:tl.finish, back:tl.back,
+        leaveHome: hasBase && tl.rows.length ? startMin - tl.rows[0].drive : null,
+        driveMin: tl.rows.reduce((t, r) => t + r.drive, 0) + (ret ? D(best[best.length - 1].node, 0) : 0),
+        workMin: tl.rows.reduce((t, r) => t + r.s.work, 0), miles: Math.round(miles * 10) / 10,
+      });
+      date = addDays(date, 1);
+    }
+    plannerResult = { days, source, hasBase, ret, tooLong, notPlanned:left, endMin };
+    plannerMsg = source === 'road' ? 'Drive times are real road times.' : source === 'mixed' ? 'Some drive times are estimates (the road service was partly unreachable).' : 'The road-time service was unreachable, so drive times are straight-line estimates (about 30 mph). Run it again for real times.';
+  } catch (e) { plannerMsg = 'Could not build the plan: ' + escHtml(e.message || String(e)); }
+  plannerBusy = false;
+  renderPlanner();
+}
+
+function plannerResultHtml(R) {
+  const dayName = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+  const hm = m => Math.floor(m / 60) + 'h ' + String(Math.round(m % 60)).padStart(2, '0') + 'm';
+  const out = R.days.map((d, di) => `
+    <div class="card" style="padding:12px 14px">
+      <div class="flex-between" style="gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div><div style="font-weight:800;font-size:15px">${dayName(d.date)}</div>
+        <div style="font-size:12px;color:var(--text-dim)">${d.rows.length} stops · work ${hm(d.workMin)} · driving ${hm(d.driveMin)} (~${d.miles} mi between stops)${d.leaveHome != null ? ' · leave home ' + clock(d.leaveHome) : ''} · ${d.back != null ? 'home by ' + clock(d.back) : 'last stop done ' + clock(d.finish)}</div></div>
+        <button class="btn primary sm" onclick="planCreateRoute(${di})">Create this day</button>
+      </div>
+      ${d.rows.map((r, k) => {
+        const late = r.s.items.filter(i => d.date > (i.end || '9999'));
+        return `<div class="flex-row gap-10" style="padding:6px 0;border-top:1px solid var(--border);align-items:flex-start">
+          <div style="font-family:var(--font-mono);font-size:12px;width:70px;flex-shrink:0;color:var(--accent)">${clock(r.arrive)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px">${escHtml(r.s.items[0].name)} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${r.drive ? '· ' + r.drive + ' min drive' : ''}</span></div>
+            <div style="font-size:11px;color:var(--text-dim)">${escHtml(r.s.items[0].addr)}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${r.s.items.map(i => escHtml(i.label)).join(' + ')} · ${r.s.work} min</div>
+            ${late.length ? '<div style="font-size:11px;color:var(--overdue)">After the window closed (' + late.map(i => fmtDate(i.end)).join(', ') + ')</div>' : ''}
+          </div></div>`;
+      }).join('')}
+    </div>`).join('');
+  const note = (R.tooLong.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">Too long for one day, so not planned: ${R.tooLong.map(s => escHtml(s.items[0].name)).join(', ')}</div>` : '')
+    + (R.notPlanned.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">${R.notPlanned.length} stops don't open soon enough to plan yet (e.g. ${escHtml(R.notPlanned[0].name)}, opens ${fmtDate(R.notPlanned[0].avail || R.notPlanned[0].start)}).</div>` : '');
+  return (R.days.length ? `<div class="flex-between mb-8"><h2 style="margin:0">${R.days.length} day${R.days.length === 1 ? '' : 's'} of work</h2><button class="btn secondary sm" onclick="planCreateAll()">Create all days</button></div>` : '') + out + note
+    + (R.hasBase ? '' : '<div style="font-size:12px;color:var(--warn);margin:8px 0">No home location set, so the drive to the first stop and home is not counted.</div>');
+}
+
+function planCreateRoute(di, quiet) {
+  const d = plannerResult && plannerResult.days[di]; if (!d) return;
+  const route = {
+    id:uid(), name:fmtDate(d.date) + ' — planned day', date:d.date, serviceFilter:'Mixed', createdAt:todayStr(), planned:true,
+    miles:d.miles, driveMin:d.driveMin, workMin:d.workMin, leaveHome:d.leaveHome != null ? clock(d.leaveHome) : '', backHome:d.back != null ? clock(d.back) : '',
+    stops: d.rows.map(r => ({ customerId:r.s.cid, customerName:r.s.items[0].name, address:r.s.items[0].addr, cpId:null, roundIdx:null,
+      roundName:r.s.items.map(i => i.label).join(' + '), serviceType:r.s.items[0].svc, status:'pending', code:r.s.items[0].code, period:r.s.items[0].period,
+      eta:clock(r.arrive), workMin:r.s.work, driveMin:r.drive }))
+  };
+  STATE.routes.push(route);
+  if (!quiet) { saveState(); alert('Created "' + route.name + '" in Routes.'); }
+  return route;
+}
+function planCreateAll() {
+  if (!plannerResult) return;
+  plannerResult.days.forEach((_, i) => planCreateRoute(i, true));
+  saveState();
+  alert('Created ' + plannerResult.days.length + ' routes in Routes.');
+  navigateTo('routes');
 }
 
 // ══════════ HISTORY ══════════
@@ -3922,8 +4269,8 @@ function syncGeoFromCustomers() {
   STATE.customers.forEach(c => {
     const lat = parseFloat(c.Lat), lng = parseFloat(c.Lng);
     if (!isFinite(lat) || !isFinite(lng)) return;
-    const g = geoRecord(true), id = custIdStr(c), cur = g.coords[id], addr = fullAddress(c), approx = !!c.GeoApprox;
-    if (!cur || cur.lat !== lat || cur.lng !== lng || cur.addr !== addr || !!cur.approx !== approx) g.coords[id] = { lat, lng, addr, approx };
+    const g = geoRecord(true), id = custIdStr(c), cur = g.coords[id], addr = fullAddress(c), approx = !!c.GeoApprox, manual = !!c.GeoManual;
+    if (!cur || cur.lat !== lat || cur.lng !== lng || cur.addr !== addr || !!cur.approx !== approx || !!cur.manual !== manual) g.coords[id] = { lat, lng, addr, approx, manual };
   });
 }
 function applyGeoToCustomers() {
@@ -3931,8 +4278,8 @@ function applyGeoToCustomers() {
   if (!g || !g.coords) return;
   STATE.customers.forEach(c => {
     const e = g.coords[custIdStr(c)];
-    if (e && e.addr === fullAddress(c)) { c.Lat = e.lat; c.Lng = e.lng; c.GeoApprox = !!e.approx; }
-    else if (e) { delete c.Lat; delete c.Lng; delete c.GeoApprox; }   // address changed since it was located
+    if (e && e.addr === fullAddress(c)) { c.Lat = e.lat; c.Lng = e.lng; c.GeoApprox = !!e.approx; c.GeoManual = !!e.manual; }
+    else if (e) { delete c.Lat; delete c.Lng; delete c.GeoApprox; delete c.GeoManual; }   // address changed since it was located
   });
 }
 function haversineMi(a, b) {
