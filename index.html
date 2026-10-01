@@ -438,6 +438,7 @@ a.btn{text-decoration:none}
     <main id="main-content">
       <!-- Pages injected by JS -->
       <div id="page-workboard" class="page"></div>
+      <div id="page-schedule" class="page"></div>
       <div id="page-routes" class="page"></div>
       <div id="page-customers" class="page"></div>
       <div id="page-programs" class="page"></div>
@@ -639,6 +640,8 @@ function loadFromCache() {
 function loadAll() {
   // Load from cache first for instant UI
   loadFromCache();
+  loadTreatLogCache();
+  refreshTreatLog();
   renderCurrentPage();
 
   // Then try API
@@ -692,6 +695,7 @@ function saveState() {
 // Primary nav — what you reach for every day
 const NAV_ITEMS = [
   { key:'workboard', label:'Today',     emoji:'🏠' },
+  { key:'schedule',  label:'Schedule',  emoji:'📅' },
   { key:'customers', label:'Customers', emoji:'👥' },
   { key:'logs',      label:'Logs',      emoji:'📝' },
   { key:'library',   label:'Library',   emoji:'📚' },
@@ -712,12 +716,14 @@ const NAV_MORE = [
 function renderNav() {
   const nav = document.getElementById('nav');
   const dueCount = getWorkboardItems().filter(i => i.due).length;
+  const schedReady = schedReadyCount();
 
   const navBtn = (n) => `
     <button class="${currentPage === n.key ? 'active' : ''}" onclick="navigateTo('${n.key}')">
       <span class="emoji">${n.emoji}</span>
       <span class="nav-label">${n.label}</span>
       ${n.key === 'workboard' && dueCount > 0 ? `<span class="badge">${dueCount}</span>` : ''}
+      ${n.key === 'schedule' && schedReady > 0 ? `<span class="badge">${schedReady}</span>` : ''}
     </button>
   `;
 
@@ -730,6 +736,7 @@ function renderNav() {
   // Mobile bottom tab bar — same 4 primary + More menu for the rest
   const mainTabs = [
     { key:'workboard', label:'Today',     emoji:'🏠' },
+    { key:'schedule',  label:'Schedule',  emoji:'📅' },
     { key:'customers', label:'Customers', emoji:'👥' },
     { key:'logs',      label:'Logs',      emoji:'📝' },
     { key:'library',   label:'Library',   emoji:'📚' },
@@ -745,6 +752,7 @@ function renderNav() {
         <span class="tab-emoji">${t.emoji}</span>
         <span class="tab-label">${t.label}</span>
         ${t.key === 'workboard' && dueCount > 0 ? `<span class="tab-badge">${dueCount}</span>` : ''}
+        ${t.key === 'schedule' && schedReady > 0 ? `<span class="tab-badge">${schedReady}</span>` : ''}
       </button>
     `).join('');
   }
@@ -789,6 +797,7 @@ function renderCurrentPage() {
     // Render page content
     switch(currentPage) {
       case 'workboard': renderWorkboard(); break;
+      case 'schedule': renderSchedule(); break;
       case 'routes': renderRoutes(); break;
       case 'customers': renderCustomers(); break;
       case 'programs': renderPrograms(); break;
@@ -1052,7 +1061,7 @@ function renderCustomers() {
       const addr = c.Address || c.address || '';
       const phone = c.Phone || c.phone || '';
       const cid = c.ID || c.customerId || '';
-      const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid);
+      const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid && cp.kind !== 'plan');
       const pending = cpList.reduce((s,cp) => s + cp.rounds.filter(r => r.status === 'pending').length, 0);
       return `
         <div class="card clickable" onclick="detailCustomerId='${cid}';renderCustomers()">
@@ -1087,7 +1096,7 @@ function renderCustomerDetail(el) {
   const phone = c.Phone || c.phone || '';
   const email = c.Email || c.email || '';
   const notes = c.propertyNotes || c.Notes || '';
-  const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid);
+  const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid && cp.kind !== 'plan');
 
   const measurements = [
     { label:'Turf', val:c.SqFt_Lawn||c.turfSqft, unit:'sq ft' },
@@ -1125,6 +1134,8 @@ function renderCustomerDetail(el) {
     </div>
 
     ${notes ? `<div class="card mb-16"><div style="font-size:13px;color:var(--text-dim)"><strong style="color:var(--text)">Notes:</strong> ${escHtml(notes)}</div></div>` : ''}
+
+    ${schedCustomerCard(cid)}
 
     <div class="flex-between" style="margin:18px 0 10px">
       <h2 style="margin:0">Programs (${cpList.length})</h2>
@@ -2635,6 +2646,408 @@ function renderSyncResults() {
     </div>
     <p style="font-size:13px;color:var(--text-dim)">Last sync pulled ${STATE.sheetData.length} treatment records. Matching rounds have been auto-completed.</p>
   `;
+}
+
+// ══════════ SCHEDULER ══════════
+// FieldPro works out what's next for each customer from the LPP Log. The log is the
+// record of truth: a round counts as done when it has been logged there, so there is
+// nothing to tick off twice. Per-customer choices (which program, skipped rounds)
+// live in a small 'plan' record kept in customerPrograms.
+const LPP_LOG_API = 'https://script.google.com/macros/s/AKfycbxl5cWjUIxRvfbw3YBi9rKk_Q5bljH94ZvW3KqTxfNor8QCOb7w_QrjUMJpND8Bz4zA/exec';
+const TREATLOG_KEY = 'fieldpro_treatlog';
+
+// Pest control: first week of each of these months (1-12).
+const PEST_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
+const PEST_WEEK_END = 7;
+const BLANKET_GAP_DAYS = 30;   // 3-way label: broadcast passes at least 30 days apart
+const BLANKET_CAP = 2;         // ...and 2 broadcast passes per site per year
+const LATE_GRACE_DAYS = 14;    // a missed window stays "late" this long, then "missed"
+const SOON_DAYS = 21;          // "opening soon" horizon
+
+// Windows come from when the rounds were actually logged in 2026, padded a little.
+// Rd 8 has no log history yet; its window is the winterizer window from the old templates.
+const SCHED_ROUNDS = {
+  '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'03-01', end:'03-31' },
+  '2A': { label:'Rd 2A — Pre-emergent + 3-way',   svc:'Lawn Fert & Weed', start:'03-25', end:'04-30', blanket:true },
+  '2B': { label:'Rd 2B — Dimension + 3-way',      svc:'Lawn Fert & Weed', start:'04-20', end:'05-10', blanket:true },
+  '4':  { label:'Rd 4 — Grub control',            svc:'Grub Control',     start:'05-20', end:'06-30', blanket:true },
+  '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-20', end:'08-31', asNeeded:true },
+  '6':  { label:'Rd 6 — Fall weed & feed',        svc:'Lawn Fert & Weed', start:'09-15', end:'10-31', asNeeded:true, blanket:true },
+  '8':  { label:'Rd 8 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-15', end:'12-01' },
+};
+const SCHED_TRACKS = {
+  full: { label:'Full program',     rounds:['1','2B','4','5','6','8'] },
+  std:  { label:'Standard program', rounds:['2A','4','5','6','8'] },
+};
+
+let TREATLOG = { tabs:{}, fetchedAt:null };
+let treatLogLoading = false, treatLogError = '';
+let schedFilter = { status:'ready', code:'all', city:'all' };
+let schedSel = {};
+let schedSearch = '';
+
+// ── dates (local time, not UTC) ──
+const isoLocal = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+const schedToday = () => isoLocal(new Date());
+const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return isoLocal(d); };
+const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// ── LPP Log loading ──
+function loadTreatLogCache() {
+  try { const raw = localStorage.getItem(TREATLOG_KEY); if (raw) TREATLOG = JSON.parse(raw); } catch(e) {}
+}
+function saveTreatLogCache() {
+  try { localStorage.setItem(TREATLOG_KEY, JSON.stringify(TREATLOG)); } catch(e) {}
+}
+function lppPost(payload) {
+  return fetch(LPP_LOG_API, { method:'POST', headers:{ 'Content-Type':'text/plain' }, body:JSON.stringify(payload) })
+    .then(r => r.text())
+    .then(t => { const d = JSON.parse(t); if (d.status !== 'ok') throw new Error(d.message || 'LPP Log error'); return d; });
+}
+function logDateToIso(s) {
+  s = String(s || '').trim();
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s);
+  if (m) return m[3] + '-' + m[1].padStart(2,'0') + '-' + m[2].padStart(2,'0');
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0,10) : '';
+}
+const nameKey = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+function slimLogEntry(e) {
+  const d = logDateToIso(e.date);
+  if (!d || !e.customer) return null;
+  return {
+    c: String(e.customer).trim(), k: nameKey(e.customer), d, s: String(e.service || ''),
+    // a "blanket" 2,4-D pass: 2,4-D in the active ingredients and not a spot spray
+    b: /2,4-D/i.test(e.activeIng || '') && !/SPOT SPRAY ONLY/i.test(e.method || '')
+  };
+}
+function refreshTreatLog(force) {
+  if (treatLogLoading) return Promise.resolve();
+  treatLogLoading = true; treatLogError = '';
+  if (currentPage === 'schedule') renderSchedule();
+  const now = new Date(), Y = now.getFullYear();
+  const mon = d => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + '_' + d.getFullYear();
+  const recent = [mon(now), mon(new Date(Y, now.getMonth() - 1, 1))];
+  return lppPost({ action:'getLogTabs' })
+    .then(d => {
+      const tabs = (d.tabs || []).filter(t => t.endsWith('_' + Y) || t.endsWith('_' + (Y - 1)));
+      const need = tabs.filter(t => force || !TREATLOG.tabs[t] || recent.includes(t));
+      return Promise.all(need.map(t => lppPost({ action:'getLog', tab:t })
+        .then(r => { TREATLOG.tabs[t] = (r.entries || []).map(slimLogEntry).filter(Boolean); })));
+    })
+    .then(() => { TREATLOG.fetchedAt = new Date().toISOString(); saveTreatLogCache(); })
+    .catch(e => { treatLogError = (e && e.message) || 'Could not reach the LPP Log'; })
+    .then(() => { treatLogLoading = false; renderCurrentPage(); });
+}
+
+// ── what a log service name means to the scheduler ──
+function svcCode(s) {
+  const m = /Lawn Care - Rd (\d+)([ABC])?/i.exec(s || '');
+  if (m) { const n = m[1], l = (m[2] || '').toUpperCase(); return n === '2' ? '2' + l : (n === '5' ? '5' : n); }
+  if (/^Pest Control/i.test(s || '')) return 'PEST';
+  return null;
+}
+function shortSvc(s) {
+  const c = svcCode(s);
+  if (c === 'PEST') return 'Perimeter pest';
+  if (c) return 'Rd ' + c;
+  return String(s || '').replace(/^[A-Za-z &]+ - /, '').replace(/\s*\(.*$/, '').trim() || String(s || '');
+}
+function inferTrack(entries) {
+  const codes = entries.map(e => svcCode(e.s)).filter(c => c && c !== 'PEST');
+  if (!codes.length) return null;
+  if (codes.includes('1') || codes.includes('2B')) return 'full';
+  return 'std';
+}
+
+// ── per-customer choices ──
+function getPlan(cid) { return STATE.customerPrograms.find(cp => cp.kind === 'plan' && cp.customerId === cid); }
+function editPlan(cid, fn) {
+  let p = getPlan(cid);
+  if (!p) { p = { id:uid(), kind:'plan', customerId:cid, programName:'Treatment plan', year:null, rounds:[], track:null, skip:{} }; STATE.customerPrograms.push(p); }
+  p.skip = p.skip || {};
+  fn(p);
+  saveState();
+  renderCurrentPage();
+}
+function schedSetTrack(cid, track) { editPlan(cid, p => { p.track = track || null; }); }
+function schedTogglePest(cid) { editPlan(cid, p => { p.noPest = !p.noPest; }); }
+function schedToggleSkip(cid, key) { editPlan(cid, p => { if (p.skip[key]) delete p.skip[key]; else p.skip[key] = true; }); }
+
+// ── the engine ──
+function schedFor(c, mine, today) {
+  const cid = String(c.ID || c.customerId || c.id);
+  const Y = +today.slice(0,4);
+  const plan = getPlan(cid) || {};
+  const skip = plan.skip || {};
+  const yr = e => +e.d.slice(0,4);
+  const thisYr = mine.filter(e => yr(e) === Y), lastYr = mine.filter(e => yr(e) === Y - 1);
+  const sqLawn = Number(c.SqFt_Lawn || c.turfSqft || 0), sqPest = Number(c.SqFt_Pest || c.perimeterLf || 0);
+
+  let track = null, trackSource = 'none';
+  if (plan.track === 'none') trackSource = 'set';
+  else if (SCHED_TRACKS[plan.track]) { track = plan.track; trackSource = 'set'; }
+  else { const inf = inferTrack(thisYr) || inferTrack(lastYr); if (inf) { track = inf; trackSource = 'history'; } }
+  const needsTrack = !track && plan.track !== 'none' && sqLawn > 0;
+
+  const done = {};
+  thisYr.forEach(e => { const k = svcCode(e.s); if (k && k !== 'PEST' && (!done[k] || e.d > done[k])) done[k] = e.d; });
+  const blanketDates = [...new Set(thisYr.filter(e => e.b).map(e => e.d))].sort();
+  const lastBlanket = blanketDates[blanketDates.length - 1] || null;
+
+  const base = { cid, name:c.Name || c.name || '', city:c.City || '', zip:c.Zip || '',
+    addr:[c.Address, c.City, c.State, c.Zip].filter(Boolean).join(', '), sqft:sqLawn };
+  const rounds = [];
+  const mk = (code, label, svc, state, o) => rounds.push(Object.assign({}, base, { code, label, svc, status:state }, o));
+
+  if (track) {
+    SCHED_TRACKS[track].rounds.forEach(code => {
+      const R = SCHED_ROUNDS[code], ws = Y + '-' + R.start, we = Y + '-' + R.end;
+      const doneOn = (code === '2A' || code === '2B') ? (done['2A'] || done['2B']) : done[code];
+      const o = { start:ws, end:we, period:String(Y), asNeeded:!!R.asNeeded, blanket:R.blanket ? blanketDates.length : null };
+      if (doneOn) return mk(code, R.label, R.svc, 'done', Object.assign(o, { doneOn }));
+      if (skip[Y + ':' + code]) return mk(code, R.label, R.svc, 'skipped', o);
+      let avail = ws;
+      if (R.blanket && lastBlanket) { const gap = addDays(lastBlanket, BLANKET_GAP_DAYS); if (gap > avail) avail = gap; }
+      o.avail = avail;
+      let st;
+      if (today > we) st = (R.asNeeded || daysBetween(we, today) > LATE_GRACE_DAYS) ? 'missed' : 'late';
+      else if (today >= avail) st = R.asNeeded ? 'consider' : 'due';
+      else st = daysBetween(today, avail) <= SOON_DAYS ? 'soon' : 'later';
+      mk(code, R.label, R.svc, st, o);
+    });
+    // anything else logged this year that isn't one of this track's rounds (e.g. Rd 3)
+    Object.keys(done).forEach(code => {
+      if (SCHED_TRACKS[track].rounds.includes(code) || ((code === '2A' || code === '2B') && (SCHED_TRACKS[track].rounds.includes('2A') || SCHED_TRACKS[track].rounds.includes('2B')))) return;
+      mk(code, 'Rd ' + code, 'Lawn Fert & Weed', 'done', { doneOn:done[code], period:String(Y), extra:true });
+    });
+  }
+
+  // pest control — monthly, first week of the month
+  if (sqPest > 0 && !plan.noPest) {
+    const pestDates = thisYr.concat(lastYr).filter(e => svcCode(e.s) === 'PEST').map(e => e.d);
+    const mkMonth = (y, m0) => {
+      const ym = y + '-' + String(m0 + 1).padStart(2,'0');
+      if (!PEST_MONTHS.includes(m0 + 1)) return;
+      const ws = ym + '-01', we = ym + '-' + String(PEST_WEEK_END).padStart(2,'0');
+      const doneOn = pestDates.filter(d => d.startsWith(ym)).sort()[0];
+      const label = 'Pest control — ' + MONTH_NAMES[m0];
+      const o = { start:ws, end:we, avail:ws, period:ym, pest:true };
+      if (doneOn) return mk('PEST', label, 'Perimeter Pest', 'done', Object.assign(o, { doneOn }));
+      if (skip[ym + ':PEST']) return mk('PEST', label, 'Perimeter Pest', 'skipped', o);
+      let st;
+      if (today < ws) st = daysBetween(today, ws) <= SOON_DAYS ? 'soon' : 'later';
+      else if (today <= we) st = 'due';
+      else st = today.slice(0,7) === ym ? 'late' : 'missed';
+      mk('PEST', label, 'Perimeter Pest', st, o);
+    };
+    const t = new Date(today + 'T12:00:00');
+    mkMonth(t.getFullYear(), t.getMonth());
+    const nx = new Date(t.getFullYear(), t.getMonth() + 1, 1);
+    mkMonth(nx.getFullYear(), nx.getMonth());
+  }
+
+  const last = mine.slice().sort((a,b) => b.d.localeCompare(a.d))[0] || null;
+  rounds.forEach(r => { r.last = last; });
+  const order = { due:0, late:1, consider:2, soon:3, later:4 };
+  const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
+  const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
+  return { cid, c, track, trackSource, needsTrack, pestOff:!!plan.noPest, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+}
+
+function buildSchedule() {
+  const today = schedToday();
+  const byCust = {};
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { (byCust[e.k] = byCust[e.k] || []).push(e); }));
+  const seen = {}, dups = [], rows = [];
+  STATE.customers.forEach(c => {
+    const nk = nameKey(c.Name || c.name);
+    if (!nk) return;
+    if (seen[nk]) { dups.push(c.Name || c.name); return; }   // duplicate record: the first one gets the log
+    seen[nk] = true;
+    rows.push(schedFor(c, byCust[nk] || [], today));
+  });
+  const items = [];
+  rows.forEach(r => r.open.forEach(i => items.push(i)));
+  const unmatched = Object.keys(byCust).filter(k => !seen[k]).map(k => byCust[k][0].c);
+  return { today, rows, items, dups, unmatched, needsTrack:rows.filter(r => r.needsTrack) };
+}
+function schedReadyCount() {
+  try { return buildSchedule().items.filter(i => i.status === 'due' || i.status === 'late').length; } catch(e) { return 0; }
+}
+
+// ── display helpers ──
+const SCHED_STATUS = {
+  due:      { text:'Due',          bg:'var(--accent-dim)', fg:'var(--accent)' },
+  late:     { text:'Late',         bg:'var(--danger-bg)',  fg:'var(--overdue)' },
+  consider: { text:'Your call',    bg:'var(--warn-bg)',    fg:'var(--warn)' },
+  soon:     { text:'Opens soon',   bg:'var(--bg-input)',   fg:'var(--text-dim)' },
+  later:    { text:'Later',        bg:'var(--bg-input)',   fg:'var(--text-muted)' },
+  missed:   { text:'Missed',       bg:'var(--bg-input)',   fg:'var(--text-muted)' },
+  done:     { text:'Done',         bg:'var(--accent-dim)', fg:'var(--accent)' },
+  skipped:  { text:'Skipped',      bg:'var(--bg-input)',   fg:'var(--text-muted)' },
+};
+function schedBadge(st) { const s = SCHED_STATUS[st] || SCHED_STATUS.later; return `<span class="badge" style="background:${s.bg};color:${s.fg}">${s.text}</span>`; }
+function schedWhen(r) {
+  if (r.status === 'done') return 'Done ' + fmtDate(r.doneOn);
+  if (r.status === 'soon' || r.status === 'later') return 'Opens ' + fmtDate(r.avail) + ' · through ' + fmtDate(r.end);
+  if (r.status === 'skipped') return 'Skipped for ' + r.period;
+  return 'Window ' + fmtDate(r.start) + ' – ' + fmtDate(r.end) + (r.avail > r.start && ['due','late','consider'].includes(r.status) ? ' · open from ' + fmtDate(r.avail) : '');
+}
+function blanketNote(r) {
+  if (r.blanket == null || r.status === 'done' || r.status === 'skipped') return '';
+  const n = r.blanket, tone = n > BLANKET_CAP ? 'var(--overdue)' : n >= BLANKET_CAP ? 'var(--warn)' : 'var(--text-muted)';
+  return `<span style="font-size:10px;color:${tone};font-weight:600">2,4-D blanket: ${n} of ${BLANKET_CAP}${n >= BLANKET_CAP ? ' — spot only' : ''}</span>`;
+}
+function streetKey(addr) {
+  const a = String(addr || '').split(',')[0].trim();
+  const m = /^(\d+)[A-Za-z]?\s+(.*)$/.exec(a);
+  return m ? { street:m[2].toLowerCase(), num:parseInt(m[1], 10) } : { street:a.toLowerCase(), num:0 };
+}
+function schedLogStatusHtml() {
+  const n = Object.values(TREATLOG.tabs).reduce((s,a) => s + a.length, 0);
+  const when = TREATLOG.fetchedAt ? new Date(TREATLOG.fetchedAt).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : 'never';
+  return `<div class="flex-between" style="font-size:12px;color:var(--text-dim);margin-bottom:12px;gap:10px;flex-wrap:wrap">
+    <span>${treatLogLoading ? '⏳ Reading the LPP Log…' : n + ' logged treatments · updated ' + when}${treatLogError ? ` · <span style="color:var(--overdue)">${escHtml(treatLogError)} (showing saved copy)</span>` : ''}</span>
+    <button class="btn secondary sm" onclick="refreshTreatLog(true)" ${treatLogLoading ? 'disabled' : ''}>🔄 Refresh from LPP Log</button>
+  </div>`;
+}
+
+// ── the Schedule page ──
+function renderSchedule() {
+  const el = document.getElementById('page-schedule');
+  if (!el) return;
+  const S = buildSchedule();
+  const f = schedFilter;
+  const READY = ['due','late'], SOON = ['soon'], CONSIDER = ['consider'];
+  const count = set => S.items.filter(i => set.includes(i.status)).length;
+  const bucket = { ready:READY, consider:CONSIDER, soon:SOON };
+  let list = S.items.filter(i => (bucket[f.status] || READY).includes(i.status));
+  const codes = [...new Set(list.map(i => i.code))];
+  if (f.code !== 'all' && !codes.includes(f.code)) f.code = 'all';
+  if (f.code !== 'all') list = list.filter(i => i.code === f.code);
+  const cities = [...new Set(list.map(i => i.city || '—'))].sort();
+  if (f.city !== 'all' && !cities.includes(f.city)) f.city = 'all';
+  if (f.city !== 'all') list = list.filter(i => (i.city || '—') === f.city);
+  if (schedSearch) { const s = schedSearch.toLowerCase(); list = list.filter(i => i.name.toLowerCase().includes(s) || i.addr.toLowerCase().includes(s)); }
+
+  const groups = {};
+  list.forEach(i => { (groups[i.city || '—'] = groups[i.city || '—'] || []).push(i); });
+  Object.values(groups).forEach(g => g.sort((a,b) => { const x = streetKey(a.addr), y = streetKey(b.addr); return x.street.localeCompare(y.street) || x.num - y.num; }));
+  const cityList = Object.keys(groups).sort();
+  window._schedView = list;
+
+  const selKeys = Object.keys(schedSel).filter(k => schedSel[k]);
+  const tomorrow = isoLocal(new Date(Date.now() + 86400000));
+  const pill = (key, label, n) => `<button class="${f.status === key ? 'active' : ''}" onclick="schedFilter.status='${key}';schedFilter.code='all';schedFilter.city='all';renderSchedule()">${label} <span style="opacity:.7;font-size:9px">${n}</span></button>`;
+  const rowHtml = i => {
+    const k = i.cid + '|' + i.code + '|' + i.period;
+    return `<div class="card" style="padding:10px 12px;margin-bottom:6px">
+      <div class="flex-row gap-10" style="align-items:flex-start">
+        <input type="checkbox" ${schedSel[k] ? 'checked' : ''} onchange="schedSel['${k}']=this.checked;renderSchedule()" style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);flex-shrink:0">
+        <div style="flex:1;min-width:0">
+          <div class="flex-row gap-6" style="flex-wrap:wrap"><span style="font-weight:700;font-size:14px;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border)" onclick="detailCustomerId='${i.cid}';navigateTo('customers');detailCustomerId='${i.cid}';renderCustomers()">${escHtml(i.name)}</span>${schedBadge(i.status)}</div>
+          <div style="font-size:12px;color:var(--text-dim)">${escHtml(i.addr || 'No address')}</div>
+          <div style="font-size:12px;margin-top:2px">${escHtml(i.label)}${i.sqft && !i.pest ? ' · ' + Number(i.sqft).toLocaleString() + ' sqft' : ''}</div>
+          <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${schedWhen(i)}${i.last ? ' · last: ' + escHtml(shortSvc(i.last.s)) + ' ' + fmtDate(i.last.d) : ''}</div>
+          ${blanketNote(i) ? '<div style="margin-top:2px">' + blanketNote(i) + '</div>' : ''}
+        </div>
+        <button class="btn ghost sm" onclick="schedToggleSkip('${i.cid}','${i.period}:${i.code}')" title="Skip this one">Skip</button>
+      </div>
+    </div>`;
+  };
+
+  el.innerHTML = `
+    <h1>Schedule</h1>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What's next for each customer, worked out from the treatments already logged in the LPP Log. Pest control opens the 1st of each month and is due the first week.</p>
+    ${schedLogStatusHtml()}
+    <div class="stat-row">
+      <div class="stat-box"><div class="label">Due now</div><div class="value" style="color:var(--accent)">${S.items.filter(i => i.status === 'due').length}</div></div>
+      <div class="stat-box"><div class="label">Late</div><div class="value" style="color:var(--overdue)">${S.items.filter(i => i.status === 'late').length}</div></div>
+      <div class="stat-box"><div class="label">Your call</div><div class="value" style="color:var(--warn)">${count(CONSIDER)}</div></div>
+      <div class="stat-box"><div class="label">Opens ≤${SOON_DAYS}d</div><div class="value">${count(SOON)}</div></div>
+    </div>
+    ${S.needsTrack.length ? `<div class="card" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>${S.needsTrack.length} lawn customer${S.needsTrack.length === 1 ? ' has' : 's have'} no program yet</strong> — nothing in the log to base one on. Open each and pick Full or Standard.</div><div style="font-size:12px;color:var(--text-dim);margin-top:4px">${S.needsTrack.map(r => `<a href="#" onclick="detailCustomerId='${r.cid}';navigateTo('customers');detailCustomerId='${r.cid}';renderCustomers();return false" style="color:var(--accent)">${escHtml(r.c.Name || r.c.name)}</a>`).join(' · ')}</div></div>` : ''}
+    <div class="filter-pills">${pill('ready','Ready',count(READY))}${pill('consider','Your call',count(CONSIDER))}${pill('soon','Opens soon',count(SOON))}</div>
+    <div class="filter-pills">
+      <button class="${f.code === 'all' ? 'active' : ''}" onclick="schedFilter.code='all';renderSchedule()">All rounds</button>
+      ${codes.sort().map(c => `<button class="${f.code === c ? 'active' : ''}" onclick="schedFilter.code='${c}';renderSchedule()">${c === 'PEST' ? 'Pest' : 'Rd ' + c}</button>`).join('')}
+    </div>
+    <div class="flex-row gap-10 mb-8" style="flex-wrap:wrap">
+      <div class="search-bar" style="flex:1;min-width:150px;margin:0"><input placeholder="Search name or address…" value="${escHtml(schedSearch)}" oninput="schedSearch=this.value;renderSchedule()"></div>
+      <select onchange="schedFilter.city=this.value;renderSchedule()" style="padding:9px 10px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:8px">
+        <option value="all">All towns</option>${cities.map(c => `<option ${f.city === c ? 'selected' : ''}>${escHtml(c)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="flex-between mb-8">
+      <span style="font-size:12px;color:var(--text-dim)">${list.length} shown${selKeys.length ? ' · <strong style="color:var(--accent)">' + selKeys.length + ' selected</strong>' : ''}</span>
+      <span class="flex-row gap-6"><button class="btn ghost sm" onclick="schedSelectShown(true)">Select shown</button>${selKeys.length ? '<button class="btn ghost sm" onclick="schedSel={};renderSchedule()">Clear</button>' : ''}</span>
+    </div>
+    ${selKeys.length ? `<div class="card" style="border-left:3px solid var(--accent)"><div class="flex-row gap-10" style="flex-wrap:wrap;align-items:flex-end">
+      <div class="input-group" style="margin:0"><label>Route date</label><input type="date" id="sched-date" value="${tomorrow}"></div>
+      <button class="btn primary" onclick="buildRouteFromSchedule()">Build route from ${selKeys.length}</button></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Stops are ordered by town, then street. A stop counts as done once it's logged in the LPP Log and refreshed here.</div></div>` : ''}
+    ${cityList.map(city => `
+      <div class="section-label" style="display:flex;justify-content:space-between"><span>${escHtml(city)} (${groups[city].length})</span><a href="#" style="color:var(--accent);font-size:11px;text-transform:none" onclick="schedSelectCity('${escHtml(city).replace(/'/g, '&#39;')}');return false">select town</a></div>
+      ${groups[city].map(rowHtml).join('')}`).join('')}
+    ${list.length === 0 ? `<div class="card"><p style="color:var(--text-dim)">${treatLogLoading ? 'Reading the LPP Log…' : f.status === 'ready' ? 'Nothing is due right now.' : f.status === 'consider' ? 'No judgement calls open right now.' : 'Nothing opens in the next ' + SOON_DAYS + ' days.'}</p></div>` : ''}
+    ${(S.dups.length || S.unmatched.length) ? `<div class="section-label">Data check</div><div class="card" style="font-size:12px;color:var(--text-dim)">
+      ${S.dups.length ? '<div>Duplicate customer record: ' + S.dups.map(escHtml).join(', ') + ' (the log is matched to the first one — delete the extra).</div>' : ''}
+      ${S.unmatched.length ? '<div>Logged under a name that is not a customer: ' + [...new Set(S.unmatched)].map(escHtml).join(', ') + '</div>' : ''}</div>` : ''}
+  `;
+}
+function schedSelectShown(on) { (window._schedView || []).forEach(i => { schedSel[i.cid + '|' + i.code + '|' + i.period] = on; }); renderSchedule(); }
+function schedSelectCity(city) { (window._schedView || []).filter(i => (i.city || '—') === city).forEach(i => { schedSel[i.cid + '|' + i.code + '|' + i.period] = true; }); renderSchedule(); }
+
+function buildRouteFromSchedule() {
+  const date = document.getElementById('sched-date')?.value || todayStr();
+  const chosen = (window._schedView || []).filter(i => schedSel[i.cid + '|' + i.code + '|' + i.period]);
+  if (!chosen.length) { alert('Select at least one stop.'); return; }
+  chosen.sort((a,b) => { const x = streetKey(a.addr), y = streetKey(b.addr); return (a.city || '').localeCompare(b.city || '') || (a.zip || '').localeCompare(b.zip || '') || x.street.localeCompare(y.street) || x.num - y.num; });
+  const route = {
+    id:uid(), name:fmtDate(date) + ' Route', date, serviceFilter:'Mixed', createdAt:todayStr(),
+    stops: chosen.map(i => ({ customerId:i.cid, customerName:i.name, address:i.addr, cpId:null, roundIdx:null,
+      roundName:i.label, serviceType:i.svc, status:'pending', code:i.code, period:i.period }))
+  };
+  STATE.routes.push(route);
+  schedSel = {};
+  saveState();
+  detailRouteId = route.id;
+  navigateTo('routes');
+  detailRouteId = route.id;
+  renderRoutes();
+}
+
+// ── the card on each customer ──
+function schedCustomerCard(cid) {
+  const row = buildSchedule().rows.find(r => r.cid === String(cid));
+  if (!row) return '';
+  const Y = schedToday().slice(0,4);
+  const trackBtn = (key, label) => `<button class="btn ${row.track === key ? 'primary' : 'secondary'} sm" onclick="schedSetTrack('${cid}','${key}')">${label}</button>`;
+  const roundRows = row.rounds.slice().sort((a,b) => (a.start || '').localeCompare(b.start || '')).map(r => `
+    <div class="flex-row gap-10" style="padding:6px 0;border-top:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;${r.status === 'done' || r.status === 'skipped' || r.status === 'missed' ? 'color:var(--text-muted)' : ''}">${escHtml(r.label)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${r.extra ? '' : schedWhen(r)}</div>
+        ${blanketNote(r) ? '<div>' + blanketNote(r) + '</div>' : ''}
+      </div>
+      ${schedBadge(r.status)}
+      ${(r.status === 'done' || r.extra) ? '' : `<button class="btn ghost sm" onclick="schedToggleSkip('${cid}','${r.period}:${r.code}')">${r.status === 'skipped' ? 'Undo skip' : 'Skip'}</button>`}
+    </div>`).join('');
+  return `
+    <div class="card mb-16">
+      <div class="section-label" style="margin-top:0">📅 Treatment plan — ${Y}</div>
+      <div style="font-size:13px;margin-bottom:8px">${row.next
+        ? `<strong>Next:</strong> ${escHtml(row.next.label)} · ${schedBadge(row.next.status)} <span style="color:var(--text-dim)">${schedWhen(row.next)}</span>`
+        : `<span style="color:var(--text-dim)">${row.track ? 'Nothing else scheduled this season.' : 'No lawn program set.'}</span>`}</div>
+      ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
+        ${trackBtn('full','Full program')}${trackBtn('std','Standard program')}${trackBtn('none','No lawn rounds')}
+        <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>` : ''}
+      ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button><span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : 'first week of every month'}</span></div>` : ''}
+      ${roundRows}
+      ${row.other.length ? `<div style="font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:6px;margin-top:4px">Other treatments logged this year: ${row.other.map(e => escHtml(shortSvc(e.s)) + ' ' + fmtDate(e.d)).join(' · ')}</div>` : ''}
+      ${!row.rounds.length && !row.other.length ? '<div style="font-size:12px;color:var(--text-dim)">Nothing logged yet this year.</div>' : ''}
+    </div>`;
 }
 
 // ══════════ HISTORY ══════════
