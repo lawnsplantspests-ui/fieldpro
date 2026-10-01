@@ -643,6 +643,7 @@ function loadAll() {
   loadFromCache();
   applyGeoToCustomers();
   loadTreatLogCache();
+  wxLoadCache();
   refreshTreatLog();
   renderCurrentPage();
 
@@ -3175,6 +3176,7 @@ function schedLogStatusHtml() {
 function renderSchedule() {
   const el = document.getElementById('page-schedule');
   if (!el) return;
+  wxEnsure();
   const S = buildSchedule();
   const f = schedFilter;
   const READY = ['due','late'], SOON = ['soon'], CONSIDER = ['consider'];
@@ -3223,6 +3225,7 @@ function renderSchedule() {
     <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What's next for each customer, worked out from the treatments already logged in the LPP Log. Pest control, mosquito sprays (monthly, May–Oct) and mosquito bait stations (every 6 weeks) are separate services.</p>
     ${schedLogStatusHtml()}
     ${geoCoverageHtml(S.items)}
+    ${wxStripHtml()}
     <div class="stat-row">
       <div class="stat-box"><div class="label">Due now</div><div class="value" style="color:var(--accent)">${S.items.filter(i => i.status === 'due').length}</div></div>
       <div class="stat-box"><div class="label">Late</div><div class="value" style="color:var(--overdue)">${S.items.filter(i => i.status === 'late').length}</div></div>
@@ -3417,11 +3420,113 @@ function locStatus(c) {
   return c.GeoManual ? 'pin set by hand' : c.GeoApprox ? 'zip code only — adjust the pin' : 'found from the address';
 }
 
+// ══════════ WEATHER & SOIL TEMPERATURE ══════════
+// Open-Meteo (free, no account). Forecast for the next 16 days plus the last 7 days, hourly, at the home location.
+// Thresholds are practical guides for spraying and spreading, not label limits: always check the label.
+const WX_KEY = 'fieldpro_wx';
+const WX_RULES = {
+  rainBad:60, rainWarn:40, rainInBad:0.10,   // chance of rain during work hours (%), or inches expected
+  windBad:15, windWarn:10,                   // mph during work hours (drift when spraying)
+  hotWarn:85, hotBad:92,                     // degrees F (broadleaf herbicides and turf stress)
+  coldBad:40,                                // degrees F high: oil and anti-desiccant need it above about 40
+  snowBad:1,                                 // inches of snow on the ground
+};
+let WX = { fetchedAt:null, lat:null, lng:null, days:{} }, wxLoading = false, wxError = '';
+function wxLoadCache() { try { const r = localStorage.getItem(WX_KEY); if (r) WX = JSON.parse(r); } catch(e) {} }
+function wxPoint() { const b = getPlanCfg().base; return b && isFinite(b.lat) ? { lat:b.lat, lng:b.lng } : GEO_HOME; }
+function loadWeather(force) {
+  const pt = wxPoint();
+  const fresh = WX.fetchedAt && Date.now() - new Date(WX.fetchedAt).getTime() < 3 * 3600 * 1000 && Math.abs((WX.lat || 0) - pt.lat) < 0.01 && Math.abs((WX.lng || 0) - pt.lng) < 0.01;
+  if (fresh && !force) return Promise.resolve(WX);
+  if (wxLoading) return Promise.resolve(WX);
+  wxLoading = true; wxError = '';
+  const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + pt.lat.toFixed(4) + '&longitude=' + pt.lng.toFixed(4)
+    + '&daily=temperature_2m_max,temperature_2m_min&hourly=temperature_2m,precipitation,precipitation_probability,wind_speed_10m,soil_temperature_6cm,snow_depth'
+    + '&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=16&past_days=7&timezone=America%2FNew_York';
+  return fetch(u).then(r => r.json()).then(d => {
+    if (!d.hourly || !d.daily) throw new Error(d.reason || 'no data');
+    const days = {};
+    d.daily.time.forEach((t, i) => { days[t] = { hi:d.daily.temperature_2m_max[i], lo:d.daily.temperature_2m_min[i], h:{} }; });
+    d.hourly.time.forEach((t, i) => {
+      const date = t.slice(0, 10), hr = +t.slice(11, 13); if (!days[date]) return;
+      days[date].h[hr] = [d.hourly.temperature_2m[i], d.hourly.precipitation[i], d.hourly.precipitation_probability[i], d.hourly.wind_speed_10m[i], d.hourly.soil_temperature_6cm[i], d.hourly.snow_depth[i]];
+    });
+    WX = { fetchedAt:new Date().toISOString(), lat:pt.lat, lng:pt.lng, days };
+    try { localStorage.setItem(WX_KEY, JSON.stringify(WX)); } catch(e) {}
+    return WX;
+  }).catch(e => { wxError = (e && e.message) || 'could not reach the weather service'; return WX; })
+    .then(r => { wxLoading = false; return r; });
+}
+// the numbers for one day, over the working hours
+function wxDay(date) {
+  const D = WX.days && WX.days[date]; if (!D || !Object.keys(D.h).length) return null;
+  const cfg = getPlanCfg(), h1 = Math.floor(toMin(cfg.start) / 60), h2 = Math.ceil(toMin(cfg.end) / 60);
+  const work = [], all = [];
+  Object.keys(D.h).forEach(k => { const v = D.h[k]; all.push(v); if (+k >= h1 && +k <= h2) work.push(v); });
+  const mx = (a, i) => a.length ? Math.max(...a.map(v => v[i] == null ? -999 : v[i])) : 0;
+  const avg = (a, i) => { const x = a.filter(v => v[i] != null).map(v => v[i]); return x.length ? x.reduce((t, y) => t + y, 0) / x.length : null; };
+  return { hi:D.hi, lo:D.lo, pop:mx(work, 2), rainIn:work.reduce((t, v) => t + (v[1] || 0), 0), wind:mx(work, 3), soil:avg(all, 4), snowIn:mx(all, 5) * 12, workHours:work.length > 0 };
+}
+function wxFlags(date, items) {
+  const w = wxDay(date); if (!w) return null;
+  const bad = [], warn = [], R = WX_RULES;
+  if (w.pop >= R.rainBad || w.rainIn >= R.rainInBad) bad.push('Rain likely'); else if (w.pop >= R.rainWarn) warn.push('Rain possible');
+  if (w.wind >= R.windBad) bad.push('Windy'); else if (w.wind >= R.windWarn) warn.push('Breezy');
+  if (w.hi >= R.hotBad) bad.push('Hot'); else if (w.hi >= R.hotWarn) warn.push('Hot');
+  if (w.snowIn >= R.snowBad) bad.push('Snow on the ground');
+  if ((items || []).some(i => /^(TS1|TS7|ADES)$/.test(i.code)) && w.hi < R.coldBad) bad.push('Too cold for oil / anti-desiccant');
+  return { w, bad, warn };
+}
+// 'bad' | 'warn' | 'ok' | null (no forecast for that date)
+function wxRating(date, items) { const f = wxFlags(date, items); return f ? (f.bad.length ? 'bad' : f.warn.length ? 'warn' : 'ok') : null; }
+const wxBadge = (txt, kind) => `<span class="badge" style="background:${kind === 'bad' ? 'var(--danger-bg)' : 'var(--warn-bg)'};color:${kind === 'bad' ? 'var(--overdue)' : 'var(--warn)'}">${escHtml(txt)}</span>`;
+function wxLine(date, items) {
+  const f = wxFlags(date, items);
+  if (!f) return `<div style="font-size:11px;color:var(--text-muted);margin:2px 0 4px">No forecast for this day yet${wxError ? ' (' + escHtml(wxError) + ')' : ''}.</div>`;
+  const w = f.w;
+  return `<div style="font-size:12px;color:var(--text-dim);margin:2px 0 6px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <span>🌡 ${Math.round(w.hi)}° / ${Math.round(w.lo)}°F</span><span>🌧 ${Math.round(w.pop)}%${w.rainIn >= 0.01 ? ' · ' + w.rainIn.toFixed(2) + '"' : ''}</span><span>💨 ${Math.round(w.wind)} mph</span><span>🌱 soil ${w.soil == null ? '—' : Math.round(w.soil) + '°F'}</span>
+    ${f.bad.map(x => wxBadge(x, 'bad')).join('')}${f.warn.map(x => wxBadge(x, 'warn')).join('')}</div>`;
+}
+// the Schedule page strip: the next 7 days and where the soil temperature is heading
+function wxStripHtml() {
+  const today = schedToday();
+  if (!WX.fetchedAt) return `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${wxLoading ? '⏳ Getting the forecast…' : (wxError ? 'Forecast unavailable: ' + escHtml(wxError) : '')}</div>`;
+  const dates = []; for (let k = 0; k < 7; k++) dates.push(addDays(today, k));
+  const cells = dates.map(d => {
+    const f = wxFlags(d); if (!f) return '';
+    const kind = f.bad.length ? 'bad' : f.warn.length ? 'warn' : 'ok';
+    const col = kind === 'bad' ? 'var(--overdue)' : kind === 'warn' ? 'var(--warn)' : 'var(--accent)';
+    return `<div style="min-width:74px;flex:1;background:var(--bg-input);border-radius:8px;padding:6px 8px;border-top:3px solid ${col}" title="${escHtml(f.bad.concat(f.warn).join(', ') || 'Good working day')}">
+      <div style="font-size:10px;color:var(--text-muted);font-weight:700">${new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', day:'numeric' })}</div>
+      <div style="font-size:13px;font-weight:700">${Math.round(f.w.hi)}°<span style="font-size:11px;color:var(--text-dim);font-weight:500"> / ${Math.round(f.w.lo)}°</span></div>
+      <div style="font-size:10px;color:var(--text-dim)">🌧${Math.round(f.w.pop)}% 💨${Math.round(f.w.wind)}</div></div>`;
+  }).join('');
+  const soilAt = k => { const w = wxDay(addDays(today, k)); return w ? w.soil : null; };
+  const past = [-7, -6, -5, -4, -3, -2, -1].map(soilAt).filter(x => x != null), sNow = soilAt(0), sAvg = past.length ? past.reduce((t, x) => t + x, 0) / past.length : null;
+  const sNext = [1, 2, 3].map(soilAt).filter(x => x != null), sFut = sNext.length ? sNext.reduce((t, x) => t + x, 0) / sNext.length : null;
+  const trend = sNow != null && sFut != null ? (sFut - sNow > 1.5 ? 'rising' : sFut - sNow < -1.5 ? 'falling' : 'steady') : '';
+  const mon = +today.slice(5, 7), snow = (wxDay(today) || {}).snowIn || 0;
+  return `<div class="card" style="padding:10px 12px;margin-bottom:12px">
+    <div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:6px">${cells}</div>
+    <div style="font-size:12px;color:var(--text-dim)">🌱 Soil (about 2 in down): <strong style="color:var(--text)">${sNow == null ? '—' : Math.round(sNow) + '°F'}</strong>${sAvg != null ? ' · 7-day average ' + Math.round(sAvg) + '°F' : ''}${trend ? ' · ' + trend : ''}${snow >= 1 ? ' · <span style="color:var(--overdue)">snow on the ground (' + snow.toFixed(0) + ' in)</span>' : ''}${mon >= 2 && mon <= 5 ? '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Crabgrass starts germinating when the soil holds around 55°F.</div>' : ''}</div>
+    <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Forecast from Open-Meteo for your home location. Wind and rain are for working hours. Thresholds are guides: check the label.</div></div>`;
+}
+
+let wxTriedAt = 0;
+function wxEnsure() {
+  const stale = !WX.fetchedAt || Date.now() - new Date(WX.fetchedAt).getTime() > 3 * 3600 * 1000;
+  if (stale && !wxLoading && Date.now() - wxTriedAt > 5 * 60 * 1000) {
+    wxTriedAt = Date.now();
+    loadWeather().then(() => { if (currentPage === 'schedule') renderSchedule(); });
+  }
+}
+
 // ══════════ DAYS OF WORK (planner) ══════════
 // Builds days that fit between the first stop and the end of the day, using real road drive
 // times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
 // Lawn time is measured from Devon's 2026 log (real-time days): about 32 min at the stop + 0.8 min per 1,000 sq ft
-const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, mileWeight:0.5, attempts:6, satOk:false, base:null };
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, skipBadWeather:true, mileWeight:0.5, attempts:6, satOk:false, base:null };
 function planRecord(create) {
   let r = STATE.customerPrograms.find(cp => cp.kind === 'settings');
   if (!r && create) { r = { id:uid(), kind:'settings', customerId:'_settings', programName:'Planner settings', year:null, rounds:[], cfg:{} }; STATE.customerPrograms.push(r); }
@@ -3464,7 +3569,8 @@ function renderPlanner() {
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days.</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-sat" ${cfg.satOk ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Include Saturdays</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-sat" ${cfg.satOk ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Include Saturdays</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-wx" ${cfg.skipBadWeather !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Skip days the forecast says are too wet, windy or snowy (within the 16-day forecast)</label>
       <div class="flex-row gap-10" style="flex-wrap:wrap;align-items:flex-end">
         <div class="input-group" style="margin:0;flex:2;min-width:220px"><label>Home address (where the day starts and ends)</label><input id="pl-base" value="${escHtml(cfg.base ? cfg.base.addr : '')}" placeholder="Street, town, PA zip"></div>
         <button class="btn secondary sm" onclick="planLocateHome()">📍 Find it</button>
@@ -3494,7 +3600,7 @@ function planSaveCfg() {
   const patch = {
     start:v('pl-start') || '09:00', end:v('pl-end') || '17:00',
     lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0, seedSetup:Number(v('pl-ssetup')) || 0, seedPerK:Number(v('pl-sperk')) || 0, mosqMin:Number(v('pl-mosq')) || 0, tsMin:Number(v('pl-ts')) || 0, maxDetour:Number(v('pl-detour')) || PLAN_DEFAULTS.maxDetour,
-    returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked,
+    returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked, skipBadWeather:document.getElementById('pl-wx') ? document.getElementById('pl-wx').checked : true,
   };
   if (base && base.addr !== addr) patch.base = addr ? { addr, lat:null, lng:null } : null;   // address changed: needs finding again
   else if (!base && addr) patch.base = { addr, lat:null, lng:null };
@@ -3614,6 +3720,8 @@ async function planBuild() {
     const hasBase = !!(cfg.base && isFinite(cfg.base.lat));
     const pts = (hasBase ? [{ lat:cfg.base.lat, lng:cfg.base.lng }] : []).concat(custIds.map(id => custPoint(id)));
     const off = hasBase ? 1 : 0, node = {}; custIds.forEach((id, k) => { node[id] = k + off; });
+    say('Checking the forecast…');
+    await loadWeather().catch(() => {});
     say('Getting real drive times…');
     const { M, Mi, source } = await driveMatrix(pts);
     const W = cfg.mileWeight == null ? PLAN_DEFAULTS.mileWeight : cfg.mileWeight;
@@ -3635,11 +3743,13 @@ async function planBuild() {
 
     // one complete attempt at laying out the days; different modes/jitter explore different layouts
     const maxDetour = cfg.maxDetour == null ? PLAN_DEFAULTS.maxDetour : cfg.maxDetour;
+    const skipBadWx = cfg.skipBadWeather !== false;
     const attempt = (mode, jitter, rnd) => {
-      let left = usable.slice(), days = [], tooLong = [], date = startDate;
+      let left = usable.slice(), days = [], tooLong = [], date = startDate, wxSkipped = [];
       // ---- stage 1: fill each day, one after another ----
       for (let guard = 0; left.length && guard < 60; guard++) {
         date = nextWorkday(date, cfg.satOk);
+        if (skipBadWx) for (let g2 = 0; g2 < 30 && wxRating(date) === 'bad'; g2++) { wxSkipped.push(date); date = nextWorkday(addDays(date, 1), cfg.satOk); }
         if (date > seasonLimit(+date.slice(0, 4))) break;
         const open = left.filter(i => openOn(i, date));
         if (!open.length) { date = addDays(date, 1); continue; }
@@ -3719,7 +3829,7 @@ async function planBuild() {
       }
       days = days.filter(d => d.stops.length);
       const cost = days.reduce((t, d) => t + dayCost(d.stops), 0);
-      return { days, tooLong, left, moved, driveBefore, cost };
+      return { days, tooLong, left, moved, driveBefore, cost, wxSkipped };
     };
 
     // try several layouts and keep the one that drives the least (the same inputs always give the same answer)
@@ -3732,7 +3842,7 @@ async function planBuild() {
       const r = attempt(tries[k][0], tries[k][1], rnd);
       if (!best || r.left.length < best.left.length || (r.left.length === best.left.length && r.cost < best.cost - 0.5)) best = r;
     }
-    let { days, tooLong, left, moved, driveBefore } = best;
+    let { days, tooLong, left, moved, driveBefore, wxSkipped } = best;
     days.sort((x, y) => x.date.localeCompare(y.date));
     // pull the days up to the earliest workdays they are allowed on
     let nextDate = startDate;
@@ -3743,9 +3853,10 @@ async function planBuild() {
     });
     const out = days.map(d => planDayFrom(planBestOrder(d.stops, ctx, true), ctx, Mi, d.date));
     const driveAfter = out.reduce((t, d) => t + d.driveMin, 0);
-    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, driveBefore, driveAfter, tries:tries.length, _ctx:ctx, _Mi:Mi,
+    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, driveBefore, driveAfter, tries:tries.length, wxSkipped, _ctx:ctx, _Mi:Mi,
       limit:seasonLimit(+(plannerStart || schedToday()).slice(0, 4)), miles:Math.round(out.reduce((t, d) => t + d.miles, 0)) };
     plannerMsg = (source === 'road' ? 'Drive times and distances are real road figures.' : source === 'mixed' ? 'Some drive times are estimates (the road service was partly unreachable).' : 'The road service was unreachable, so drive times are straight-line estimates (about 30 mph). Run it again for real times.')
+      + (wxSkipped.length ? ' Left out ' + wxSkipped.map(d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' (' + ((wxFlags(d) || { bad:[] }).bad[0] || 'weather') + ')').join(', ') + '.' : '')
       + ' Best of ' + tries.length + ' layouts: ' + out.length + ' days, about ' + Math.round(driveAfter / 60 * 10) / 10 + ' hours and ' + plannerResult.miles + ' miles of driving.';
   } catch (e) { plannerMsg = 'Could not build the plan: ' + escHtml(e.message || String(e)); }
   plannerBusy = false;
@@ -3762,6 +3873,7 @@ function plannerResultHtml(R) {
         <div style="font-size:12px;color:var(--text-dim)">${d.rows.length} stops · work ${hm(d.workMin)} · driving ${hm(d.driveMin)} (${d.miles} mi)${d.leaveHome != null ? ' · leave home ' + clock(d.leaveHome) : ''} · ${d.back != null ? 'home by ' + clock(d.back) : 'last stop done ' + clock(d.finish)}</div></div>
         <span class="flex-row gap-6">${d.ok === false ? '<span class="badge" style="background:var(--danger-bg);color:var(--overdue)">Over time</span>' : ''}<button class="btn primary sm" onclick="planCreateRoute(${di})">Create this day</button></span>
       </div>
+      ${wxLine(d.date, d.rows.flatMap(r => r.s.items))}
       ${d.rows.map((r, k) => {
         const late = r.s.items.filter(i => d.date > (i.end || '9999'));
         return `<div class="flex-row gap-10" style="padding:6px 0;border-top:1px solid var(--border);align-items:flex-start">
