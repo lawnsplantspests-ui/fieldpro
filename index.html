@@ -2825,6 +2825,7 @@ function schedSetSeed(cid, mode) {
 function schedSeedDate(cid, iso) { if (iso) editPlan(cid, p => { p.seed = iso; }); }
 function schedMarkDone(cid, key) { editPlan(cid, p => { p.done[key] = schedToday(); }); }
 function schedUnmarkDone(cid, key) { editPlan(cid, p => { delete p.done[key]; }); }
+function schedSetWorkSqft(cid, v) { const n = Number(String(v).replace(/,/g, '')); editPlan(cid, p => { if (n > 0) p.workSqft = n; else delete p.workSqft; }); }
 function schedPestDoneYear(cid) {
   const Y = Number(schedToday().slice(0, 4));
   editPlan(cid, p => { if (Number(p.pestEnd) >= Y) delete p.pestEnd; else p.pestEnd = Y; });
@@ -2840,7 +2841,7 @@ function schedFor(c, mine, today) {
   const skip = plan.skip || {};
   const yr = e => +e.d.slice(0,4);
   const thisYr = mine.filter(e => yr(e) === Y), lastYr = mine.filter(e => yr(e) === Y - 1);
-  const sqLawn = Number(c.SqFt_Lawn || c.turfSqft || 0), sqPest = Number(c.SqFt_Pest || c.perimeterLf || 0);
+  const sqOnFile = Number(c.SqFt_Lawn || c.turfSqft || 0), sqLawn = Number(plan.workSqft) || sqOnFile, sqPest = Number(c.SqFt_Pest || c.perimeterLf || 0);
 
   let track = null, trackSource = 'none';
   if (plan.track === 'none') trackSource = 'set';
@@ -2935,7 +2936,7 @@ function schedFor(c, mine, today) {
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
   const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
   const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
-  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, workSqft:Number(plan.workSqft) || null, sqOnFile, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
 }
 
 function buildSchedule() {
@@ -3136,6 +3137,10 @@ function schedCustomerCard(cid) {
       ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
         ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}
         <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>` : ''}
+      ${row.sqOnFile > 0 ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px;align-items:center">
+        <span style="font-size:12px;color:var(--text-dim)">Area I normally treat (sq ft):</span>
+        <input type="number" min="0" value="${row.workSqft || ''}" placeholder="${row.sqOnFile}" onchange="schedSetWorkSqft('${cid}',this.value)" style="width:110px;padding:6px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">
+        <span style="font-size:11px;color:var(--text-muted)">${row.workSqft ? 'planning uses this; ' + Number(row.sqOnFile).toLocaleString() + ' is on file' : 'blank = the ' + Number(row.sqOnFile).toLocaleString() + ' on file'}</span></div>` : ''}
       ${row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
         <button class="btn ${row.grub ? 'primary' : 'secondary'} sm" onclick="schedSetGrub('${cid}',true)">Grub control — Rd 4</button>
         <button class="btn ${row.grub ? 'secondary' : 'primary'} sm" onclick="schedSetGrub('${cid}',false)">No grub — Rd 3</button>
