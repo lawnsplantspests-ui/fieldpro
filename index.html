@@ -426,6 +426,7 @@ a.btn{text-decoration:none}
       <div class="app-name">FieldPro</div>
     </div>
     <div class="meta" id="header-date"></div>
+    <button id="header-near-btn" class="header-sync-btn" onclick="showNearMe()" title="Which customer am I at?">📍</button>
     <button id="header-sync-btn" class="header-sync-btn" onclick="navigateTo('sync')" title="Sync settings &amp; status">🔄</button>
   </header>
   <div class="offline-banner" id="offline-banner">⚠ Offline — using cached data</div>
@@ -3790,6 +3791,65 @@ function renderOffers() {
       <textarea id="of-tpl-visit" rows="2" style="width:100%;margin-bottom:6px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplVisit || OFFER_TPL_VISIT)}</textarea>
       <textarea id="of-tpl-plain" rows="2" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplPlain || OFFER_TPL_PLAIN)}</textarea>
       <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save messages</button></div></div>`;
+}
+
+// ══════════ NEAR ME (find the customer I'm standing at) ══════════
+// Uses the phone's location, once or live while the window is open, and ranks customers by distance from their saved pins.
+// The location is used on this device only: it is never saved or sent anywhere.
+const NEAR_HERE_M = 150;            // inside this distance (about 500 ft) is "you're here"
+let nearWatch = null, nearPos = null, nearErr = '';
+const metersBetween = (a, b) => haversineMi(a, b) * 1609.34;
+function nearFmt(m) { return m < 1000 ? Math.round(m * 3.281 / 10) * 10 + ' ft' : (m / 1609.34).toFixed(1) + ' mi'; }
+function nearList(pos) {
+  const today = schedToday(), S = buildSchedule();
+  const onRoute = new Set();
+  STATE.routes.forEach(rt => { if (rt.date === today) (rt.stops || []).forEach(s => { if (s.status !== 'completed') onRoute.add(String(s.customerId)); }); });
+  const out = [];
+  S.rows.forEach(r => {
+    const p = custPoint(r.cid); if (!p) return;
+    const m = metersBetween(pos, p), due = r.open.find(i => i.status === 'due' || i.status === 'late');
+    out.push({ r, c:r.c, m, onToday:onRoute.has(r.cid), due, approx:!!r.c.GeoApprox });
+  });
+  out.sort((a, b) => a.m - b.m);
+  return out.slice(0, 6);
+}
+function showNearMe() {
+  if (!navigator.geolocation) { showModal('Near me', '<p style="color:var(--text-dim)">This device can’t share its location.</p><div class="flex-row gap-6" style="justify-content:flex-end"><button class="btn secondary" onclick="closeModal()">Close</button></div>'); return; }
+  nearPos = null; nearErr = '';
+  renderNearMe();
+  const ok = p => { nearPos = { lat:p.coords.latitude, lng:p.coords.longitude, acc:p.coords.accuracy }; nearErr = ''; renderNearMe(); };
+  const bad = e => { nearErr = e && e.code === 1 ? 'Location is turned off for this page. Allow it in your browser or phone settings, then try again.' : 'Could not get your location (' + ((e && e.message) || 'timeout') + ').'; renderNearMe(); };
+  if (nearWatch != null) navigator.geolocation.clearWatch(nearWatch);
+  nearWatch = navigator.geolocation.watchPosition(p => {
+    if (!document.getElementById('near-body')) { navigator.geolocation.clearWatch(nearWatch); nearWatch = null; return; }   // window closed: stop listening
+    ok(p);
+  }, bad, { enableHighAccuracy:true, timeout:20000, maximumAge:15000 });
+}
+function renderNearMe() {
+  const body = (() => {
+    if (nearErr) return `<p style="color:var(--overdue)">${escHtml(nearErr)}</p>`;
+    if (!nearPos) return '<p style="color:var(--text-dim)">⏳ Finding where you are…</p>';
+    const list = nearList(nearPos);
+    if (!list.length) return '<p style="color:var(--text-dim)">No customers with a saved location yet.</p>';
+    const top = list[0], second = list[1];
+    const sure = top.m <= NEAR_HERE_M && (!second || second.m >= top.m * 2);
+    return `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Your location is accurate to about ${Math.round(nearPos.acc * 3.281)} ft. It updates as you move and is not saved.</div>
+      ${sure ? `<div class="card" style="border-left:3px solid var(--accent);padding:8px 12px;margin-bottom:8px;font-size:13px">You’re probably at <strong>${escHtml(top.c.Name || top.c.name)}</strong>.</div>` : ''}
+      ${list.map((x, i) => {
+        const code = x.due && loggableCode(x.due.code) ? x.due.code : null;
+        const url = code ? lppLogUrl(x.c.Name || x.c.name, code) : LPP_LOG_APP + '?c=' + encodeURIComponent(x.c.Name || x.c.name);
+        return `<div class="card" style="padding:10px 12px;margin-bottom:6px;${i === 0 && sure ? 'border-color:var(--accent)' : ''}">
+          <div class="flex-between" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
+            <div style="min-width:0"><div style="font-weight:700;font-size:14px">${escHtml(x.c.Name || x.c.name)} <span style="font-size:12px;color:var(--accent);font-weight:600">${nearFmt(x.m)}</span></div>
+              <div style="font-size:12px;color:var(--text-dim)">${escHtml([x.c.Address, x.c.City].filter(Boolean).join(', '))}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${[x.onToday ? 'on today’s route' : 'not on today’s route', x.due ? 'due: ' + codeShort(x.due.code) : '', x.approx ? 'approximate pin' : ''].filter(Boolean).join(' · ')}</div></div>
+            <div class="flex-row gap-6"><button class="btn primary sm" data-url="${escHtml(url)}" onclick="window.open(this.dataset.url,'_blank')">📋 Log</button>
+              <button class="btn ghost sm" onclick="closeModal();detailCustomerId='${x.r.cid}';navigateTo('customers');detailCustomerId='${x.r.cid}';renderCustomers()">Open</button></div></div></div>`;
+      }).join('')}`;
+  })();
+  const el = document.getElementById('near-body');
+  if (el) { el.innerHTML = body; return; }          // live update: change only the list, no flicker
+  showModal('📍 Near me', `<div id="near-body">${body}</div><div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary" onclick="closeModal()">Close</button></div>`, true);
 }
 
 // ══════════ DAYS OF WORK (planner) ══════════
