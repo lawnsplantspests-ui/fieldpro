@@ -2772,9 +2772,11 @@ function lppLogUrl(name, code) {
   else if (code === 'PEST') { q.set('pfx', 'Pest Control'); const l = lastLoggedService(name, /^Pest Control/i); if (l) q.set('svc', l); }
   else if (code === 'BAIT') q.set('svc', 'Mosquito - Bait Station');
   else if (code === 'MOSQ') { q.set('pfx', 'Mosquito'); q.set('not', 'Bait'); const l = lastLoggedService(name, /^Mosquito(?!\s*-\s*Bait)/i); if (l) q.set('svc', l); }
-  else if (code === 'TS2' || code === 'TS6') q.set('pfx', 'PHC - Fertilization');
-  else if (code === 'TS1' || code === 'TS7') q.set('pfx', 'PHC - Horticultural');
-  else { q.set('pfx', 'PHC -'); q.set('not', 'Fertiliz'); }
+  else if (code === 'TS2') q.set('pfx', 'PHC - Fertilization - Spring');
+  else if (code === 'TS6') q.set('pfx', 'PHC - Fertilization - Fall');
+  else if (code === 'TS1') q.set('pfx', 'PHC - Horticultural Oil - Spring');
+  else if (code === 'TS7') q.set('pfx', 'PHC - Horticultural Oil - Fall');
+  else q.set('svc', 'PHC - Round 3-5 Treatment (pick product)');   // rounds 3-5: one generic service, the product is picked at logging
   return LPP_LOG_APP + '?' + q.toString();
 }
 function lppLogBtn(name, code, label) {
