@@ -2706,16 +2706,28 @@ const SCHED_TRACKS = {
 //   log = how the LPP Log's service names are recognised as that service being done; services with no log match
 //   (or unlogged work) are marked done in FieldPro.
 const SERVICES = {
-  MOSQ: { label:'Mosquito', svc:'Mosquito Control', kind:'monthly', months:[5,6,7,8,9,10], weekEnd:7, log:/^Mosquito/i, infer:true },
+  // mosquito sprays: monthly, first week, May-Oct (a bait-station customer is NOT a spray customer)
+  MOSQ: { label:'Mosquito spray', svc:'Mosquito Control', kind:'monthly', months:[5,6,7,8,9,10], weekEnd:7, log:/^Mosquito(?!\s*-\s*Bait)/i, infer:true },
+  // bait stations: every 6 weeks from the last visit, May-Oct
+  BAIT: { label:'Mosquito bait stations', svc:'Mosquito Control', kind:'interval', days:42, months:[5,6,7,8,9,10], log:/^Mosquito\s*-\s*Bait/i, infer:true },
+  // tree & shrub: 7 rounds. 1 and 7 horticultural oil, 2 and 6 fertilizer, 3-5 fungicide + miticide + insecticide (those are in the
+  // LPP Log as PHC - ..., so they are recognised from it; oil and fertilizer are marked done in FieldPro). Dates are PROPOSED.
   TS:   { label:'Tree & shrub', svc:'Tree & Shrub Care', kind:'rounds', log:/^PHC\b/i, placeholder:true, rounds:[
-            { code:'1', name:'Round 1', start:'03-01', end:'04-15' },
-            { code:'2', name:'Round 2', start:'05-15', end:'06-30' },
-            { code:'3', name:'Round 3', start:'09-01', end:'10-15' } ] },
-  ADES: { label:'Anti-desiccant', svc:'Tree & Shrub Care', kind:'window', start:'11-01', endFn:Y => seasonEnd(Y), placeholder:true },
+            { code:'1', name:'Round 1 — Horticultural oil',                    start:'03-01', end:'04-10' },
+            { code:'2', name:'Round 2 — Fertilizer',                           start:'04-15', end:'05-20' },
+            { code:'3', name:'Round 3 — Fungicide, miticide, insecticide',     start:'05-20', end:'06-20', useLog:true },
+            { code:'4', name:'Round 4 — Fungicide, miticide, insecticide',     start:'06-20', end:'07-25', useLog:true },
+            { code:'5', name:'Round 5 — Fungicide, miticide, insecticide',     start:'07-25', end:'08-31', useLog:true },
+            { code:'6', name:'Round 6 — Fertilizer',                           start:'09-05', end:'10-10' },
+            { code:'7', name:'Round 7 — Horticultural oil',                    start:'10-25', end:'11-20' } ] },
+  // Round 9 of the tree & shrub program. Its own switch: only some customers get it.
+  ADES: { label:'Tree & shrub — Round 9 (anti-desiccant)', svc:'Tree & Shrub Care', kind:'window', start:'11-01', endFn:Y => seasonEnd(Y), placeholder:true },
 };
 function codeShort(c) {
   if (c === 'PEST') return 'Pest';
   if (c === 'SEED') return 'Seed';
+  if (c === 'BAIT') return 'Bait stations';
+  if (c === 'ADES') return 'Rd 9 anti-desiccant';
   const k = Object.keys(SERVICES).find(k => c === k || (c.startsWith(k) && /^\d+$/.test(c.slice(k.length))));
   if (k) return SERVICES[k].label + (c !== k ? ' ' + c.slice(k.length) : '');
   return 'Rd ' + c;
@@ -2964,23 +2976,24 @@ function schedFor(c, mine, today) {
       mk('SEED', R.label, R.svc, st, o);
     }
   }
-  // other services (mosquito, tree & shrub, anti-desiccant): enrolled per customer; mosquito is also picked up from the log
+  // other services: enrolled per customer; mosquito sprays and bait stations are also picked up from the log
   const svcInfo = {};
   Object.keys(SERVICES).forEach(key => {
     const def = SERVICES[key], want = (plan.svc || {})[key];
-    const svcDates = def.log ? thisYr.concat(lastYr).filter(e => def.log.test(e.s)).map(e => e.d) : [];
-    const enrolled = want === true || (want !== false && !!def.infer && svcDates.length > 0);
+    const logDates = def.log ? thisYr.concat(lastYr).filter(e => def.log.test(e.s)).map(e => e.d).sort() : [];
+    const enrolled = want === true || (want !== false && !!def.infer && logDates.length > 0);
     svcInfo[key] = { enrolled, source: want === true ? 'set' : (enrolled ? 'history' : (want === false ? 'off' : '')) };
     if (!enrolled) return;
     const manualDone = plan.done || {};
     const base2 = { svcKey:key, noSqft:true, manual:true, note:def.placeholder ? 'Dates not confirmed yet — check before routing' : '' };
+    const endY = Number((plan.svcEnd || {})[key]) || 0;
+    const pad2 = n => String(n).padStart(2, '0');
     if (def.kind === 'monthly') {
-      const endY = Number((plan.svcEnd || {})[key]) || 0;
       const mkMonth = (y, m0) => {
         if (!def.months.includes(m0 + 1) || y <= endY) return;
-        const ym = y + '-' + String(m0 + 1).padStart(2, '0'), ws = ym + '-01', we = ym + '-' + String(def.weekEnd).padStart(2, '0');
+        const ym = y + '-' + pad2(m0 + 1), ws = ym + '-01', we = ym + '-' + pad2(def.weekEnd);
         const label = def.label + ' — ' + MONTH_NAMES[m0], o = Object.assign({ start:ws, end:we, avail:ws, period:ym }, base2);
-        const doneOn = manualDone[ym + ':' + key] || svcDates.filter(d => d.startsWith(ym)).sort()[0];
+        const doneOn = manualDone[ym + ':' + key] || logDates.filter(d => d.startsWith(ym))[0];
         if (doneOn) return mk(key, label, def.svc, 'done', Object.assign(o, { doneOn }));
         if (skip[ym + ':' + key]) return mk(key, label, def.svc, 'skipped', o);
         let st;
@@ -2992,13 +3005,29 @@ function schedFor(c, mine, today) {
       const t = new Date(today + 'T12:00:00');
       mkMonth(t.getFullYear(), t.getMonth());
       const nx = new Date(t.getFullYear(), t.getMonth() + 1, 1); mkMonth(nx.getFullYear(), nx.getMonth());
+    } else if (def.kind === 'interval') {
+      // the next visit is due `days` after the last one (in season); a service that has slipped stays due, it never expires
+      if (Y <= endY) return;
+      const m1 = def.months[0], m2 = def.months[def.months.length - 1];
+      const seasonStart = Y + '-' + pad2(m1) + '-01', seasonEnd = Y + '-' + pad2(m2) + '-' + pad2(new Date(Y, m2, 0).getDate());
+      const lastThisYear = logDates.filter(d => d.startsWith(String(Y))).pop();
+      let due = lastThisYear ? addDays(lastThisYear, def.days) : (today < seasonStart ? seasonStart : today);
+      if (due < seasonStart) due = seasonStart;
+      if (due > seasonEnd || today > seasonEnd) return;   // the next visit falls after the season ends, or the season is over
+      const we = addDays(due, 7), label = def.label + ' — due ' + fmtDate(due);
+      const o = Object.assign({ start:due, end:we, avail:due, period:due }, base2, { manual:false });
+      if (skip[due + ':' + key]) return mk(key, label, def.svc, 'skipped', o);
+      let st;
+      if (today < due) st = daysBetween(today, due) <= SOON_DAYS ? 'soon' : 'later';
+      else st = today <= we ? 'due' : 'late';
+      mk(key, label, def.svc, st, Object.assign(o, { last:lastThisYear || null }));
     } else {
       const wins = def.kind === 'rounds'
-        ? def.rounds.map(r => ({ code:key + r.code, label:def.label + ' — ' + r.name, start:Y + '-' + r.start, end:Y + '-' + r.end }))
-        : [{ code:key, label:def.label, start:Y + '-' + def.start, end:def.endFn ? def.endFn(Y) : Y + '-' + def.end }];
+        ? def.rounds.map(r => ({ code:key + r.code, label:def.label + ' — ' + r.name, start:Y + '-' + r.start, end:Y + '-' + r.end, useLog:!!r.useLog }))
+        : [{ code:key, label:def.label, start:Y + '-' + def.start, end:def.endFn ? def.endFn(Y) : Y + '-' + def.end, useLog:!!def.log }];
       wins.forEach(w => {
         const o = Object.assign({ start:w.start, end:w.end, avail:w.start, period:String(Y) }, base2);
-        const doneOn = manualDone[o.period + ':' + w.code] || svcDates.filter(d => d >= w.start && d <= w.end).sort()[0];
+        const doneOn = manualDone[o.period + ':' + w.code] || (w.useLog ? logDates.filter(d => d >= w.start && d <= w.end)[0] : undefined);
         if (doneOn) return mk(w.code, w.label, def.svc, 'done', Object.assign(o, { doneOn }));
         if (skip[o.period + ':' + w.code]) return mk(w.code, w.label, def.svc, 'skipped', o);
         let st;
@@ -3133,7 +3162,7 @@ function renderSchedule() {
 
   el.innerHTML = `
     <h1>Schedule</h1>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What's next for each customer, worked out from the treatments already logged in the LPP Log. Pest control and mosquito (May–Oct) are separate services; each opens the 1st of the month and is due the first week.</p>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What's next for each customer, worked out from the treatments already logged in the LPP Log. Pest control, mosquito sprays (monthly, May–Oct) and mosquito bait stations (every 6 weeks) are separate services.</p>
     ${schedLogStatusHtml()}
     ${geoCoverageHtml(S.items)}
     <div class="stat-row">
@@ -3238,8 +3267,8 @@ function schedCustomerCard(cid) {
         return `<div class="flex-row gap-6" style="flex-wrap:wrap;margin:4px 0;align-items:center">
           <span style="font-size:12px;color:var(--text-dim);min-width:92px">${escHtml(def.label)}:</span>
           <button class="btn ${!inf.enrolled ? 'primary' : 'secondary'} sm" onclick="schedSetSvc('${cid}','${key}',false)">Off</button>
-          <button class="btn ${inf.enrolled ? 'primary' : 'secondary'} sm" onclick="schedSetSvc('${cid}','${key}',true)">${def.kind === 'monthly' ? 'Monthly' : 'On'}</button>
-          ${inf.enrolled && def.kind === 'monthly' ? `<button class="btn ${ended ? 'primary' : 'secondary'} sm" onclick="schedSvcEndYear('${cid}','${key}')">${ended ? 'Done for ' + Y + ' — undo' : 'Done for ' + Y}</button>` : ''}
+          <button class="btn ${inf.enrolled ? 'primary' : 'secondary'} sm" onclick="schedSetSvc('${cid}','${key}',true)">${def.kind === 'monthly' ? 'Monthly' : def.kind === 'interval' ? 'Every ' + Math.round(def.days / 7) + ' weeks' : 'On'}</button>
+          ${inf.enrolled && (def.kind === 'monthly' || def.kind === 'interval') ? `<button class="btn ${ended ? 'primary' : 'secondary'} sm" onclick="schedSvcEndYear('${cid}','${key}')">${ended ? 'Done for ' + Y + ' — undo' : 'Done for ' + Y}</button>` : ''}
           <span style="font-size:11px;color:var(--text-muted)">${inf.source === 'history' ? 'from what was logged' : inf.source === 'set' ? 'set by you' : ''}${inf.enrolled && def.placeholder ? ' · dates not confirmed yet' : ''}</span></div>`;
       }).join('')}
       ${roundRows}
@@ -3372,7 +3401,7 @@ function renderPlanner() {
       <div class="section-label" style="margin-top:0">Your day</div>
       <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:10px">
         ${field('pl-start', 'Leave home at', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
-        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}
+        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min, sprays and bait stations)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days.</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
@@ -3534,7 +3563,7 @@ async function planBuild() {
     const itemWork = (list, sqft) => {
       const lawn = list.filter(i => !i.pest && !i.seed && !i.svcKey), pest = list.filter(i => i.pest), seed = list.filter(i => i.seed), others = list.filter(i => i.svcKey);
       let m = 0;
-      others.forEach(i => { m += i.svcKey === 'MOSQ' ? cfg.mosqMin : cfg.tsMin; });
+      others.forEach(i => { m += (i.svcKey === 'MOSQ' || i.svcKey === 'BAIT') ? cfg.mosqMin : cfg.tsMin; });
       if (lawn.length) m += cfg.lawnSetup + cfg.lawnPerK * ((sqft || 8000) / 1000) * lawn.length;
       if (pest.length) m += cfg.pestMin * pest.length;
       if (seed.length) m += cfg.seedSetup + cfg.seedPerK * ((sqft || 8000) / 1000);
