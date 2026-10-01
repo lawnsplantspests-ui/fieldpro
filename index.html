@@ -3186,7 +3186,8 @@ function locStatus(c) {
 // ══════════ DAYS OF WORK (planner) ══════════
 // Builds days that fit between the first stop and the end of the day, using real road drive
 // times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
-const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:10, lawnPerK:2.5, pestMin:25, satOk:false, base:null };
+// Lawn time is measured from Devon's 2026 log (real-time days): about 32 min at the stop + 0.8 min per 1,000 sq ft
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, satOk:false, base:null };
 function planRecord(create) {
   let r = STATE.customerPrograms.find(cp => cp.kind === 'settings');
   if (!r && create) { r = { id:uid(), kind:'settings', customerId:'_settings', programName:'Planner settings', year:null, rounds:[], cfg:{} }; STATE.customerPrograms.push(r); }
@@ -3220,14 +3221,14 @@ function renderPlanner() {
   el.innerHTML = `
     <button class="btn ghost sm" onclick="navigateTo('schedule')" style="margin-bottom:14px">← Back to Schedule</button>
     <h1>Days of work</h1>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Fills each day with stops in driving order, using real drive times and how long each stop takes, so the day ends on time.</p>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Fills each day with stops in driving order, using real drive times and how long each stop takes, so the day ends on time. Each day leaves home and comes back to it.</p>
     <div class="card mb-16">
       <div class="section-label" style="margin-top:0">Your day</div>
       <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:10px">
-        ${field('pl-start', 'First stop', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
+        ${field('pl-start', 'Leave home at', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
         ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop.</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days.</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-sat" ${cfg.satOk ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Include Saturdays</label>
       <div class="flex-row gap-10" style="flex-wrap:wrap;align-items:flex-end">
@@ -3310,6 +3311,51 @@ function nextWorkday(iso, satOk) {
   return d;
 }
 
+// Day model: leave home at the start time, drive to the first stop, work, drive between stops,
+// and (if set) drive home — all of it has to finish by the end time.
+function planDayEval(order, ctx) {
+  const { D, hasBase, startMin, endMin, ret } = ctx;
+  let t = startMin, prev = hasBase ? 0 : null, drive = 0; const rows = [];
+  order.forEach(s => {
+    const dr = prev != null ? D(prev, s.node) : 0;
+    const arrive = t + dr, dep = arrive + s.work;
+    rows.push({ s, arrive, depart:dep, drive:dr }); drive += dr; t = dep; prev = s.node;
+  });
+  const home = (hasBase && order.length) ? D(prev, 0) : 0;
+  const back = ret ? t + home : null;
+  return { rows, finish:t, back, drive:drive + (ret ? home : 0), ok:(ret ? back : t) <= endMin };
+}
+// a good order for a day's stops: nearest neighbour from home, then 2-opt
+function planBestOrder(stops, ctx, thorough) {
+  const { D, hasBase } = ctx;
+  if (stops.length <= 1) return stops.slice();
+  const cost = o => { let c = 0, p = hasBase ? 0 : null; o.forEach(s => { if (p != null) c += D(p, s.node); p = s.node; }); return c + (ctx.ret && p != null ? D(p, 0) : 0); };
+  const twoOpt = start => {
+    let best = start;
+    for (let pass = 0, imp = true; imp && pass < 20; pass++) {
+      imp = false;
+      for (let i = 0; i < best.length - 1; i++) for (let j = i + 1; j < best.length; j++) {
+        const c = best.slice(0, i).concat(best.slice(i, j + 1).reverse(), best.slice(j + 1));
+        if (cost(c) < cost(best) - 1e-9) { best = c; imp = true; }
+      }
+    }
+    return best;
+  };
+  const nn = first => {            // nearest neighbour; from home, or from a chosen first stop
+    const left = stops.slice(), path = []; let cur = hasBase ? 0 : null;
+    if (first) { left.splice(left.indexOf(first), 1); path.push(first); cur = first.node; }
+    while (left.length) {
+      let bi = 0, bd = Infinity;
+      left.forEach((s, i) => { const d = cur == null ? (i === 0 ? 0 : Infinity) : D(cur, s.node); if (d < bd) { bd = d; bi = i; } });
+      const nx = left.splice(bi, 1)[0]; path.push(nx); cur = nx.node;
+    }
+    return path;
+  };
+  let best = twoOpt(nn(null));
+  if (thorough && stops.length <= 14) stops.forEach(s => { const c = twoOpt(nn(s)); if (cost(c) < cost(best) - 1e-9) best = c; });   // try every first stop
+  return best;
+}
+
 async function planBuild() {
   planSaveCfg();
   const cfg = getPlanCfg();
@@ -3321,8 +3367,8 @@ async function planBuild() {
     const pts = (hasBase ? [{ lat:cfg.base.lat, lng:cfg.base.lng }] : []).concat(custIds.map(id => custPoint(id)));
     const off = hasBase ? 1 : 0, node = {}; custIds.forEach((id, k) => { node[id] = k + off; });
     const { M, source } = await driveMatrix(pts);
-    const D = (a, b) => M[a][b];
-    const startMin = toMin(cfg.start), endMin = toMin(cfg.end), ret = hasBase && cfg.returnHome;
+    const ctx = { D:(a, b) => M[a][b], hasBase, startMin:toMin(cfg.start), endMin:toMin(cfg.end), ret:hasBase && cfg.returnHome };
+    const { D, startMin, endMin, ret } = ctx;
     const itemWork = (list, sqft) => {
       const lawn = list.filter(i => !i.pest), pest = list.filter(i => i.pest);
       let m = 0;
@@ -3330,64 +3376,85 @@ async function planBuild() {
       if (pest.length) m += cfg.pestMin * pest.length;
       return round5(m);
     };
+    const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft), end:items.map(i => i.end || '9999').sort()[0] });
+    const openOn = (i, date) => (i.avail || i.start || '') <= date;
+
+    // ---- stage 1: fill each day, one after another ----
     let left = usable.slice(), date = plannerStart, days = [], tooLong = [];
     const todayIso = schedToday(); if (date <= todayIso) date = addDays(todayIso, 1);
-    for (let guard = 0; left.length && guard < 40; guard++) {
+    for (let guard = 0; left.length && guard < 60; guard++) {
       date = nextWorkday(date, cfg.satOk);
-      const open = left.filter(i => (i.avail || i.start || '') <= date);
+      const open = left.filter(i => openOn(i, date));
       if (!open.length) { date = addDays(date, 1); continue; }
       const by = {}; open.forEach(i => { (by[i.cid] = by[i.cid] || []).push(i); });
-      const cands = Object.keys(by).map(cid => ({ cid, items:by[cid], node:node[cid], work:itemWork(by[cid], by[cid][0].sqft), end:by[cid].map(i => i.end || '9999').sort()[0], c:custById(cid) }));
-      const farFromHome = s => hasBase ? D(0, s.node) : 0;
-      const fits = (s, from, depart) => {
-        const arrive = from == null ? startMin : depart + D(from, s.node);
-        const fin = arrive + s.work;
-        return { arrive, fin, ok: fin + (ret ? D(s.node, 0) : 0) <= endMin };
-      };
-      // seed with the stop whose window closes first (then the one farthest from home)
-      cands.sort((a, b) => a.end.localeCompare(b.end) || farFromHome(b) - farFromHome(a));
+      let cands = Object.keys(by).map(cid => stopFor(cid, by[cid]));
+      const far = s => hasBase ? D(0, s.node) : 0;
+      // the stop whose window closes first goes first; ties go to the one farthest from home
+      cands.sort((a, b) => a.end.localeCompare(b.end) || far(b) - far(a));
       let seed = null;
-      for (const s of cands) { if (fits(s, null, 0).ok) { seed = s; break; } tooLong.push(s); left = left.filter(i => i.cid !== s.cid); }
+      for (const s of cands) { if (planDayEval([s], ctx).ok) { seed = s; break; } tooLong.push(s); left = left.filter(i => i.cid !== s.cid); }
       if (!seed) continue;
-      const order = [seed]; let depart = startMin + seed.work, pool = cands.filter(s => s !== seed && !tooLong.includes(s));
+      let order = [seed], pool = cands.filter(s => s !== seed && !tooLong.includes(s));
       for (;;) {
         const last = order[order.length - 1];
-        const ok = pool.filter(s => fits(s, last.node, depart).ok);
+        const ok = pool.filter(s => planDayEval(order.concat(s), ctx).ok);
         if (!ok.length) break;
         ok.sort((a, b) => (D(last.node, a.node) + (ret ? 0.3 * D(a.node, 0) : 0)) - (D(last.node, b.node) + (ret ? 0.3 * D(b.node, 0) : 0)));
-        const nx = ok[0]; depart = fits(nx, last.node, depart).fin; order.push(nx); pool = pool.filter(s => s !== nx);
+        order.push(ok[0]); pool = pool.filter(s => s !== ok[0]);
       }
-      // tighten the order (2-opt), keep it only if the day still fits
-      const cost = o => { let t = 0; for (let k = 1; k < o.length; k++) t += D(o[k - 1].node, o[k].node); return t + (ret ? D(o[o.length - 1].node, 0) : 0); };
-      const timeline = o => {
-        let t = startMin, prev = null; const rows = [];
-        o.forEach(s => { const drive = prev ? D(prev.node, s.node) : (hasBase ? D(0, s.node) : 0); const arrive = prev ? t + drive : startMin; const dep = arrive + s.work; rows.push({ s, arrive, depart:dep, drive }); t = dep; prev = s; });
-        const back = ret ? t + D(prev.node, 0) : null;
-        return { rows, finish:t, back };
-      };
-      let best = order.slice();
-      for (let pass = 0, imp = true; imp && pass < 30; pass++) {
-        imp = false;
-        for (let i = 0; i < best.length - 1; i++) for (let j = i + 1; j < best.length; j++) {
-          const cand = best.slice(0, i).concat(best.slice(i, j + 1).reverse(), best.slice(j + 1));
-          if (cost(cand) < cost(best) - 1e-9) { const tl = timeline(cand); if ((ret ? tl.back : tl.finish) <= endMin) { best = cand; imp = true; } }
-        }
-      }
-      const tl = timeline(best);
-      const done = new Set(best.map(s => s.cid));
-      const dayItems = open.filter(i => done.has(i.cid));
-      left = left.filter(i => !dayItems.includes(i));
-      let miles = 0; for (let k = 1; k < best.length; k++) miles += haversineMi(custPoint(best[k - 1].cid), custPoint(best[k].cid)) * 1.3;
-      days.push({
-        date, rows:tl.rows, finish:tl.finish, back:tl.back,
-        leaveHome: hasBase && tl.rows.length ? startMin - tl.rows[0].drive : null,
-        driveMin: tl.rows.reduce((t, r) => t + r.drive, 0) + (ret ? D(best[best.length - 1].node, 0) : 0),
-        workMin: tl.rows.reduce((t, r) => t + r.s.work, 0), miles: Math.round(miles * 10) / 10,
-      });
+      const done = new Set(order.map(s => s.cid));
+      days.push({ date, stops:order });
+      left = left.filter(i => !(done.has(i.cid) && openOn(i, date)));
       date = addDays(date, 1);
     }
-    plannerResult = { days, source, hasBase, ret, tooLong, notPlanned:left, endMin };
-    plannerMsg = source === 'road' ? 'Drive times are real road times.' : source === 'mixed' ? 'Some drive times are estimates (the road service was partly unreachable).' : 'The road-time service was unreachable, so drive times are straight-line estimates (about 30 mph). Run it again for real times.';
+
+    // ---- stage 2: move stops between days when that cuts driving and every day still fits ----
+    const dayCost = stops => stops.length ? planDayEval(planBestOrder(stops, ctx), ctx).drive : 0;
+    let moved = 0;
+    const driveBefore = days.reduce((t, d) => t + dayCost(d.stops), 0);
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (let a = 0; a < days.length; a++) {
+        for (const s of days[a].stops.slice()) {
+          if (!days[a].stops.includes(s)) continue;
+          const costs = days.map(d => dayCost(d.stops));
+          const costWithout = dayCost(days[a].stops.filter(x => x !== s));
+          let best = null;
+          for (let b = 0; b < days.length; b++) {
+            if (b === a) continue;
+            const dB = days[b].date;
+            // every item must be open on the other day, and not pushed past its window if it was inside it
+            if (!s.items.every(i => openOn(i, dB) && (dB <= (i.end || '9999') || days[a].date > (i.end || '9999')))) continue;
+            const ev = planDayEval(planBestOrder(days[b].stops.concat([s]), ctx), ctx);
+            if (!ev.ok) continue;
+            const delta = ev.drive + costWithout - costs[a] - costs[b];
+            if (delta < -1 && (!best || delta < best.delta)) best = { b, delta };
+          }
+          if (best) { days[a].stops = days[a].stops.filter(x => x !== s); days[best.b].stops.push(s); moved++; changed = true; }
+        }
+      }
+      if (!changed) break;
+    }
+    days = days.filter(d => d.stops.length);
+    // pull the days up to the earliest workdays they are allowed on
+    days.sort((x, y) => x.date.localeCompare(y.date));
+    let nextDate = plannerStart <= todayIso ? addDays(todayIso, 1) : plannerStart;
+    days.forEach(d => {
+      const cand = nextWorkday(nextDate, cfg.satOk);
+      if (cand < d.date && d.stops.every(s => s.items.every(i => openOn(i, cand)))) d.date = cand;
+      nextDate = addDays(d.date, 1);
+    });
+
+    const out = days.map(d => {
+      const order = planBestOrder(d.stops, ctx, true), ev = planDayEval(order, ctx);
+      let miles = 0; for (let k = 1; k < order.length; k++) miles += haversineMi(custPoint(order[k - 1].cid), custPoint(order[k].cid)) * 1.3;
+      return { date:d.date, rows:ev.rows, finish:ev.finish, back:ev.back, leaveHome:hasBase ? startMin : null, driveMin:ev.drive,
+        workMin:ev.rows.reduce((t, r) => t + r.s.work, 0), miles:Math.round(miles * 10) / 10 };
+    });
+    const driveAfter = out.reduce((t, d) => t + d.driveMin, 0);
+    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, driveBefore, driveAfter };
+    plannerMsg = (source === 'road' ? 'Drive times are real road times.' : source === 'mixed' ? 'Some drive times are estimates (the road service was partly unreachable).' : 'The road-time service was unreachable, so drive times are straight-line estimates (about 30 mph). Run it again for real times.')
+      + (moved && driveBefore > driveAfter ? ' Moving ' + moved + ' stops between days cut the driving by about ' + Math.round(driveBefore - driveAfter) + ' minutes (' + Math.round(100 * (1 - driveAfter / driveBefore)) + '%).' : '');
   } catch (e) { plannerMsg = 'Could not build the plan: ' + escHtml(e.message || String(e)); }
   plannerBusy = false;
   renderPlanner();
