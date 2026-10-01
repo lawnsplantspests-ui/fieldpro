@@ -640,6 +640,7 @@ function loadFromCache() {
 function loadAll() {
   // Load from cache first for instant UI
   loadFromCache();
+  applyGeoToCustomers();
   loadTreatLogCache();
   refreshTreatLog();
   renderCurrentPage();
@@ -662,6 +663,7 @@ function loadAll() {
       if (d.phcVisits) STATE.phcVisits = d.phcVisits;
       if (d.soilSamples) STATE.soilSamples = d.soilSamples;
       if (d.baitStations) STATE.baitStations = d.baitStations;
+      applyGeoToCustomers();
       saveToCache();
       renderCurrentPage();
       document.getElementById('offline-banner').classList.remove('show');
@@ -675,6 +677,7 @@ function loadAll() {
 }
 
 function saveState() {
+  syncGeoFromCustomers();
   saveToCache();
   // Fire API save in background
   api({ action: 'fpSaveAll', data: {
@@ -1061,7 +1064,7 @@ function renderCustomers() {
       const addr = c.Address || c.address || '';
       const phone = c.Phone || c.phone || '';
       const cid = c.ID || c.customerId || '';
-      const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid && cp.kind !== 'plan');
+      const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid && !cp.kind);
       const pending = cpList.reduce((s,cp) => s + cp.rounds.filter(r => r.status === 'pending').length, 0);
       return `
         <div class="card clickable" onclick="detailCustomerId='${cid}';renderCustomers()">
@@ -1096,7 +1099,7 @@ function renderCustomerDetail(el) {
   const phone = c.Phone || c.phone || '';
   const email = c.Email || c.email || '';
   const notes = c.propertyNotes || c.Notes || '';
-  const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid && cp.kind !== 'plan');
+  const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid && !cp.kind);
 
   const measurements = [
     { label:'Turf', val:c.SqFt_Lawn||c.turfSqft, unit:'sq ft' },
@@ -2308,10 +2311,11 @@ function renderRouteDetail(el) {
     <div class="flex-between mb-16" style="flex-wrap:wrap;gap:10px">
       <div>
         <h1 style="margin:0">${escHtml(rt.name || fmtDateFull(rt.date))}</h1>
-        <div style="font-size:13px;color:var(--text-dim)">${total} stops · ${completed} completed · ${escHtml(rt.serviceFilter||'Mixed')}</div>
+        <div style="font-size:13px;color:var(--text-dim)">${total} stops · ${completed} completed · ${escHtml(rt.serviceFilter||'Mixed')}${rt.miles ? ' · about ' + rt.miles + ' mi' : ''}</div>
       </div>
       <div class="flex-row gap-6" style="flex-wrap:wrap">
         <button class="btn primary sm" onclick="openInAppleMaps('${rt.id}')">🗺️ Maps</button>
+        <button class="btn secondary sm" onclick="reorderRoute('${rt.id}')">📍 Order by distance</button>
         <button class="btn secondary sm" onclick="showEditRoute('${rt.id}')">✏️ Edit</button>
         <button class="btn danger sm" onclick="deleteRoute('${rt.id}')">Delete</button>
       </div>
@@ -2665,19 +2669,20 @@ const LATE_GRACE_DAYS = 14;    // a missed window stays "late" this long, then "
 const SOON_DAYS = 21;          // "opening soon" horizon
 
 // Windows come from when the rounds were actually logged in 2026, padded a little.
-// Rd 8 has no log history yet; its window is the winterizer window from the old templates.
+// Rd 7 (winterizer) has no log history yet; its window is the winterizer window from the old templates.
 const SCHED_ROUNDS = {
   '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'03-01', end:'03-31' },
   '2A': { label:'Rd 2A — Pre-emergent + 3-way',   svc:'Lawn Fert & Weed', start:'03-25', end:'04-30', blanket:true },
   '2B': { label:'Rd 2B — Dimension + 3-way',      svc:'Lawn Fert & Weed', start:'04-20', end:'05-10', blanket:true },
+  '3':  { label:'Rd 3 — Weed & feed',             svc:'Lawn Fert & Weed', start:'05-15', end:'06-30', asNeeded:true, blanket:true },
   '4':  { label:'Rd 4 — Grub control',            svc:'Grub Control',     start:'05-20', end:'06-30', blanket:true },
-  '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-20', end:'08-31', asNeeded:true },
-  '6':  { label:'Rd 6 — Fall weed & feed',        svc:'Lawn Fert & Weed', start:'09-15', end:'10-31', asNeeded:true, blanket:true },
-  '8':  { label:'Rd 8 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-15', end:'12-01' },
+  '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-20', end:'08-31' },
+  '6':  { label:'Rd 6 — Fall weed & feed',        svc:'Lawn Fert & Weed', start:'09-15', end:'10-31', blanket:true },
+  '7':  { label:'Rd 7 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-15', end:'12-01' },
 };
 const SCHED_TRACKS = {
-  full: { label:'Full program',     rounds:['1','2B','4','5','6','8'] },
-  std:  { label:'Standard program', rounds:['2A','4','5','6','8'] },
+  full: { label:'Full program',        rounds:['1','2B','3','4','5','6','7'] },
+  std:  { label:'Maintenance program', rounds:['2A','3','4','6'] },
 };
 
 let TREATLOG = { tabs:{}, fetchedAt:null };
@@ -2743,7 +2748,11 @@ function refreshTreatLog(force) {
 // ── what a log service name means to the scheduler ──
 function svcCode(s) {
   const m = /Lawn Care - Rd (\d+)([ABC])?/i.exec(s || '');
-  if (m) { const n = m[1], l = (m[2] || '').toUpperCase(); return n === '2' ? '2' + l : (n === '5' ? '5' : n); }
+  if (m) {
+    const n = m[1], l = (m[2] || '').toUpperCase();
+    if (n === '7' || (n === '8' && /winteri/i.test(s))) return '7';   // winterizer is Rd 7; the log service may still say Rd 8
+    return n === '2' ? '2' + l : (n === '5' ? '5' : n);
+  }
   if (/^Pest Control/i.test(s || '')) return 'PEST';
   return null;
 }
@@ -2811,7 +2820,7 @@ function schedFor(c, mine, today) {
       if (R.blanket && lastBlanket) { const gap = addDays(lastBlanket, BLANKET_GAP_DAYS); if (gap > avail) avail = gap; }
       o.avail = avail;
       let st;
-      if (today > we) st = (R.asNeeded || daysBetween(we, today) > LATE_GRACE_DAYS) ? 'missed' : 'late';
+      if (today > we) { if (R.asNeeded) return; st = daysBetween(we, today) > LATE_GRACE_DAYS ? 'missed' : 'late'; }   // a discretionary round that passed unused is not a miss
       else if (today >= avail) st = R.asNeeded ? 'consider' : 'due';
       else st = daysBetween(today, avail) <= SOON_DAYS ? 'soon' : 'later';
       mk(code, R.label, R.svc, st, o);
@@ -2904,6 +2913,15 @@ function streetKey(addr) {
   const m = /^(\d+)[A-Za-z]?\s+(.*)$/.exec(a);
   return m ? { street:m[2].toLowerCase(), num:parseInt(m[1], 10) } : { street:a.toLowerCase(), num:0 };
 }
+function geoCoverageHtml(items) {
+  const ids = [...new Set(items.map(i => i.cid))];
+  const missing = ids.filter(id => !custPoint(id)).length;
+  const approx = ids.filter(id => { const c = STATE.customers.find(x => custIdStr(x) === id); return c && c.GeoApprox; }).length;
+  return `<div class="flex-between" style="font-size:12px;color:var(--text-dim);margin-bottom:12px;gap:10px;flex-wrap:wrap">
+    <span>📍 ${ids.length - missing} of ${ids.length} customers on the schedule have a saved location${approx ? ' (' + approx + ' only to the zip code)' : ''}. <span class="geocode-status" style="color:var(--accent)"></span></span>
+    ${missing ? '<button class="btn secondary sm" onclick="geocodeAllCustomers()">📍 Locate customers</button>' : ''}
+  </div>`;
+}
 function schedLogStatusHtml() {
   const n = Object.values(TREATLOG.tabs).reduce((s,a) => s + a.length, 0);
   const when = TREATLOG.fetchedAt ? new Date(TREATLOG.fetchedAt).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : 'never';
@@ -2961,13 +2979,14 @@ function renderSchedule() {
     <h1>Schedule</h1>
     <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What's next for each customer, worked out from the treatments already logged in the LPP Log. Pest control opens the 1st of each month and is due the first week.</p>
     ${schedLogStatusHtml()}
+    ${geoCoverageHtml(S.items)}
     <div class="stat-row">
       <div class="stat-box"><div class="label">Due now</div><div class="value" style="color:var(--accent)">${S.items.filter(i => i.status === 'due').length}</div></div>
       <div class="stat-box"><div class="label">Late</div><div class="value" style="color:var(--overdue)">${S.items.filter(i => i.status === 'late').length}</div></div>
       <div class="stat-box"><div class="label">Your call</div><div class="value" style="color:var(--warn)">${count(CONSIDER)}</div></div>
       <div class="stat-box"><div class="label">Opens ≤${SOON_DAYS}d</div><div class="value">${count(SOON)}</div></div>
     </div>
-    ${S.needsTrack.length ? `<div class="card" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>${S.needsTrack.length} lawn customer${S.needsTrack.length === 1 ? ' has' : 's have'} no program yet</strong> — nothing in the log to base one on. Open each and pick Full or Standard.</div><div style="font-size:12px;color:var(--text-dim);margin-top:4px">${S.needsTrack.map(r => `<a href="#" onclick="detailCustomerId='${r.cid}';navigateTo('customers');detailCustomerId='${r.cid}';renderCustomers();return false" style="color:var(--accent)">${escHtml(r.c.Name || r.c.name)}</a>`).join(' · ')}</div></div>` : ''}
+    ${S.needsTrack.length ? `<div class="card" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>${S.needsTrack.length} lawn customer${S.needsTrack.length === 1 ? ' has' : 's have'} no program yet</strong> — nothing in the log to base one on. Open each and pick Full or Maintenance.</div><div style="font-size:12px;color:var(--text-dim);margin-top:4px">${S.needsTrack.map(r => `<a href="#" onclick="detailCustomerId='${r.cid}';navigateTo('customers');detailCustomerId='${r.cid}';renderCustomers();return false" style="color:var(--accent)">${escHtml(r.c.Name || r.c.name)}</a>`).join(' · ')}</div></div>` : ''}
     <div class="filter-pills">${pill('ready','Ready',count(READY))}${pill('consider','Your call',count(CONSIDER))}${pill('soon','Opens soon',count(SOON))}</div>
     <div class="filter-pills">
       <button class="${f.code === 'all' ? 'active' : ''}" onclick="schedFilter.code='all';renderSchedule()">All rounds</button>
@@ -3003,12 +3022,10 @@ function buildRouteFromSchedule() {
   const date = document.getElementById('sched-date')?.value || todayStr();
   const chosen = (window._schedView || []).filter(i => schedSel[i.cid + '|' + i.code + '|' + i.period]);
   if (!chosen.length) { alert('Select at least one stop.'); return; }
-  chosen.sort((a,b) => { const x = streetKey(a.addr), y = streetKey(b.addr); return (a.city || '').localeCompare(b.city || '') || (a.zip || '').localeCompare(b.zip || '') || x.street.localeCompare(y.street) || x.num - y.num; });
-  const route = {
-    id:uid(), name:fmtDate(date) + ' Route', date, serviceFilter:'Mixed', createdAt:todayStr(),
-    stops: chosen.map(i => ({ customerId:i.cid, customerName:i.name, address:i.addr, cpId:null, roundIdx:null,
-      roundName:i.label, serviceType:i.svc, status:'pending', code:i.code, period:i.period }))
-  };
+  const o = orderStops(chosen.map(i => ({ customerId:i.cid, customerName:i.name, address:i.addr, cpId:null, roundIdx:null,
+    roundName:i.label, serviceType:i.svc, status:'pending', code:i.code, period:i.period })));
+  const route = { id:uid(), name:fmtDate(date) + ' Route', date, serviceFilter:'Mixed', createdAt:todayStr(), miles:o.miles, stops:o.stops };
+  if (o.unlocated) alert(describeOrdering(o) + '\n\nUse "Locate customers" on the Schedule page to fix that.');
   STATE.routes.push(route);
   schedSel = {};
   saveState();
@@ -3041,7 +3058,7 @@ function schedCustomerCard(cid) {
         ? `<strong>Next:</strong> ${escHtml(row.next.label)} · ${schedBadge(row.next.status)} <span style="color:var(--text-dim)">${schedWhen(row.next)}</span>`
         : `<span style="color:var(--text-dim)">${row.track ? 'Nothing else scheduled this season.' : 'No lawn program set.'}</span>`}</div>
       ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
-        ${trackBtn('full','Full program')}${trackBtn('std','Standard program')}${trackBtn('none','No lawn rounds')}
+        ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}
         <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>` : ''}
       ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button><span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : 'first week of every month'}</span></div>` : ''}
       ${roundRows}
@@ -3394,16 +3411,11 @@ function buildRouteFromSelection() {
 
   if (stops.length === 0) { alert('Select at least one stop.'); return; }
 
-  // Sort by zip code proximity
-  stops.sort((a,b) => {
-    const zipA = (a.address.match(/(\d{5})/) || ['','99999'])[1];
-    const zipB = (b.address.match(/(\d{5})/) || ['','99999'])[1];
-    return zipA.localeCompare(zipB) || a.address.localeCompare(b.address);
-  });
-
+  // Order by distance (stops without a saved location go last, by zip)
+  const o = orderStops(stops);
   const route = {
     id: uid(), name: fmtDate(date) + ' Route', date, serviceFilter: 'Mixed',
-    stops, createdAt: todayStr()
+    stops: o.stops, miles: o.miles, createdAt: todayStr()
   };
   STATE.routes.push(route);
   saveState();
@@ -3864,91 +3876,189 @@ function showCustomerMap() {
 
 
 // ══════════ GEOCODING ══════════
+// ══════════ LOCATIONS (saved coordinates) ══════════
+// Coordinates are kept in a single 'geo' record inside customerPrograms (the Customers tab
+// has fixed columns), keyed by customer ID and stamped with the address they were found for.
+// If an address changes, the old pin is ignored until the customer is located again.
+const GEO_HOME = { lat:40.2732, lng:-76.8867 };   // Harrisburg: anything >120 mi away is a wrong match
+function fullAddress(c) {
+  return [c.Address || c.address, c.City, c.State || 'PA', c.Zip].map(x => String(x || '').trim()).filter(Boolean).join(', ');
+}
+const custIdStr = c => String(c.ID || c.customerId || c.id);
+function geoRecord(create) {
+  let g = STATE.customerPrograms.find(cp => cp.kind === 'geo');
+  if (!g && create) { g = { id:uid(), kind:'geo', customerId:'_geo', programName:'Locations', year:null, rounds:[], coords:{} }; STATE.customerPrograms.push(g); }
+  return g;
+}
+function syncGeoFromCustomers() {
+  STATE.customers.forEach(c => {
+    const lat = parseFloat(c.Lat), lng = parseFloat(c.Lng);
+    if (!isFinite(lat) || !isFinite(lng)) return;
+    const g = geoRecord(true), id = custIdStr(c), cur = g.coords[id], addr = fullAddress(c), approx = !!c.GeoApprox;
+    if (!cur || cur.lat !== lat || cur.lng !== lng || cur.addr !== addr || !!cur.approx !== approx) g.coords[id] = { lat, lng, addr, approx };
+  });
+}
+function applyGeoToCustomers() {
+  const g = geoRecord(false);
+  if (!g || !g.coords) return;
+  STATE.customers.forEach(c => {
+    const e = g.coords[custIdStr(c)];
+    if (e && e.addr === fullAddress(c)) { c.Lat = e.lat; c.Lng = e.lng; c.GeoApprox = !!e.approx; }
+    else if (e) { delete c.Lat; delete c.Lng; delete c.GeoApprox; }   // address changed since it was located
+  });
+}
+function haversineMi(a, b) {
+  const R = 3958.8, rad = x => x * Math.PI / 180, dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat/2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng/2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function custPoint(cid) {
+  const c = STATE.customers.find(x => custIdStr(x) === String(cid));
+  const lat = parseFloat(c && c.Lat), lng = parseFloat(c && c.Lng);
+  return (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null;
+}
+// US Census geocoder: exact street-address matches, free, no key. It has no CORS headers, so it is called as JSONP.
+function censusLookup(address) {
+  return new Promise(resolve => {
+    const cb = 'fpgeo' + Math.random().toString(36).slice(2);
+    const sc = document.createElement('script');
+    const done = v => { clearTimeout(timer); delete window[cb]; sc.remove(); resolve(v); };
+    const timer = setTimeout(() => done(null), 15000);
+    window[cb] = d => {
+      const m = d && d.result && d.result.addressMatches && d.result.addressMatches[0];
+      done(m && m.coordinates ? { lat:m.coordinates.y, lng:m.coordinates.x } : null);
+    };
+    sc.onerror = () => done(null);
+    sc.src = 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?benchmark=Public_AR_Current&format=jsonp&callback=' + cb + '&address=' + encodeURIComponent(address);
+    document.head.appendChild(sc);
+  });
+}
+let lastNominatim = 0;
+function nominatimZip(zip, st) {
+  const wait = Math.max(0, 1100 - (Date.now() - lastNominatim));
+  lastNominatim = Date.now() + wait;
+  return new Promise(r => setTimeout(r, wait))
+    .then(() => fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=' + encodeURIComponent(zip + ', ' + st)))
+    .then(r => r.json())
+    .then(res => (res && res.length) ? { lat:parseFloat(res[0].lat), lng:parseFloat(res[0].lon) } : null)
+    .catch(() => null);
+}
+function geocodeLookup(c) {
+  const street = String(c.Address || c.address || '').trim().replace(/\s+/g, ' ');
+  const city = String(c.City || '').trim(), st = String(c.State || 'PA').trim(), zip = String(c.Zip || '').trim();
+  const ok = pt => pt && haversineMi(pt, GEO_HOME) <= 120;     // a match in another state is a wrong match
+  const steps = [];
+  if (street.length > 4) {
+    steps.push(() => censusLookup([street, city, st, zip].filter(Boolean).join(', ')));
+    if (zip && city) steps.push(() => censusLookup([street, st, zip].join(', ')));
+  }
+  const run = i => {
+    if (i >= steps.length) return zip ? nominatimZip(zip, st).then(pt => ok(pt) ? { lat:pt.lat, lng:pt.lng, approx:true } : null) : Promise.resolve(null);
+    return steps[i]().then(pt => ok(pt) ? { lat:pt.lat, lng:pt.lng, approx:false } : run(i + 1));
+  };
+  return run(0);
+}
+
 function geocodeCustomer(customerId) {
-  const cust = STATE.customers.find(c => (c.ID||c.customerId||c.id) === customerId);
+  const cust = STATE.customers.find(c => custIdStr(c) === String(customerId));
   if (!cust) { alert('Customer not found.'); return; }
-  const addr = cust.Address || cust.address || '';
-  if (!addr || addr.trim().length < 5) { alert('No address found for this customer. Add an address first.'); return; }
-  
-  // Show loading
-  const btn = event?.target;
+  if (fullAddress(cust).length < 8) { alert('No address found for this customer. Add an address first.'); return; }
+  const btn = (typeof event !== 'undefined' && event) ? event.target : null;
   if (btn) { btn.textContent = '⏳ Looking up...'; btn.disabled = true; }
-  
-  // Use Nominatim (free OpenStreetMap geocoder)
-  const q = encodeURIComponent(addr);
-  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + q, {
-    headers: { 'User-Agent': 'FieldPro-LPP/1.0' }
-  })
-  .then(r => r.json())
-  .then(results => {
-    if (results && results.length > 0) {
-      const lat = parseFloat(results[0].lat);
-      const lng = parseFloat(results[0].lon);
-      // Store coordinates on the customer
-      cust.Lat = lat;
-      cust.Lng = lng;
-      saveState();
-      if (btn) { btn.textContent = '✓ Located'; btn.style.color = 'var(--accent)'; }
-      alert('Location found: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + '\nAddress matched: ' + results[0].display_name);
-      renderCurrentPage();
-    } else {
+  geocodeLookup(cust).then(r => {
+    if (!r) {
       if (btn) { btn.textContent = '✕ Not found'; btn.style.color = 'var(--danger)'; btn.disabled = false; }
-      alert('Could not find GPS coordinates for:\n' + addr + '\n\nTry updating the address to be more specific (include city, state, zip).');
+      alert('Could not find a location for:\n' + fullAddress(cust) + '\n\nCheck the street, town and zip.');
+      return;
     }
-  })
-  .catch(err => {
+    cust.Lat = r.lat; cust.Lng = r.lng; cust.GeoApprox = r.approx;
+    saveState();
+    if (btn) { btn.textContent = '✓ Located'; btn.style.color = 'var(--accent)'; }
+    alert((r.approx ? 'Only the middle of the zip code could be found (approximate): ' : 'Location found: ') + r.lat.toFixed(5) + ', ' + r.lng.toFixed(5));
+    renderCurrentPage();
+  }).catch(err => {
     if (btn) { btn.textContent = '📍 Geocode'; btn.disabled = false; }
     alert('Geocoding error: ' + err.message);
   });
 }
 
+let geocodeRunning = false;
 function geocodeAllCustomers() {
-  const withAddr = STATE.customers.filter(c => {
-    const addr = c.Address || c.address || '';
-    const hasCoords = c.Lat && c.Lng;
-    return addr.trim().length > 5 && !hasCoords;
-  });
-  
-  if (!withAddr.length) { alert('All customers with addresses are already geocoded.'); return; }
-  if (!confirm('Geocode ' + withAddr.length + ' customers without GPS coordinates?\n\nThis uses the free OpenStreetMap service and may take about ' + Math.ceil(withAddr.length * 1.1) + ' seconds due to rate limits (1 request/second).')) return;
-  
-  let idx = 0;
-  let success = 0;
-  let failed = 0;
-  const statusEl = document.getElementById('geocode-status');
-  
+  if (geocodeRunning) return;
+  const todo = STATE.customers.filter(c => fullAddress(c).length >= 8 && !(parseFloat(c.Lat) && parseFloat(c.Lng)));
+  if (!todo.length) { alert('Every customer with an address already has a saved location.'); return; }
+  if (!confirm('Find locations for ' + todo.length + ' customers?\n\nThis uses the free US Census address lookup, so roughly ' + Math.max(1, Math.ceil(todo.length * 0.8 / 60)) + ' minute(s). Keep this page open. Locations are saved as it goes.')) return;
+  geocodeRunning = true;
+  let idx = 0, ok = 0, approx = 0, failed = [];
+  const show = msg => { document.querySelectorAll('.geocode-status,#geocode-status').forEach(el => { el.textContent = msg; }); };
   function doNext() {
-    if (idx >= withAddr.length) {
-      if (statusEl) statusEl.textContent = 'Done! ' + success + ' geocoded, ' + failed + ' failed.';
+    if (idx >= todo.length) {
+      geocodeRunning = false;
       saveState();
       renderCurrentPage();
+      show('Done: ' + ok + ' located' + (approx ? ' (' + approx + ' only to the zip code)' : '') + (failed.length ? ', ' + failed.length + ' not found: ' + failed.join(', ') : '') + '.');
       return;
     }
-    const cust = withAddr[idx];
-    const addr = cust.Address || cust.address || '';
-    if (statusEl) statusEl.textContent = 'Geocoding ' + (idx+1) + '/' + withAddr.length + ': ' + (cust.Name||cust.name||'');
-    
-    const q = encodeURIComponent(addr);
-    fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + q, {
-      headers: { 'User-Agent': 'FieldPro-LPP/1.0' }
-    })
-    .then(r => r.json())
-    .then(results => {
-      if (results && results.length > 0) {
-        cust.Lat = parseFloat(results[0].lat);
-        cust.Lng = parseFloat(results[0].lon);
-        success++;
-      } else {
-        failed++;
-      }
+    const cust = todo[idx];
+    show('Locating ' + (idx + 1) + '/' + todo.length + ': ' + (cust.Name || cust.name || ''));
+    geocodeLookup(cust).then(r => {
+      if (r) { cust.Lat = r.lat; cust.Lng = r.lng; cust.GeoApprox = r.approx; ok++; if (r.approx) approx++; }
+      else failed.push(cust.Name || cust.name || '?');
+    }).catch(() => { failed.push(cust.Name || cust.name || '?'); }).then(() => {
       idx++;
-      setTimeout(doNext, 1100); // Nominatim rate limit: 1 req/sec
-    })
-    .catch(() => { failed++; idx++; setTimeout(doNext, 1100); });
+      if (idx % 20 === 0) saveState();     // keep progress if the page is closed part-way
+      setTimeout(doNext, 250);
+    });
   }
-  
   doNext();
 }
+
+// ── order stops by distance: start at the far end of the cluster, nearest-neighbour, then 2-opt ──
+function orderStops(stops) {
+  const pts = stops.map(s => ({ s, p:custPoint(s.customerId) }));
+  const loc = pts.filter(x => x.p), unloc = pts.filter(x => !x.p);
+  const zipOf = a => (String(a || '').match(/(\d{5})/) || ['', '99999'])[1];
+  unloc.sort((a, b) => zipOf(a.s.address).localeCompare(zipOf(b.s.address)) || String(a.s.address || '').localeCompare(String(b.s.address || '')));
+  let tour = loc.slice();
+  if (tour.length > 2) {
+    const cx = tour.reduce((t, x) => t + x.p.lat, 0) / tour.length, cy = tour.reduce((t, x) => t + x.p.lng, 0) / tour.length;
+    let start = 0, far = -1;
+    tour.forEach((x, i) => { const d = haversineMi(x.p, { lat:cx, lng:cy }); if (d > far) { far = d; start = i; } });
+    const left = tour.slice(), path = [left.splice(start, 1)[0]];
+    while (left.length) {
+      const last = path[path.length - 1].p; let bi = 0, bd = Infinity;
+      left.forEach((x, i) => { const d = haversineMi(last, x.p); if (d < bd) { bd = d; bi = i; } });
+      path.push(left.splice(bi, 1)[0]);
+    }
+    const d = (i, j) => haversineMi(path[i].p, path[j].p), n = path.length;
+    for (let pass = 0, improved = true; improved && pass < 50; pass++) {
+      improved = false;
+      for (let i = 0; i < n - 1; i++) for (let j = i + 1; j < n; j++) {
+        const delta = (i > 0 ? d(i - 1, j) - d(i - 1, i) : 0) + (j < n - 1 ? d(i, j + 1) - d(j, j + 1) : 0);
+        if (delta < -1e-9) { const seg = path.slice(i, j + 1).reverse(); path.splice(i, j - i + 1, ...seg); improved = true; }
+      }
+    }
+    tour = path;
+  }
+  let straight = 0;
+  for (let i = 1; i < tour.length; i++) straight += haversineMi(tour[i - 1].p, tour[i].p);
+  tour.forEach(x => { x.s.lat = x.p.lat; x.s.lng = x.p.lng; });
+  return { stops:tour.map(x => x.s).concat(unloc.map(x => x.s)), miles:Math.round(straight * 1.3 * 10) / 10, located:tour.length, unlocated:unloc.length };
+}
+function describeOrdering(o) {
+  return o.unlocated ? o.unlocated + ' stop' + (o.unlocated === 1 ? ' has' : 's have') + ' no saved location and ' + (o.unlocated === 1 ? 'was' : 'were') + ' put at the end.' : '';
+}
+function reorderRoute(routeId) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt) return;
+  const done = rt.stops.filter(s => s.status === 'completed'), todo = rt.stops.filter(s => s.status !== 'completed');
+  const o = orderStops(todo);
+  rt.stops = done.concat(o.stops); rt.miles = o.miles;
+  saveState();
+  const note = describeOrdering(o);
+  if (note) alert(note);
+  renderRoutes();
+}
+
 
 function captureCustomerGPS(customerId) {
   if (!navigator.geolocation) { alert('GPS not available'); return; }
