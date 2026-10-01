@@ -1120,7 +1120,7 @@ function renderCustomerDetail(el) {
     <div class="flex-between mb-16" style="flex-wrap:wrap;gap:12px">
       <div>
         <h1 style="margin:0">${escHtml(name)} ${cid ? `<span style="font-size:14px;color:var(--text-muted);font-weight:500;font-family:var(--font-mono)">#${escHtml(cid.toString())}</span>` : ''}</h1>
-        <div style="font-size:13px;color:var(--text-dim)">${escHtml(addr)}</div>
+        <div style="font-size:13px;color:var(--text-dim)">${escHtml([addr, c.City, [c.State, c.Zip].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</div>
         <div style="font-size:13px;color:var(--text-dim)">${escHtml(phone)}${email ? ' · ' + escHtml(email) : ''}</div>
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px">📍 ${locStatus(c)}</div>
       </div>
@@ -3750,12 +3750,20 @@ function closeModal() {
 function showCustomerForm(editId) {
   const c = editId ? STATE.customers.find(x => (x.ID||x.customerId||x.id) === editId) : {};
   const isEdit = !!editId;
+  const note = 'font-size:11px;color:var(--text-muted);margin:-4px 0 10px';
   showModal(isEdit ? 'Edit Customer' : 'New Customer', `
     <div class="grid-2">
-      <div class="input-group"><label>Customer ID</label><input id="cf-cid" value="${escHtml(c?.ID||c?.customerId||'')}" placeholder="e.g., 42"></div>
+      <div class="input-group"><label>Customer ID</label><input id="cf-cid" value="${escHtml(c?.ID||c?.customerId||'')}" placeholder="assigned when saved" disabled></div>
       <div></div>
       <div class="input-group" style="grid-column:1/-1"><label>Name *</label><input id="cf-name" value="${escHtml(c?.Name||c?.name||'')}"></div>
-      <div class="input-group" style="grid-column:1/-1"><label>Address</label><input id="cf-addr" value="${escHtml(c?.Address||c?.address||'')}"></div>
+      <div class="input-group" style="grid-column:1/-1"><label>Street address</label><input id="cf-addr" value="${escHtml(c?.Address||c?.address||'')}"></div>
+      <div class="input-group"><label>Town</label><input id="cf-city" value="${escHtml(c?.City||'')}"></div>
+      <div class="input-group"><label>State</label><input id="cf-state" maxlength="2" value="${escHtml(c?.State||'')}" placeholder="PA"></div>
+      <div class="input-group"><label>Zip</label><input id="cf-zip" inputmode="numeric" value="${escHtml(c?.Zip||'')}"></div>
+      <div></div>
+    </div>
+    <div style="${note}">Name, address and the sizes below are saved to your customer list. Phone, email, trees, bare ground and notes are kept on this device only.</div>
+    <div class="grid-2">
       <div class="input-group"><label>Phone</label><input id="cf-phone" value="${escHtml(c?.Phone||c?.phone||'')}"></div>
       <div class="input-group"><label>Email</label><input id="cf-email" value="${escHtml(c?.Email||c?.email||'')}"></div>
     </div>
@@ -3771,50 +3779,72 @@ function showCustomerForm(editId) {
     <div class="input-group"><label>Property Notes</label><textarea id="cf-notes" placeholder="Gate code, dog, special instructions...">${escHtml(c?.propertyNotes||c?.Notes||'')}</textarea></div>
     <div class="flex-row gap-6" style="justify-content:flex-end">
       <button class="btn secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="saveCustomer('${editId||''}')">Save</button>
+      <button class="btn primary" id="cf-save" onclick="saveCustomer('${editId||''}')">Save</button>
     </div>
   `);
 }
 
+// Saves to the customer list (the LPP Log's Customers tab) first; only then changes what you see.
+// Name and sizes go through updateCustomer (columns 1-6), the address through updateCustomerAddress (7-10).
 function saveCustomer(editId) {
-  const name = document.getElementById('cf-name').value.trim();
+  const v = id => { const e = document.getElementById(id); return e ? String(e.value).trim() : ''; };
+  const name = v('cf-name');
   if (!name) { alert('Name is required.'); return; }
-
-  const data = {
-    ID: document.getElementById('cf-cid').value.trim(),
-    customerId: document.getElementById('cf-cid').value.trim(),
-    Name: name, name: name,
-    Address: document.getElementById('cf-addr').value.trim(),
-    address: document.getElementById('cf-addr').value.trim(),
-    Phone: document.getElementById('cf-phone').value.trim(),
-    phone: document.getElementById('cf-phone').value.trim(),
-    Email: document.getElementById('cf-email').value.trim(),
-    email: document.getElementById('cf-email').value.trim(),
-    SqFt_Lawn: document.getElementById('cf-lawn').value,
-    turfSqft: document.getElementById('cf-lawn').value,
-    SqFt_PHC: document.getElementById('cf-phc').value,
-    bedsSqft: document.getElementById('cf-phc').value,
-    SqFt_Pest: document.getElementById('cf-pest').value,
-    perimeterLf: document.getElementById('cf-pest').value,
-    treeShrubCount: document.getElementById('cf-trees').value,
-    SqFt_Aquatic: document.getElementById('cf-aquatic').value,
-    pondArea: document.getElementById('cf-aquatic').value,
-    bareGroundSqft: document.getElementById('cf-bare').value,
-    propertyNotes: document.getElementById('cf-notes').value,
-    UpdatedAt: new Date().toISOString(),
-  };
+  const addr = { address:v('cf-addr'), city:v('cf-city'), state:v('cf-state').toUpperCase(), zip:v('cf-zip') };
+  const sq = { lawn:v('cf-lawn'), phc:v('cf-phc'), pest:v('cf-pest'), aq:v('cf-aquatic') };
+  const deviceOnly = { Phone:v('cf-phone'), phone:v('cf-phone'), Email:v('cf-email'), email:v('cf-email'), treeShrubCount:v('cf-trees'), bareGroundSqft:v('cf-bare'), propertyNotes:v('cf-notes') };
+  const fields = () => ({
+    Name:name, name, Address:addr.address, address:addr.address, City:addr.city, State:addr.state, Zip:addr.zip,
+    SqFt_Lawn:sq.lawn, turfSqft:sq.lawn, SqFt_PHC:sq.phc, bedsSqft:sq.phc, SqFt_Pest:sq.pest, perimeterLf:sq.pest, SqFt_Aquatic:sq.aq, pondArea:sq.aq,
+    ...deviceOnly, UpdatedAt:new Date().toISOString(),
+  });
+  const btn = document.getElementById('cf-save');
+  const busy = on => { if (btn) { btn.disabled = on; btn.textContent = on ? 'Saving…' : 'Save'; } };
+  const num = x => String(x == null ? '' : x).trim();
+  const relocate = c => geocodeLookup(c).then(r => {
+    if (r) { c.Lat = r.lat; c.Lng = r.lng; c.GeoApprox = r.approx; c.GeoManual = false; }
+    else { delete c.Lat; delete c.Lng; delete c.GeoApprox; delete c.GeoManual; alert('Saved, but the map could not find that address. Open the customer and use 📍 Location to place the pin by hand.'); }
+    saveState(); renderCurrentPage();
+  }).catch(() => {});
+  busy(true);
 
   if (editId) {
-    const idx = STATE.customers.findIndex(c => (c.ID||c.customerId||c.id) === editId);
-    if (idx >= 0) STATE.customers[idx] = { ...STATE.customers[idx], ...data };
-  } else {
-    if (!data.ID) data.ID = Date.now().toString();
-    data.id = data.ID;
-    STATE.customers.push(data);
+    const old = STATE.customers.find(x => custIdStr(x) === String(editId));
+    if (!old) { busy(false); alert('Customer not found.'); return; }
+    const oldName = (old.Name || old.name || '').trim();
+    const oldAddr = { address:num(old.Address || old.address), city:num(old.City), state:num(old.State), zip:num(old.Zip) };
+    const oldSq = { lawn:num(old.SqFt_Lawn || old.turfSqft), phc:num(old.SqFt_PHC || old.bedsSqft), pest:num(old.SqFt_Pest || old.perimeterLf), aq:num(old.SqFt_Aquatic || old.pondArea) };
+    const addrChanged = Object.keys(addr).some(k => oldAddr[k] !== addr[k]);
+    const sqChanged = name !== oldName || Object.keys(sq).some(k => oldSq[k] !== sq[k]);
+    if (name !== oldName && !confirm('Changing the name will disconnect "' + oldName + '" from their past LPP Log entries (the log finds customers by name). Change it anyway?')) { busy(false); return; }
+    let savedAddr = false, savedSq = false;
+    let p = Promise.resolve();
+    if (addrChanged) p = p.then(() => lppPost({ action:'updateCustomerAddress', id:String(editId), ...addr })).then(() => { savedAddr = true; });
+    if (sqChanged) p = p.then(() => lppPost({ action:'updateCustomer', id:String(editId), name, sqFtLawn:sq.lawn, sqFtPHC:sq.phc, sqFtPest:sq.pest, sqFtAquatic:sq.aq })).then(() => { savedSq = true; });
+    p.then(() => {
+      Object.assign(old, fields());
+      saveState(); closeModal(); renderCurrentPage();
+      if (addrChanged) relocate(old);
+    }).catch(e => {
+      busy(false);
+      if (savedAddr) { Object.assign(old, { Address:addr.address, address:addr.address, City:addr.city, State:addr.state, Zip:addr.zip }); saveState(); renderCurrentPage(); }
+      alert('Could not save everything to the customer list: ' + ((e && e.message) || e) + '\n\n' + (savedAddr ? 'The address WAS saved. The name/sizes were not — try again.' : 'Nothing was changed.') + ' Check your connection and try again.');
+    });
+    return;
   }
-  saveState();
-  closeModal();
-  renderCurrentPage();
+
+  // new customer: the list hands out the ID
+  const dup = STATE.customers.find(c => nameKey(c.Name || c.name) === nameKey(name));
+  if (dup && !confirm('There is already a customer named "' + name + '". Add another one anyway?')) { busy(false); return; }
+  let created = null;
+  lppPost({ action:'addCustomer', name, sqFtLawn:sq.lawn, sqFtPHC:sq.phc, sqFtPest:sq.pest, sqFtAquatic:sq.aq })
+    .then(r => { created = { ID:String(r.id), id:String(r.id), customerId:String(r.id), ...fields() }; return (addr.address || addr.city || addr.state || addr.zip) ? lppPost({ action:'updateCustomerAddress', id:String(r.id), ...addr }) : null; })
+    .then(() => { STATE.customers.push(created); saveState(); closeModal(); renderCurrentPage(); if (addr.address) relocate(created); })
+    .catch(e => {
+      busy(false);
+      if (created) { STATE.customers.push(created); saveState(); closeModal(); renderCurrentPage(); }
+      alert('Could not save to the customer list: ' + ((e && e.message) || e) + (created ? '\n\nThe customer WAS added, but the address was not. Open them and add the address again.' : '\n\nNothing was added. Check your connection and try again.'));
+    });
 }
 
 // ── Assign Program Modal ──
