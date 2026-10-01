@@ -2674,15 +2674,16 @@ const SCHED_ROUNDS = {
   '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'03-01', end:'03-31' },
   '2A': { label:'Rd 2A — Pre-emergent + 3-way',   svc:'Lawn Fert & Weed', start:'03-25', end:'04-30', blanket:true },
   '2B': { label:'Rd 2B — Dimension + 3-way',      svc:'Lawn Fert & Weed', start:'04-20', end:'05-10', blanket:true },
-  '3':  { label:'Rd 3 — Weed & feed',             svc:'Lawn Fert & Weed', start:'05-15', end:'06-30', asNeeded:true, blanket:true },
+  '3':  { label:'Rd 3 — Weed & feed (no grub)',   svc:'Lawn Fert & Weed', start:'05-15', end:'06-30', blanket:true },
   '4':  { label:'Rd 4 — Grub control',            svc:'Grub Control',     start:'05-20', end:'06-30', blanket:true },
   '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-20', end:'08-31' },
   '6':  { label:'Rd 6 — Fall weed & feed',        svc:'Lawn Fert & Weed', start:'09-15', end:'10-31', blanket:true },
   '7':  { label:'Rd 7 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-15', end:'12-01' },
 };
 const SCHED_TRACKS = {
-  full: { label:'Full program',        rounds:['1','2B','3','4','5','6','7'] },
-  std:  { label:'Maintenance program', rounds:['2A','3','4','6'] },
+  // 'S' = the late-May/June slot: Rd 4 (grub control) if the customer buys grub, else Rd 3 (weed & feed, no grub)
+  full: { label:'Full program',        rounds:['1','2B','S','5','6','7'] },
+  std:  { label:'Maintenance program', rounds:['2A','S','6'] },
 };
 
 let TREATLOG = { tabs:{}, fetchedAt:null };
@@ -2762,6 +2763,21 @@ function shortSvc(s) {
   if (c) return 'Rd ' + c;
   return String(s || '').replace(/^[A-Za-z &]+ - /, '').replace(/\s*\(.*$/, '').trim() || String(s || '');
 }
+// Grub control is a separate billed upsell, and once a customer has it they get it every year.
+// Rd 4 = the Rd 3 weed-and-feed visit plus grub control; in the LPP Log Rd 4 means "had grub", Rd 3 means "no grub".
+// This year's log wins; otherwise last year's carries over; otherwise a customer who was active after
+// the slot closed without Rd 4 is no-grub; with nothing to go on we assume grub (most customers have it).
+function inferGrub(thisYr, lastYr) {
+  const codes = list => list.map(e => svcCode(e.s));
+  const late = list => list.some(e => { const k = svcCode(e.s); return k && k !== 'PEST' && e.d.slice(5) >= '07-01'; });
+  for (const list of [thisYr, lastYr]) {
+    const c = codes(list);
+    if (c.includes('4')) return { grub:true, src:'history' };
+    if (c.includes('3')) return { grub:false, src:'history' };
+  }
+  for (const list of [thisYr, lastYr]) if (late(list)) return { grub:false, src:'history' };
+  return { grub:true, src:'default' };
+}
 function inferTrack(entries) {
   const codes = entries.map(e => svcCode(e.s)).filter(c => c && c !== 'PEST');
   if (!codes.length) return null;
@@ -2780,6 +2796,7 @@ function editPlan(cid, fn) {
   renderCurrentPage();
 }
 function schedSetTrack(cid, track) { editPlan(cid, p => { p.track = track || null; }); }
+function schedSetGrub(cid, v) { editPlan(cid, p => { p.grub = v; }); }
 function schedTogglePest(cid) { editPlan(cid, p => { p.noPest = !p.noPest; }); }
 function schedToggleSkip(cid, key) { editPlan(cid, p => { if (p.skip[key]) delete p.skip[key]; else p.skip[key] = true; }); }
 
@@ -2798,6 +2815,9 @@ function schedFor(c, mine, today) {
   else if (SCHED_TRACKS[plan.track]) { track = plan.track; trackSource = 'set'; }
   else { const inf = inferTrack(thisYr) || inferTrack(lastYr); if (inf) { track = inf; trackSource = 'history'; } }
   const needsTrack = !track && plan.track !== 'none' && sqLawn > 0;
+  let grub, grubSource;
+  if (plan.grub === true || plan.grub === false) { grub = plan.grub; grubSource = 'set'; }
+  else { const g = inferGrub(thisYr, lastYr); grub = g.grub; grubSource = g.src; }
 
   const done = {};
   thisYr.forEach(e => { const k = svcCode(e.s); if (k && k !== 'PEST' && (!done[k] || e.d > done[k])) done[k] = e.d; });
@@ -2810,24 +2830,29 @@ function schedFor(c, mine, today) {
   const mk = (code, label, svc, state, o) => rounds.push(Object.assign({}, base, { code, label, svc, status:state }, o));
 
   if (track) {
-    SCHED_TRACKS[track].rounds.forEach(code => {
-      const R = SCHED_ROUNDS[code], ws = Y + '-' + R.start, we = Y + '-' + R.end;
-      const doneOn = (code === '2A' || code === '2B') ? (done['2A'] || done['2B']) : done[code];
+    const covered = new Set();
+    SCHED_TRACKS[track].rounds.forEach(c0 => {
+      const code = c0 === 'S' ? (grub ? '4' : '3') : c0;
+      // a round counts as done by any of its equivalents (2A/2B; Rd 3/Rd 4 in the late-May slot)
+      const alts = c0 === 'S' ? [code, code === '4' ? '3' : '4'] : (code === '2A' || code === '2B') ? ['2A', '2B'] : [code];
+      alts.forEach(k => covered.add(k));
+      const dc = alts.find(k => done[k]);
+      const R = SCHED_ROUNDS[dc || code], ws = Y + '-' + R.start, we = Y + '-' + R.end;
       const o = { start:ws, end:we, period:String(Y), asNeeded:!!R.asNeeded, blanket:R.blanket ? blanketDates.length : null };
-      if (doneOn) return mk(code, R.label, R.svc, 'done', Object.assign(o, { doneOn }));
+      if (dc) return mk(dc, R.label, R.svc, 'done', Object.assign(o, { doneOn:done[dc] }));
       if (skip[Y + ':' + code]) return mk(code, R.label, R.svc, 'skipped', o);
       let avail = ws;
       if (R.blanket && lastBlanket) { const gap = addDays(lastBlanket, BLANKET_GAP_DAYS); if (gap > avail) avail = gap; }
       o.avail = avail;
       let st;
-      if (today > we) { if (R.asNeeded) return; st = daysBetween(we, today) > LATE_GRACE_DAYS ? 'missed' : 'late'; }   // a discretionary round that passed unused is not a miss
+      if (today > we) { if (R.asNeeded) return; st = daysBetween(we, today) > LATE_GRACE_DAYS ? 'missed' : 'late'; }
       else if (today >= avail) st = R.asNeeded ? 'consider' : 'due';
       else st = daysBetween(today, avail) <= SOON_DAYS ? 'soon' : 'later';
       mk(code, R.label, R.svc, st, o);
     });
-    // anything else logged this year that isn't one of this track's rounds (e.g. Rd 3)
+    // anything else logged this year that isn't one of this program's rounds (e.g. Rd 5 on a maintenance lawn)
     Object.keys(done).forEach(code => {
-      if (SCHED_TRACKS[track].rounds.includes(code) || ((code === '2A' || code === '2B') && (SCHED_TRACKS[track].rounds.includes('2A') || SCHED_TRACKS[track].rounds.includes('2B')))) return;
+      if (covered.has(code)) return;
       mk(code, 'Rd ' + code, 'Lawn Fert & Weed', 'done', { doneOn:done[code], period:String(Y), extra:true });
     });
   }
@@ -2861,7 +2886,7 @@ function schedFor(c, mine, today) {
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
   const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
   const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
-  return { cid, c, track, trackSource, needsTrack, pestOff:!!plan.noPest, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+  return { cid, c, track, trackSource, needsTrack, grub, grubSource, pestOff:!!plan.noPest, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
 }
 
 function buildSchedule() {
@@ -2983,11 +3008,10 @@ function renderSchedule() {
     <div class="stat-row">
       <div class="stat-box"><div class="label">Due now</div><div class="value" style="color:var(--accent)">${S.items.filter(i => i.status === 'due').length}</div></div>
       <div class="stat-box"><div class="label">Late</div><div class="value" style="color:var(--overdue)">${S.items.filter(i => i.status === 'late').length}</div></div>
-      <div class="stat-box"><div class="label">Your call</div><div class="value" style="color:var(--warn)">${count(CONSIDER)}</div></div>
       <div class="stat-box"><div class="label">Opens ≤${SOON_DAYS}d</div><div class="value">${count(SOON)}</div></div>
     </div>
     ${S.needsTrack.length ? `<div class="card" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>${S.needsTrack.length} lawn customer${S.needsTrack.length === 1 ? ' has' : 's have'} no program yet</strong> — nothing in the log to base one on. Open each and pick Full or Maintenance.</div><div style="font-size:12px;color:var(--text-dim);margin-top:4px">${S.needsTrack.map(r => `<a href="#" onclick="detailCustomerId='${r.cid}';navigateTo('customers');detailCustomerId='${r.cid}';renderCustomers();return false" style="color:var(--accent)">${escHtml(r.c.Name || r.c.name)}</a>`).join(' · ')}</div></div>` : ''}
-    <div class="filter-pills">${pill('ready','Ready',count(READY))}${pill('consider','Your call',count(CONSIDER))}${pill('soon','Opens soon',count(SOON))}</div>
+    <div class="filter-pills">${pill('ready','Ready',count(READY))}${pill('soon','Opens soon',count(SOON))}</div>
     <div class="filter-pills">
       <button class="${f.code === 'all' ? 'active' : ''}" onclick="schedFilter.code='all';renderSchedule()">All rounds</button>
       ${codes.sort().map(c => `<button class="${f.code === c ? 'active' : ''}" onclick="schedFilter.code='${c}';renderSchedule()">${c === 'PEST' ? 'Pest' : 'Rd ' + c}</button>`).join('')}
@@ -3060,6 +3084,10 @@ function schedCustomerCard(cid) {
       ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
         ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}
         <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>` : ''}
+      ${row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
+        <button class="btn ${row.grub ? 'primary' : 'secondary'} sm" onclick="schedSetGrub('${cid}',true)">Grub control — Rd 4</button>
+        <button class="btn ${row.grub ? 'secondary' : 'primary'} sm" onclick="schedSetGrub('${cid}',false)">No grub — Rd 3</button>
+        <span style="font-size:11px;color:var(--text-muted)">${row.grubSource === 'set' ? 'set by you' : row.grubSource === 'history' ? 'from what was logged' : 'assumed — nothing logged yet'}</span></div>` : ''}
       ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button><span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : 'first week of every month'}</span></div>` : ''}
       ${roundRows}
       ${row.other.length ? `<div style="font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:6px;margin-top:4px">Other treatments logged this year: ${row.other.map(e => escHtml(shortSvc(e.s)) + ' ' + fmtDate(e.d)).join(' · ')}</div>` : ''}
