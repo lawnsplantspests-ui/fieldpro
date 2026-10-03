@@ -3806,7 +3806,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-01-d';
+var APP_BUILD = '2026-10-02-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -3842,14 +3842,14 @@ function treesCard(cid) {
     const main = bed
       ? `<strong>${escHtml(t.label || 'Foundation plants')}</strong> · usually about ${escHtml(String(t.gal || '?'))} gal per application`
       : `<strong>${t.count || 1} × ${escHtml(t.label || 'tree')}</strong> · ${t.dbh} in across each (${Math.round((t.count || 1) * t.dbh * 10) / 10} in total)${t.feed === 'sp' ? ' · fertilize with spikes' : t.feed === 'fo' ? ' · fertilize with BioRush foliar' : ''}`;
-    const sub = [t.where ? escHtml(t.where) : '',
+    const sub = [t.where ? escHtml(t.where) : '', !bed ? '📍 ' + pmPlaced(cid, t.id) + ' of ' + (t.count || 1) + ' placed' : '',
       !bed && t.date ? (stale ? `<span style="color:var(--warn)">measured ${treeWhen(t.date)} — trees grow, check the size</span>` : 'measured ' + treeWhen(t.date)) : ''].filter(Boolean).join(' · ');
     return `<div class="card" style="padding:10px 12px;margin-bottom:6px"><div class="flex-between" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
       <div style="min-width:0"><div style="font-size:14px">${main}</div>${sub ? `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">${sub}</div>` : ''}</div>
       <div class="flex-row gap-6">${stale ? `<button class="btn secondary sm" onclick="treeStillRight('${cid}','${t.id}')">Still right</button>` : ''}<button class="btn ghost sm" onclick="showTreeForm('${cid}','${t.id}')">Edit</button></div></div></div>`;
   }).join('');
   return `<div class="flex-between mt-24 mb-8" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">🌳 Trees &amp; plants</h2>
-      <div class="flex-row gap-6"><button class="btn success sm" onclick="showTreeForm('${cid}','','tree')">+ Trees</button><button class="btn secondary sm" onclick="showTreeForm('${cid}','','bed')">+ Foundation plants</button></div></div>
+      <div class="flex-row gap-6"><button class="btn secondary sm" onclick="showPropertyMap('${cid}')">🗺️ Map</button><button class="btn success sm" onclick="showTreeForm('${cid}','','tree')">+ Trees</button><button class="btn secondary sm" onclick="showTreeForm('${cid}','','bed')">+ Foundation plants</button></div></div>
     ${rows || '<div class="card"><p style="color:var(--text-dim);margin:0;font-size:13px">Nothing saved yet. Add the trees you treat by trunk diameter (spikes, drenches, injections) or the foundation plants you spray by the gallon, and the LPP Log will fill the numbers in for you.</p></div>'}`;
 }
 function showTreeForm(cid, id, kind) {
@@ -3890,7 +3890,7 @@ function treeStillRight(cid, id) { editPlan(String(cid), p => { const t = (p.tre
 function treeRemove(cid, id) {
   if (!confirm('Remove this from the customer?')) return;
   closeModal();
-  editPlan(String(cid), p => { p.trees = (p.trees || []).filter(x => x.id !== id); });
+  editPlan(String(cid), p => { p.trees = (p.trees || []).filter(x => x.id !== id); p.pins = (p.pins || []).filter(x => x.gid !== id); });
 }
 // What the LPP Log is given when it opens from a FieldPro button: ?tr=8x5~Serbian spruce|1x12~Red maple &gal=4 &tm=2026-10-01
 function treeLinkParams(name, q) {
@@ -3903,6 +3903,137 @@ function treeLinkParams(name, q) {
   if (bed) q.set('gal', bed.gal);
   const dates = trees.map(t => t.date).filter(Boolean).sort();
   if (dates.length) q.set('tm', dates[0]);   // the oldest measurement, so the LPP Log can warn when it is over a year old
+}
+
+// ══════════ PROPERTY MAP (pins for trees, bait stations and notes) ══════════
+// One satellite map per customer. Tree and note pins are saved in the customer's plan record (pins[]); bait stations stay in the
+// existing bait-station list, so their "serviced" history keeps working. A pin is placed by tapping the map or by standing next
+// to it and pressing "I'm here". Needs the internet for the satellite picture.
+let _pmMap = null, _pmCust = null, _pmLayers = null, _pmGroup = null, _pmPlacing = null, _pmMove = false;
+const PM_KINDS = { tree:{ icon:'🌲', color:'#2e7d32' }, bait:{ icon:'🐝', color:'#d97706' }, note:{ icon:'📝', color:'#2563eb' } };
+function pmPlanPins(cid) { const p = getPlan(String(cid)); return (p && p.pins) || []; }
+function pmTreeGroups(cid) { return plantGroups(cid).filter(t => t.kind !== 'bed'); }
+function pmPlaced(cid, gid) { return pmPlanPins(cid).filter(p => p.kind === 'tree' && p.gid === gid).length; }
+function pmItems(cid) {
+  const out = pmPlanPins(cid).map(p => Object.assign({}, p, { src:'pin' }));
+  STATE.baitStations.filter(s => String(s.customerId) === String(cid) && s.lat && s.lng).forEach(s =>
+    out.push({ id:s.id, kind:'bait', label:s.label, lat:s.lat, lng:s.lng, src:'bait', note:s.notes || '', install:s.installDate || '', last:((s.serviceDates || []).slice(-1)[0]) || '' }));
+  return out;
+}
+function pmPopup(cid, it) {
+  let sub = '';
+  if (it.kind === 'tree') { const t = plantGroups(cid).find(x => x.id === it.gid); sub = t ? `${t.dbh} in across${t.feed === 'sp' ? ' · spikes' : t.feed === 'fo' ? ' · BioRush foliar' : ''}${t.where ? ' · ' + escHtml(t.where) : ''}` : ''; }
+  else if (it.kind === 'bait') sub = `Installed ${it.install ? fmtDate(it.install) : '?'}${it.last ? ' · last serviced ' + fmtDate(it.last) : ''}${it.note ? '<br>' + escHtml(it.note) : ''}`;
+  return `<div style="min-width:150px"><b>${PM_KINDS[it.kind].icon} ${escHtml(it.kind === 'bait' ? 'Station ' + it.label : it.label)}</b>${sub ? `<div style="font-size:12px;margin-top:2px">${sub}</div>` : ''}
+    <div style="margin-top:6px"><button class="btn ghost sm" style="color:var(--danger)" onclick="pmRemove('${it.id}','${it.src}')">Remove</button></div></div>`;
+}
+function pmBar(msg) { const b = document.getElementById('pm-bar'); if (b) b.innerHTML = msg; }
+function pmIdleBar(cid) {
+  const g = pmTreeGroups(cid), placed = g.reduce((n, t) => n + pmPlaced(cid, t.id), 0), want = g.reduce((n, t) => n + (t.count || 1), 0), bait = pmItems(cid).filter(i => i.kind === 'bait').length;
+  return `${want ? `🌲 ${placed} of ${want} trees placed` : '🌲 no trees saved yet (add them under Trees &amp; plants)'} · 🐝 ${bait} bait station${bait === 1 ? '' : 's'}`;
+}
+function showPropertyMap(cid) {
+  cid = String(cid); _pmCust = cid; _pmPlacing = null; _pmMove = false;
+  const c = custById(cid), groups = pmTreeGroups(cid);
+  showModal('🗺️ ' + (c ? (c.Name || c.name) : 'Property map'), `
+    <div id="pm-bar" style="font-size:12px;color:var(--text-dim);margin-bottom:6px"></div>
+    <div id="pm-map" style="height:380px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input)"></div>
+    <div class="flex-row gap-6" style="flex-wrap:wrap;margin-top:8px;align-items:center">
+      ${groups.length ? `<select id="pm-group" style="max-width:100%">${groups.map(t => `<option value="${t.id}">${escHtml((t.count || 1) + ' × ' + (t.label || 'tree'))} (${pmPlaced(cid, t.id)} placed)</option>`).join('')}</select>` : ''}
+      <button class="btn success sm" onclick="pmStart('tree')">🌲 Place tree</button>
+      <button class="btn secondary sm" onclick="pmStart('bait')">🐝 Bait station</button>
+      <button class="btn secondary sm" onclick="pmStart('note')">📝 Note</button>
+    </div>
+    <div class="flex-row gap-6" style="flex-wrap:wrap;margin-top:6px">
+      <button class="btn ghost sm" onclick="pmSetLayer('sat')">🛰️ Satellite</button>
+      <button class="btn ghost sm" onclick="pmSetLayer('street')">🗺️ Street</button>
+      <button class="btn ghost sm" id="pm-movebtn" onclick="pmToggleMove()">✋ Move pins: off</button>
+      <button class="btn secondary sm" style="margin-left:auto" onclick="closeModal()">Close</button>
+    </div>`, true);
+  setTimeout(() => pmInit(cid), 60);
+}
+function pmInit(cid) {
+  const el = document.getElementById('pm-map'); if (!el) return;
+  if (typeof L === 'undefined') { el.innerHTML = '<div style="padding:20px;color:var(--text-dim)">The map needs an internet connection.</div>'; return; }
+  if (_pmMap) { try { _pmMap.remove(); } catch (e) {} }
+  _pmMap = L.map('pm-map', { zoomControl:true, maxZoom:20 });
+  _pmLayers = {
+    sat:    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom:20, maxNativeZoom:19, attribution:'Esri' }),
+    street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:20, maxNativeZoom:19, attribution:'© OpenStreetMap' }),
+  };
+  _pmLayers.sat.addTo(_pmMap);
+  _pmGroup = L.layerGroup().addTo(_pmMap);
+  const home = custPoint(cid), items = pmItems(cid);
+  if (items.length > 1) _pmMap.fitBounds(L.latLngBounds(items.map(i => [i.lat, i.lng])), { padding:[30, 30], maxZoom:20 });
+  else { const s = items[0] || home; _pmMap.setView(s ? [s.lat, s.lng] : [GEO_HOME.lat, GEO_HOME.lng], s ? 20 : 11); }
+  _pmMap.on('click', e => { if (_pmPlacing) pmDrop(e.latlng.lat, e.latlng.lng); });
+  pmRender(); pmBar(pmIdleBar(cid));
+  setTimeout(() => _pmMap && _pmMap.invalidateSize(), 120);
+}
+function pmRender() {
+  if (!_pmGroup) return; _pmGroup.clearLayers();
+  pmItems(_pmCust).forEach(it => {
+    const k = PM_KINDS[it.kind];
+    const short = it.kind === 'bait' ? String(it.label) : it.kind === 'tree' ? (String(it.label).match(/(\d+)$/) || ['', '🌲'])[1] : '';
+    const icon = L.divIcon({ className:'', iconSize:[30, 30], iconAnchor:[15, 15], html:`<div style="background:${k.color};color:#fff;border:2px solid #fff;border-radius:50%;width:30px;height:30px;line-height:26px;text-align:center;font-size:${short.length > 1 ? 11 : 15}px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.6)">${it.kind === 'tree' ? (short === '🌲' ? '🌲' : short) : it.kind === 'bait' ? short : k.icon}</div>` });
+    const m = L.marker([it.lat, it.lng], { icon, draggable:_pmMove }).addTo(_pmGroup).bindPopup(pmPopup(_pmCust, it));
+    m.on('dragend', () => { const ll = m.getLatLng(); pmMoveTo(it.id, it.src, ll.lat, ll.lng); });
+  });
+}
+function pmSetLayer(which) { if (!_pmMap || !_pmLayers) return; Object.values(_pmLayers).forEach(l => _pmMap.removeLayer(l)); _pmLayers[which].addTo(_pmMap); }
+function pmToggleMove() {
+  _pmMove = !_pmMove; const b = document.getElementById('pm-movebtn'); if (b) b.textContent = '✋ Move pins: ' + (_pmMove ? 'ON — drag a pin' : 'off');
+  pmRender();
+}
+function pmStart(kind) {
+  const cid = _pmCust; let gid = '', label = '';
+  if (kind === 'tree') {
+    const sel = document.getElementById('pm-group');
+    if (!sel) { alert('Save the trees first under Trees & plants (how many, what, inches across), then place them here.'); return; }
+    gid = sel.value; const t = plantGroups(cid).find(x => x.id === gid); label = t ? (t.label || 'Tree') : 'Tree';
+    if (t && pmPlaced(cid, gid) >= (t.count || 1) && !confirm('All ' + (t.count || 1) + ' of these are already placed. Add another pin anyway?')) return;
+  }
+  _pmPlacing = { kind, gid, label };
+  const what = kind === 'tree' ? 'the ' + escHtml(label) : kind === 'bait' ? 'the bait station' : 'the note';
+  pmBar(`<b>Tap the map where ${what} is</b>, or stand next to it and press <button class="btn primary sm" onclick="pmHere()">📍 I'm here</button> <button class="btn ghost sm" onclick="pmDone()">Done</button>`);
+}
+function pmDone() { _pmPlacing = null; pmBar(pmIdleBar(_pmCust)); const sel = document.getElementById('pm-group'); if (sel) pmRefreshSelect(); }
+function pmRefreshSelect() {
+  const sel = document.getElementById('pm-group'); if (!sel) return; const cur = sel.value;
+  sel.innerHTML = pmTreeGroups(_pmCust).map(t => `<option value="${t.id}"${t.id === cur ? ' selected' : ''}>${escHtml((t.count || 1) + ' × ' + (t.label || 'tree'))} (${pmPlaced(_pmCust, t.id)} placed)</option>`).join('');
+}
+function pmHere() {
+  if (!navigator.geolocation) { alert('This device can’t share its location. Tap the map instead.'); return; }
+  pmBar('⏳ Finding where you are…');
+  navigator.geolocation.getCurrentPosition(p => { _pmMap.setView([p.coords.latitude, p.coords.longitude], 20); pmDrop(p.coords.latitude, p.coords.longitude, Math.round(p.coords.accuracy * 3.281)); },
+    e => { alert('Could not get your location (' + (e.message || 'timeout') + '). Tap the map instead.'); if (_pmPlacing) pmStart(_pmPlacing.kind); }, { enableHighAccuracy:true, timeout:20000, maximumAge:5000 });
+}
+function pmDrop(lat, lng, accFt) {
+  const cid = _pmCust, pl = _pmPlacing; if (!pl) return;
+  lat = Math.round(lat * 1e6) / 1e6; lng = Math.round(lng * 1e6) / 1e6;
+  if (pl.kind === 'bait') {
+    const nums = STATE.baitStations.filter(s => String(s.customerId) === cid).map(s => parseInt(s.label, 10)).filter(n => n > 0);
+    STATE.baitStations.push({ id:uid(), customerId:cid, label:String((nums.length ? Math.max(...nums) : 0) + 1), lat, lng, installDate:todayStr(), notes:'', serviceDates:[] });
+  } else {
+    const p = ensurePlan(cid); p.pins = p.pins || [];
+    if (pl.kind === 'note') { const t = (prompt('Note for this spot (for example: gate, dog, spray area, valve):') || '').trim(); if (!t) return; p.pins.push({ id:uid(), kind:'note', label:t, lat, lng }); _pmPlacing = null; }
+    else { const n = p.pins.filter(x => x.kind === 'tree' && x.gid === pl.gid).length + 1; p.pins.push({ id:uid(), kind:'tree', gid:pl.gid, label:pl.label + ' ' + n, lat, lng }); }
+  }
+  saveState(); pmRender(); pmRefreshSelect();
+  if (_pmPlacing) pmBar(`✓ Placed${accFt ? ' (location accurate to about ' + accFt + ' ft)' : ''}. Tap the map for the next one, or <button class="btn primary sm" onclick="pmHere()">📍 I'm here</button> <button class="btn ghost sm" onclick="pmDone()">Done</button>`);
+  else pmBar('✓ Saved. ' + pmIdleBar(cid));
+}
+function pmMoveTo(id, src, lat, lng) {
+  lat = Math.round(lat * 1e6) / 1e6; lng = Math.round(lng * 1e6) / 1e6;
+  if (src === 'bait') { const s = STATE.baitStations.find(x => x.id === id); if (s) { s.lat = lat; s.lng = lng; } }
+  else { const p = pmPlanPins(_pmCust).find(x => x.id === id); if (p) { p.lat = lat; p.lng = lng; } }
+  saveState();
+}
+function pmRemove(id, src) {
+  if (!confirm(src === 'bait' ? 'Remove this bait station and its service history?' : 'Remove this pin?')) return;
+  if (src === 'bait') STATE.baitStations = STATE.baitStations.filter(s => s.id !== id);
+  else { const p = ensurePlan(_pmCust); p.pins = (p.pins || []).filter(x => x.id !== id); }
+  saveState(); if (_pmMap) _pmMap.closePopup(); pmRender(); pmRefreshSelect(); pmBar(pmIdleBar(_pmCust));
 }
 
 // ══════════ NEAR ME (find the customer I'm standing at) ══════════
