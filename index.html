@@ -2324,6 +2324,7 @@ function renderRouteDetail(el) {
       <div>
         <h1 style="margin:0">${escHtml(rt.name || fmtDateFull(rt.date))}</h1>
         <div style="font-size:13px;color:var(--text-dim)">${total} stops · ${completed} completed · ${escHtml(rt.serviceFilter||'Mixed')}${rt.miles ? ' · about ' + rt.miles + ' mi' : ''}${rt.leaveHome ? ' · leave ' + escHtml(rt.leaveHome) : ''}${rt.backHome ? ' · home by ' + escHtml(rt.backHome) : ''}</div>
+        ${routeTimerSummary(rt)}
       </div>
       <div class="flex-row gap-6" style="flex-wrap:wrap">
         <button class="btn primary sm" onclick="openInAppleMaps('${rt.id}')">🗺️ Maps</button>
@@ -2345,9 +2346,11 @@ function renderRouteDetail(el) {
           <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(s.customerName)}</div>
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(s.address||'No address')}</div>
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.viaLog ? '✓ logged ' + fmtDate(s.completedDate) + ' · ' : ''}${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
+          ${stopTimerHtml(rt, i)}${stopUnloggedHtml(rt, s)}
         </div>
         <div class="flex-row gap-6" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
-          ${s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('') : ''}
+          ${s.status !== 'completed' && !s.startedAt ? `<button class="btn primary sm" onclick="startRouteStop('${rt.id}',${i})" title="Start the clock when you pull in">▶ Start</button>` : ''}
+          ${(s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)) : stopUnlogged(rt, s)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('')}
           ${s.status !== 'completed' ? smsStopBtn(rt.id, i, s) : ''}
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
           <button class="btn ghost sm" onclick="removeRouteStop('${rt.id}',${i})" style="color:var(--danger)" title="Remove stop">✕</button>
@@ -2357,9 +2360,71 @@ function renderRouteDetail(el) {
   `;
 }
 
+// ── Job timer ── ▶ Start when you pull in, ✓ Done when you leave. The times are kept on the route stop (FieldPro only,
+// nothing goes to the LPP Log). Starting the next stop stops a clock that was left running. Gap between one stop's finish
+// and the next one's start = driving.
+const TIMER_LONG_MIN = 180;
+const minsBetween = (a, b) => Math.max(0, Math.round((b - a) / 60000));
+const clockTime = ms => new Date(ms).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+const fmtMins = m => m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min';
+function runningStops() { const out = []; STATE.routes.forEach(rt => (rt.stops || []).forEach(s => { if (s.startedAt && !s.finishedAt) out.push(s); })); return out; }
+function startRouteStop(routeId, stopIdx) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt) return;
+  const s = rt.stops[stopIdx], now = Date.now();
+  runningStops().forEach(x => { if (x !== s) x.finishedAt = now; });
+  s.startedAt = now; delete s.finishedAt;
+  saveState(); renderRoutes();
+}
+function editStopTime(routeId, stopIdx) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt) return;
+  const s = rt.stops[stopIdx]; if (!s.startedAt) return;
+  const cur = minsBetween(s.startedAt, s.finishedAt || Date.now());
+  const v = prompt(`Minutes on site at ${s.customerName} (started ${clockTime(s.startedAt)}).\nLeave empty to clear the timer.`, String(cur));
+  if (v === null) return;
+  if (!String(v).trim()) { delete s.startedAt; delete s.finishedAt; }
+  else { const n = parseFloat(v); if (!(n >= 0)) return; s.finishedAt = s.startedAt + Math.round(n) * 60000; }
+  saveState(); renderRoutes();
+}
+// driving = from the last stop on this route that finished before this one started
+function stopDriveMin(rt, s) {
+  let last = 0;
+  (rt.stops || []).forEach(x => { if (x !== s && x.finishedAt && x.finishedAt <= s.startedAt && x.finishedAt > last) last = x.finishedAt; });
+  const m = last ? minsBetween(last, s.startedAt) : null;
+  return m != null && m <= 120 ? m : null;   // a longer gap is lunch or a break, not driving
+}
+function stopTimerHtml(rt, i) {
+  const s = rt.stops[i]; if (!s.startedAt) return '';
+  const drive = stopDriveMin(rt, s), edit = `<button class="btn ghost sm" style="padding:0 4px;font-size:11px" onclick="editStopTime('${rt.id}',${i})" title="Fix the time">✏️</button>`;
+  const planned = s.workMin ? ` (planned ${s.workMin})` : '';
+  if (!s.finishedAt) {
+    const m = minsBetween(s.startedAt, Date.now()), long = m >= TIMER_LONG_MIN;
+    return `<div style="font-size:12px;margin-top:3px;color:${long ? 'var(--warn)' : 'var(--accent)'}">⏱ <span data-tstart="${s.startedAt}">${fmtMins(m)}</span> since ${clockTime(s.startedAt)}${planned}${long ? ' · still running? tap ✏️ to fix' : ''}${drive != null ? ' · drove ' + drive + ' min' : ''} ${edit}</div>`;
+  }
+  return `<div style="font-size:12px;margin-top:3px;color:var(--text-dim)">⏱ ${fmtMins(minsBetween(s.startedAt, s.finishedAt))} on site, ${clockTime(s.startedAt)}–${clockTime(s.finishedAt)}${planned}${drive != null ? ' · drove ' + drive + ' min' : ''} ${edit}</div>`;
+}
+// finished here but not found in the LPP Log yet: keep the Log button and say so
+function stopUnlogged(rt, s) {
+  if (s.status !== 'completed' || s.viaLog) return [];
+  return (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code) && !logDoneSince(s.customerName, it.code, rt.date || s.completedDate));
+}
+function stopUnloggedHtml(rt, s) {
+  return stopUnlogged(rt, s).length ? '<div style="font-size:12px;margin-top:3px;color:var(--warn)">📋 Not in the LPP Log yet</div>' : '';
+}
+function routeTimerSummary(rt) {
+  const t = (rt.stops || []).filter(s => s.startedAt);
+  if (!t.length) return '';
+  const now = Date.now();
+  const onSite = t.reduce((a, s) => a + minsBetween(s.startedAt, s.finishedAt || now), 0);
+  const drive = t.reduce((a, s) => a + (stopDriveMin(rt, s) || 0), 0);
+  const first = Math.min(...t.map(s => s.startedAt)), fin = t.filter(s => s.finishedAt).map(s => s.finishedAt);
+  return `<div style="font-size:13px;color:var(--text-dim);margin-top:2px">⏱ ${t.length} timed · ${fmtMins(onSite)} on site · ${fmtMins(drive)} driving between stops · first start ${clockTime(first)}${fin.length ? ', last finish ' + clockTime(Math.max(...fin)) : ''}</div>`;
+}
+setInterval(() => document.querySelectorAll('[data-tstart]').forEach(el => { el.textContent = fmtMins(minsBetween(+el.dataset.tstart, Date.now())); }), 30000);
+
 function completeRouteStop(routeId, stopIdx) {
   const rt = STATE.routes.find(r => r.id === routeId);
   if (!rt) return;
+  if (rt.stops[stopIdx].startedAt && !rt.stops[stopIdx].finishedAt) rt.stops[stopIdx].finishedAt = Date.now();
   rt.stops[stopIdx].status = 'completed';
   rt.stops[stopIdx].completedDate = todayStr();
   // Also complete the underlying round
@@ -2820,7 +2885,7 @@ function syncRoutesFromLog() {
     const items = (stop.items || [{ code:stop.code }]).filter(it => it.code && loggableCode(it.code));
     if (!items.length) return;
     const dates = items.map(it => logDoneSince(stop.customerName, it.code, rt.date));
-    if (dates.every(Boolean)) { stop.status = 'completed'; stop.completedDate = dates.sort().pop(); stop.viaLog = true; changed++; }
+    if (dates.every(Boolean)) { stop.status = 'completed'; stop.completedDate = dates.sort().pop(); stop.viaLog = true; if (stop.startedAt && !stop.finishedAt) stop.finishedAt = Date.now(); changed++; }
   }));
   if (changed) { saveState(); renderCurrentPage(); }
   return changed;
@@ -3813,7 +3878,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-02-c';
+var APP_BUILD = '2026-10-02-d';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
