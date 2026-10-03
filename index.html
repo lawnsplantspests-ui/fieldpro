@@ -2730,6 +2730,7 @@ const TREATLOG_KEY = 'fieldpro_treatlog';
 const PEST_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 const PEST_WEEK_END = 7;
 const BLANKET_GAP_DAYS = 30;   // 3-way label: broadcast passes at least 30 days apart
+const ROUND_GAP_DAYS = 28;     // Devon (Oct 3 2026): lawn treatments no less than 28 days apart
 const BLANKET_CAP = 2;         // ...and 2 broadcast passes per site per year
 const LATE_GRACE_DAYS = 14;    // a missed window stays "late" this long, then "missed"
 const SOON_DAYS = 21;          // "opening soon" horizon
@@ -2740,17 +2741,18 @@ function thanksgiving(Y) { const off = (4 - new Date(Y, 10, 1).getDay() + 7) % 7
 const seasonEnd = Y => addDays(thanksgiving(Y), -6);
 const seasonLimit = Y => addDays(thanksgiving(Y), -1);
 
-// Windows come from when the rounds were actually logged in 2026, padded a little.
-// Rd 7 (winterizer) has no log history yet; its window is the winterizer window from the old templates.
+// Windows are Devon's (Oct 3 2026): Rd 1 Feb/Mar, Rd 2 Mar/Apr, Rd 3/4 May/Jun (grub from about May 15),
+// Rd 5 Jul/Aug, Rd 6 Sep/Oct, Rd 7 winterizer Oct/Nov. Windows overlap, so a round also waits for the
+// previous one plus ROUND_GAP_DAYS (see buildCustomerSchedule).
 const SCHED_ROUNDS = {
   '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'02-14', end:'03-31', note:'Can start Feb 14 if soil temps are decent and there is no snow on the ground' },
-  '2A': { label:'Rd 2A — Pre-emergent + 3-way',   svc:'Lawn Fert & Weed', start:'03-25', end:'04-30', blanket:true },
-  '2B': { label:'Rd 2B — Dimension + 3-way',      svc:'Lawn Fert & Weed', start:'04-20', end:'05-10', blanket:true },
-  '3':  { label:'Rd 3 — Weed & feed (no grub)',   svc:'Lawn Fert & Weed', start:'05-15', end:'06-30', blanket:true },
+  '2A': { label:'Rd 2A — Pre-emergent + 3-way',   svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
+  '2B': { label:'Rd 2B — Dimension + 3-way',      svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
+  '3':  { label:'Rd 3 — Weed & feed (no grub)',   svc:'Lawn Fert & Weed', start:'05-01', end:'06-30', blanket:true },
   '4':  { label:'Rd 4 — Grub control',            svc:'Grub Control',     start:'05-15', end:'06-30', blanket:true },
-  '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-20', end:'08-31' },
-  '6':  { label:'Rd 6 — Fall weed & feed',        svc:'Lawn Fert & Weed', start:'09-15', end:'10-31', blanket:true },
-  '7':  { label:'Rd 7 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-15', end:'11-20', endFn:Y => seasonEnd(Y) },   // done by the week before Thanksgiving
+  '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-01', end:'08-31' },
+  '6':  { label:'Rd 6 — Fall weed & feed',        svc:'Lawn Fert & Weed', start:'09-01', end:'10-31', blanket:true },
+  '7':  { label:'Rd 7 — Winterizer',              svc:'Lawn Fert & Weed', start:'10-01', end:'11-20', endFn:Y => seasonEnd(Y) },   // done by the week before Thanksgiving
   // Aeration & seed is a per-customer add-on Devon tracks himself (not a pesticide, so never in the LPP Log)
   'SEED': { label:'Aeration & seed',                svc:'Aeration & Seed',  start:'09-01', end:'09-14' },
 };
@@ -3055,6 +3057,9 @@ function schedFor(c, mine, today) {
 
   if (track) {
     const covered = new Set();
+    const lastTreat = Object.values(done).sort().pop() || null;   // latest lawn round logged this year
+    let prevOpen = null;   // earliest date the previous round (still to do) could be done
+    let prevItem = null;   // ...and that round, so it can be told when it has to be done by
     SCHED_TRACKS[track].rounds.forEach(c0 => {
       const code = c0 === 'S' ? (grub ? '4' : '3') : c0;
       // a round counts as done by any of its equivalents (2A/2B; Rd 3/Rd 4 in the late-May slot)
@@ -3067,12 +3072,17 @@ function schedFor(c, mine, today) {
       if (skip[Y + ':' + code]) return mk(code, R.label, R.svc, 'skipped', o);
       let avail = ws;
       if (R.blanket && lastBlanket) { const gap = addDays(lastBlanket, BLANKET_GAP_DAYS); if (gap > avail) avail = gap; }
+      if (lastTreat) { const gap = addDays(lastTreat, ROUND_GAP_DAYS); if (gap > avail) avail = gap; }
+      if (prevOpen) { const gap = addDays(prevOpen, ROUND_GAP_DAYS); if (gap > avail) avail = gap; }   // the previous round isn't done yet
       o.avail = avail;
       let st;
       if (today > we) { if (R.asNeeded) return; st = daysBetween(we, today) > LATE_GRACE_DAYS ? 'missed' : 'late'; }
       else if (today >= avail) st = R.asNeeded ? 'consider' : 'due';
       else st = daysBetween(today, avail) <= SOON_DAYS ? 'soon' : 'later';
+      // the previous round has to be done 28 days before this one's window closes, or this one won't fit
+      if (prevItem && st !== 'missed' && !R.asNeeded) { const nb = addDays(we, -ROUND_GAP_DAYS); if (nb < prevItem.end && (!prevItem.needBy || nb < prevItem.needBy)) { prevItem.needBy = nb; prevItem.needFor = R.label.split(' — ')[0]; } }
       mk(code, R.label, R.svc, st, o);
+      if (!R.asNeeded && st !== 'missed') { prevOpen = avail > today ? avail : today; prevItem = rounds[rounds.length - 1]; }
     });
     // anything else logged this year that isn't one of this program's rounds (e.g. Rd 5 on a maintenance lawn)
     Object.keys(done).forEach(code => {
@@ -3283,7 +3293,9 @@ function roundCalendarHtml(S, today = schedToday()) {
   const next = nextStart ? wins.filter(w => w.start === nextStart) : [];
   const openLine = w => {
     const n = left(w), aim = buf ? workdaysBefore(w.end, buf, cfg.satOk) : null;
-    return `<div>🟢 ${name(w)} · <span style="color:var(--text)">ends ${day(w.end)}</span> (${inDays(daysBetween(today, w.end))})${n ? ' · ' + n + ' still to do' : ''}${aim && aim > today ? ` · aim to finish by ${day(aim)} to keep ${buf} rain day${buf === 1 ? '' : 's'}` : ''}</div>`;
+    const nb = S.items.filter(i => w.codes.includes(i.code) && i.end === w.end && i.needBy && ['due','late','soon'].includes(i.status));
+    const nbFirst = nb.map(i => i.needBy).sort()[0];
+    return `<div>🟢 ${name(w)} · <span style="color:var(--text)">ends ${day(w.end)}</span> (${inDays(daysBetween(today, w.end))})${n ? ' · ' + n + ' still to do' : ''}${nb.length ? ` · <span style="color:var(--warn)">${nb.length} need it by ${day(nbFirst)} so the next round fits</span>` : ''}${aim && aim > today ? ` · aim to finish by ${day(aim)} to keep ${buf} rain day${buf === 1 ? '' : 's'}` : ''}</div>`;
   };
   const nextLine = w => `<div>⏭️ ${name(w)} · <span style="color:var(--text)">opens ${day(w.start)}</span> (${inDays(daysBetween(today, w.start))}) · runs to ${day(w.end)}</div>`;
   if (!open.length && !next.length) return '';
@@ -3326,6 +3338,7 @@ function renderSchedule() {
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(i.addr || 'No address')}</div>
           <div style="font-size:12px;margin-top:2px">${escHtml(i.label)}${i.sqft && !i.pest && !i.noSqft ? ' · ' + Number(i.sqft).toLocaleString() + ' sqft' : ''}</div>
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">${schedWhen(i)}${i.last ? ' · last: ' + escHtml(shortSvc(i.last.s)) + ' ' + fmtDate(i.last.d) : ''}</div>
+          ${i.needBy && ['due','late','soon'].includes(i.status) ? `<div style="font-size:11px;color:var(--warn);margin-top:2px">Do by ${fmtDate(i.needBy)} so ${escHtml(i.needFor)} still fits 28 days later</div>` : ''}
           ${blanketNote(i) ? '<div style="margin-top:2px">' + blanketNote(i) + '</div>' : ''}
           ${i.note && (i.svcKey || schedToday() < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn);margin-top:2px">' + escHtml(i.note) + '</div>' : ''}
         </div>
@@ -3902,7 +3915,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-03-b';
+var APP_BUILD = '2026-10-03-d';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4415,12 +4428,16 @@ async function planBuild() {
     };
     const rainBuf = Math.max(0, Math.round(cfg.rainBuffer == null ? PLAN_DEFAULTS.rainBuffer : cfg.rainBuffer));
     const bufEnd = i => {
-      if (!rainBufItem(i) || !rainBuf) return i.end || '9999';
-      const b = workdaysBefore(i.end, rainBuf, cfg.satOk), st = i.avail || i.start || '';
+      const e0 = i.needBy && i.needBy < (i.end || '9999') ? i.needBy : (i.end || '9999');
+      if (!rainBufItem(i) || !rainBuf) return e0;
+      const b = workdaysBefore(e0, rainBuf, cfg.satOk), st = i.avail || i.start || '';
       return b < st ? st : b;   // a window shorter than the buffer: aim for its first day
     };
     const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft), end:items.map(bufEnd).sort()[0] });
     const openOn = (i, date) => (i.avail || i.start || '') <= date;
+    // lawn treatments for the same customer stay ROUND_GAP_DAYS apart inside the plan too (Rd 6 planned Oct 13 -> Rd 7 not before Nov 10)
+    const isLawnItem = i => !i.pest && !i.svcKey && !i.seed;
+    const gapOkAt = (cid, date, dayList, skip) => dayList.every((d, k) => k === skip || !d.stops.some(x => x.cid === cid && x.items.some(isLawnItem)) || Math.abs(daysBetween(d.date, date)) >= ROUND_GAP_DAYS);
     const todayIso = schedToday();
     const startDate = plannerStart <= todayIso ? addDays(todayIso, 1) : plannerStart;
 
@@ -4434,7 +4451,7 @@ async function planBuild() {
         date = nextWorkday(date, cfg.satOk);
         if (skipBadWx) for (let g2 = 0; g2 < 30 && wxRating(date) === 'bad'; g2++) { wxSkipped.push(date); date = nextWorkday(addDays(date, 1), cfg.satOk); }
         if (date > seasonLimit(+date.slice(0, 4))) break;
-        const open = left.filter(i => openOn(i, date));
+        const open = left.filter(i => openOn(i, date) && (!isLawnItem(i) || gapOkAt(i.cid, date, days, -1)));
         if (!open.length) { date = addDays(date, 1); continue; }
         const by = {}; open.forEach(i => { (by[i.cid] = by[i.cid] || []).push(i); });
         const cands = Object.keys(by).map(cid => stopFor(cid, by[cid]));
@@ -4477,7 +4494,8 @@ async function planBuild() {
       // ---- stage 2: improve — move a stop to another day, or swap two stops between days, when that
       //      cuts driving and every day still fits and no stop is pushed past its window ----
       const dayCost = stops => stops.length ? planDayEval(planBestOrder(stops, ctx), ctx).cost : 0;
-      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || days[from].date > bufEnd(i)));
+      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || days[from].date > bufEnd(i)))
+        && (!s.items.some(isLawnItem) || gapOkAt(s.cid, days[to].date, days, from));
       const driveBefore = days.reduce((t, d) => t + planDayEval(planBestOrder(d.stops, ctx), ctx).drive, 0);
       let moved = 0;
       for (let pass = 0; pass < 6; pass++) {
@@ -4532,8 +4550,9 @@ async function planBuild() {
     // pull the days up to the earliest workdays they are allowed on
     let nextDate = startDate;
     days.forEach(d => {
-      const cand = nextWorkday(nextDate, cfg.satOk);
-      if (cand < d.date && d.stops.every(s => s.items.every(i => openOn(i, cand)))) d.date = cand;
+      let cand = nextWorkday(nextDate, cfg.satOk);
+      if (skipBadWx) for (let g = 0; g < 30 && wxRating(cand) === 'bad'; g++) cand = nextWorkday(addDays(cand, 1), cfg.satOk);   // never pull work onto a day it is skipping for weather
+      if (cand < d.date && d.stops.every(s => s.items.every(i => openOn(i, cand)) && (!s.items.some(isLawnItem) || gapOkAt(s.cid, cand, days, days.indexOf(d))))) d.date = cand;
       nextDate = addDays(d.date, 1);
     });
     const out = days.map(d => planDayFrom(planBestOrder(d.stops, ctx, true), ctx, Mi, d.date));
