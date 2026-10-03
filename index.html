@@ -3024,6 +3024,29 @@ function schedPestDoneYear(cid) {
   editPlan(cid, p => { if (Number(p.pestEnd) >= Y) delete p.pestEnd; else p.pestEnd = Y; });
 }
 function schedTogglePest(cid) { editPlan(cid, p => { p.noPest = !p.noPest; }); }
+const MON3 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function pestMonthsText(ms) {
+  if (!Array.isArray(ms) || !ms.length || ms.length === 12) return 'every month';
+  const a = ms.slice().sort((x, y) => x - y), run = a.every((m, k) => !k || m === a[k - 1] + 1);
+  return run ? MON3[a[0] - 1] + '–' + MON3[a[a.length - 1] - 1] : a.map(m => MON3[m - 1]).join(', ');
+}
+function schedSetPestMonths(cid) {
+  const cur = (getPlan(String(cid)) || {}).pestMonths;
+  const v = prompt('Pest control months: first and last month as numbers (4-11 = April to November).\nLeave empty for every month.', Array.isArray(cur) && cur.length ? Math.min(...cur) + '-' + Math.max(...cur) : '');
+  if (v === null) return;
+  const m = String(v).trim().match(/^(\d{1,2})\s*-\s*(\d{1,2})$/);
+  if (String(v).trim() && !m) { alert('Type it like 4-11'); return; }
+  editPlan(String(cid), p => {
+    if (!m) { delete p.pestMonths; return; }
+    const a = Math.max(1, Math.min(12, +m[1])), b = Math.max(1, Math.min(12, +m[2])), out = [];
+    for (let k = a; ; k = k % 12 + 1) { out.push(k); if (k === b || out.length >= 12) break; }   // 11-2 wraps Nov to Feb
+    p.pestMonths = out;
+  });
+}
+function schedToggleStartNextYear(cid) {
+  const Y = +schedToday().slice(0, 4);
+  editPlan(String(cid), p => { if (p.trackFrom && Y < Number(p.trackFrom)) delete p.trackFrom; else p.trackFrom = Y + 1; });
+}
 function schedToggleSkip(cid, key) { editPlan(cid, p => { if (p.skip[key]) delete p.skip[key]; else p.skip[key] = true; }); }
 
 // ── the engine ──
@@ -3041,6 +3064,7 @@ function schedFor(c, mine, today) {
   else if (SCHED_TRACKS[plan.track]) { track = plan.track; trackSource = 'set'; }
   else { const inf = inferTrack(thisYr) || inferTrack(lastYr); if (inf) { track = inf; trackSource = 'history'; } }
   const needsTrack = !track && plan.track !== 'none' && sqLawn > 0;
+  const notYet = !!(track && plan.trackFrom && Y < Number(plan.trackFrom));   // e.g. a new customer whose program starts next spring
   let grub, grubSource;
   if (plan.grub === true || plan.grub === false) { grub = plan.grub; grubSource = 'set'; }
   else { const g = inferGrub(thisYr, lastYr); grub = g.grub; grubSource = g.src; }
@@ -3055,7 +3079,7 @@ function schedFor(c, mine, today) {
   const rounds = [];
   const mk = (code, label, svc, state, o) => rounds.push(Object.assign({}, base, { code, label, svc, status:state }, o));
 
-  if (track) {
+  if (track && !notYet) {
     const covered = new Set();
     const lastTreat = Object.values(done).sort().pop() || null;   // latest lawn round logged this year
     let prevOpen = null;   // earliest date the previous round (still to do) could be done
@@ -3096,7 +3120,7 @@ function schedFor(c, mine, today) {
     const pestDates = thisYr.concat(lastYr).filter(e => svcCode(e.s) === 'PEST').map(e => e.d);
     const mkMonth = (y, m0) => {
       const ym = y + '-' + String(m0 + 1).padStart(2,'0');
-      if (!PEST_MONTHS.includes(m0 + 1)) return;
+      if (!(Array.isArray(plan.pestMonths) && plan.pestMonths.length ? plan.pestMonths : PEST_MONTHS).includes(m0 + 1)) return;
       if (plan.pestEnd && y <= Number(plan.pestEnd)) return;   // finished with pest control for that year
       const ws = ym + '-01', we = ym + '-' + String(PEST_WEEK_END).padStart(2,'0');
       const doneOn = pestDates.filter(d => d.startsWith(ym)).sort()[0];
@@ -3200,7 +3224,7 @@ function schedFor(c, mine, today) {
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
   const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
   const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
-  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, svcInfo, svcEnd:plan.svcEnd || {}, workSqft:Number(plan.workSqft) || null, sqOnFile, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, svcInfo, svcEnd:plan.svcEnd || {}, workSqft:Number(plan.workSqft) || null, sqOnFile, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, pestMonths:plan.pestMonths || null, trackFrom:plan.trackFrom || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
 }
 
 function buildSchedule() {
@@ -3434,10 +3458,10 @@ function schedCustomerCard(cid) {
       <div class="section-label" style="margin-top:0">📅 Treatment plan — ${Y}</div>
       <div style="font-size:13px;margin-bottom:8px">${row.next
         ? `<strong>Next:</strong> ${escHtml(row.next.label)} · ${schedBadge(row.next.status)} <span style="color:var(--text-dim)">${schedWhen(row.next)}</span>`
-        : `<span style="color:var(--text-dim)">${row.track ? 'Nothing else scheduled this season.' : 'No lawn program set.'}</span>`}</div>
+        : `<span style="color:var(--text-dim)">${row.track && row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'Lawn program starts in ' + row.trackFrom + '.' : row.track ? 'Nothing else scheduled this season.' : 'No lawn program set.'}</span>`}</div>
       ${(offerSoilEnsure(), soilLine(row.c))}
       ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
-        ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}
+        ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}${row.track ? `<button class="btn ${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'primary' : 'secondary'} sm" onclick="schedToggleStartNextYear('${cid}')" title="Nothing is scheduled until next year">${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'Starts ' + row.trackFrom + ' — undo' : 'Starts next year'}</button>` : ''}
         <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>` : ''}
       ${row.sqOnFile > 0 ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px;align-items:center">
         <span style="font-size:12px;color:var(--text-dim)">Area I normally treat (sq ft):</span>
@@ -3451,7 +3475,7 @@ function schedCustomerCard(cid) {
         <button class="btn ${row.grub ? 'primary' : 'secondary'} sm" onclick="schedSetGrub('${cid}',true)">Grub control — Rd 4</button>
         <button class="btn ${row.grub ? 'secondary' : 'primary'} sm" onclick="schedSetGrub('${cid}',false)">No grub — Rd 3</button>
         <span style="font-size:11px;color:var(--text-muted)">${row.grubSource === 'set' ? 'set by you' : row.grubSource === 'history' ? 'from what was logged' : 'assumed — nothing logged yet'}</span></div>` : ''}
-      ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button>${row.pestOff ? '' : `<button class="btn ${Number(row.pestEnd) >= Number(Y) ? 'primary' : 'secondary'} sm" onclick="schedPestDoneYear('${cid}')">${Number(row.pestEnd) >= Number(Y) ? 'Done for ' + Y + ' — undo' : 'Done for ' + Y}</button>`}<span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : Number(row.pestEnd) >= Number(Y) ? 'no more pest visits this year' : 'first week of every month'}</span></div>` : ''}
+      ${row.sqPest > 0 ? `<div class="flex-row gap-6" style="margin:4px 0"><button class="btn ${row.pestOff ? 'secondary' : 'primary'} sm" onclick="schedTogglePest('${cid}')">${row.pestOff ? 'Pest control: off' : 'Pest control: monthly'}</button>${row.pestOff ? '' : `<button class="btn ${Number(row.pestEnd) >= Number(Y) ? 'primary' : 'secondary'} sm" onclick="schedPestDoneYear('${cid}')">${Number(row.pestEnd) >= Number(Y) ? 'Done for ' + Y + ' — undo' : 'Done for ' + Y}</button>`}<span style="font-size:11px;color:var(--text-muted)">${row.pestOff ? 'not scheduled' : Number(row.pestEnd) >= Number(Y) ? 'no more pest visits this year' : 'first week of ' + pestMonthsText(row.pestMonths)}</span>${row.pestOff ? '' : `<button class="btn ghost sm" onclick="schedSetPestMonths('${cid}')">Months</button>`}</div>` : ''}
       <div class="flex-row gap-6" style="flex-wrap:wrap;margin:4px 0;align-items:center">
         <span style="font-size:12px;color:var(--text-dim)">Aeration &amp; seed:</span>
         <button class="btn ${!row.seed ? 'primary' : 'secondary'} sm" onclick="schedSetSeed('${cid}','off')">Off</button>
@@ -3915,7 +3939,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-03-d';
+var APP_BUILD = '2026-10-03-e';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
