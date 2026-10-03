@@ -3262,6 +3262,33 @@ function schedLogStatusHtml() {
 }
 
 // ── the Schedule page ──
+// Round calendar: which lawn rounds are open now, when each one ends, and when the next one opens
+const CAL_CODES = ['1', '2A', '2B', '3', '4', '5', 'SEED', '6', '7'];
+function roundCalendarHtml(S, today = schedToday()) {
+  const Y = +today.slice(0, 4), cfg = getPlanCfg();
+  const buf = Math.max(0, Math.round(cfg.rainBuffer == null ? PLAN_DEFAULTS.rainBuffer : cfg.rainBuffer));
+  const wins = [];
+  [Y, Y + 1].forEach(y => CAL_CODES.forEach(c => {
+    const R = SCHED_ROUNDS[c]; if (!R) return;
+    const w = { codes:[c], start:y + '-' + R.start, end:R.endFn ? R.endFn(y) : y + '-' + R.end, desc:[String(R.label).split(' — ')[1] || R.label] };
+    const same = wins.find(x => x.start === w.start && x.end === w.end);   // Rd 3 / Rd 4 share the grub slot
+    if (same) { same.codes.push(c); same.desc.push(w.desc[0]); } else wins.push(w);
+  }));
+  const day = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  const inDays = n => n === 0 ? 'today' : n === 1 ? 'tomorrow' : 'in ' + n + ' days';
+  const name = w => `<strong>${w.codes.map(codeShort).join(' / ')}</strong> ${escHtml(w.desc.join(' / '))}`;
+  const left = w => S.items.filter(i => w.codes.includes(i.code) && i.end === w.end && i.status !== 'done').length;
+  const open = wins.filter(w => w.start <= today && today <= w.end).sort((a, b) => a.end.localeCompare(b.end));
+  const nextStart = wins.filter(w => w.start > today).map(w => w.start).sort()[0];
+  const next = nextStart ? wins.filter(w => w.start === nextStart) : [];
+  const openLine = w => {
+    const n = left(w), aim = buf ? workdaysBefore(w.end, buf, cfg.satOk) : null;
+    return `<div>🟢 ${name(w)} · <span style="color:var(--text)">ends ${day(w.end)}</span> (${inDays(daysBetween(today, w.end))})${n ? ' · ' + n + ' still to do' : ''}${aim && aim > today ? ` · aim to finish by ${day(aim)} to keep ${buf} rain day${buf === 1 ? '' : 's'}` : ''}</div>`;
+  };
+  const nextLine = w => `<div>⏭️ ${name(w)} · <span style="color:var(--text)">opens ${day(w.start)}</span> (${inDays(daysBetween(today, w.start))}) · runs to ${day(w.end)}</div>`;
+  if (!open.length && !next.length) return '';
+  return `<div class="card mb-8" style="font-size:12px;line-height:1.7;color:var(--text-dim)"><div class="section-label" style="margin-top:0">Rounds</div>${open.map(openLine).join('') || '<div>No lawn round is open right now.</div>'}${next.map(nextLine).join('')}</div>`;
+}
 function renderSchedule() {
   const el = document.getElementById('page-schedule');
   if (!el) return;
@@ -3320,6 +3347,7 @@ function renderSchedule() {
       <div class="stat-box"><div class="label">Late</div><div class="value" style="color:var(--overdue)">${S.items.filter(i => i.status === 'late').length}</div></div>
       <div class="stat-box"><div class="label">Opens ≤${SOON_DAYS}d</div><div class="value">${count(SOON)}</div></div>
     </div>
+    ${roundCalendarHtml(S)}
     ${S.needsTrack.length ? `<div class="card" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>${S.needsTrack.length} lawn customer${S.needsTrack.length === 1 ? ' has' : 's have'} no program yet</strong> — nothing in the log to base one on. Open each and pick Full or Maintenance.</div><div style="font-size:12px;color:var(--text-dim);margin-top:4px">${S.needsTrack.map(r => `<a href="#" onclick="detailCustomerId='${r.cid}';navigateTo('customers');detailCustomerId='${r.cid}';renderCustomers();return false" style="color:var(--accent)">${escHtml(r.c.Name || r.c.name)}</a>`).join(' · ')}</div></div>` : ''}
     <div class="filter-pills">${pill('ready','Ready',count(READY))}${pill('soon','Opens soon',count(SOON))}</div>
     <div class="filter-pills">
@@ -3874,7 +3902,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-03-a';
+var APP_BUILD = '2026-10-03-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
