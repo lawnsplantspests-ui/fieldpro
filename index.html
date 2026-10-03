@@ -2770,12 +2770,12 @@ function lastLoggedService(name, re) {
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && re.test(e.s) && (!best || e.d > best.d)) best = e; }));
   return best ? best.s : '';
 }
-// How many bait stations the customer has in FieldPro (every saved station, placed on the map or not), so the LPP Log can start the count there.
+// How many bait stations the customer has placed on the property map, so the LPP Log can start the count there.
 function baitStationCount(name) {
   const c = STATE.customers.find(x => nameKey(x.Name || x.name) === nameKey(name));
   if (!c) return 0;
   const cid = custIdStr(c);
-  return STATE.baitStations.filter(s => String(s.customerId) === cid && String(s.label || '').trim()).length;
+  return STATE.baitStations.filter(s => String(s.customerId) === cid && String(s.label || '').trim() && s.lat && s.lng).length;
 }
 function lppLogUrl(name, code) {
   if (!name || !loggableCode(code)) return null;
@@ -3813,7 +3813,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-02-b';
+var APP_BUILD = '2026-10-02-c';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
