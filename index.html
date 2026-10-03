@@ -3874,7 +3874,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-02-e';
+var APP_BUILD = '2026-10-03-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4167,7 +4167,14 @@ function renderNearMe() {
 // Builds days that fit between the first stop and the end of the day, using real road drive
 // times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
 // Lawn time is measured from Devon's 2026 log (real-time days): about 32 min at the stop + 0.8 min per 1,000 sq ft
-const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, skipBadWeather:true, mileWeight:0.5, attempts:6, satOk:false, base:null };
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, skipBadWeather:true, mileWeight:0.5, attempts:6, satOk:false, base:null, rainBuffer:5 };
+// Rain buffer: lawn rounds and aeration & seed are planned to finish this many workdays before their window closes,
+// so rain days (about 5 in a typical spring, Devon doesn't work them) don't push anyone past the deadline.
+// Pest, mosquito and tree & shrub are left out: their windows are monthly and flexible.
+const rainBufItem = i => !i.pest && !i.svcKey && !!i.end;
+const isWorkday = (iso, satOk) => { const w = new Date(iso + 'T12:00:00').getDay(); return w !== 0 && (w !== 6 || satOk); };
+function workdaysBefore(iso, n, satOk) { let d = iso; for (let k = 0, g = 0; k < n && g < 60; g++) { d = addDays(d, -1); if (isWorkday(d, satOk)) k++; } return d; }
+function workdaysBetween(a, b, satOk) { let n = 0, d = a; for (let g = 0; d < b && g < 400; g++) { d = addDays(d, 1); if (isWorkday(d, satOk)) n++; } return n; }
 function planRecord(create) {
   let r = STATE.customerPrograms.find(cp => cp.kind === 'settings');
   if (!r && create) { r = { id:uid(), kind:'settings', customerId:'_settings', programName:'Planner settings', year:null, rounds:[], cfg:{} }; STATE.customerPrograms.push(r); }
@@ -4206,9 +4213,9 @@ function renderPlanner() {
       <div class="section-label" style="margin-top:0">Your day</div>
       <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:10px">
         ${field('pl-start', 'Leave home at', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
-        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min, sprays and bait stations)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}
+        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min, sprays and bait stations)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}${field('pl-rain', 'Rain days to keep spare (lawn rounds)', cfg.rainBuffer, 'number', 'min="0" max="15"')}
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days.</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days. Rain days: lawn rounds and aeration &amp; seed are planned to finish ${cfg.rainBuffer} workday${cfg.rainBuffer === 1 ? '' : 's'} before their window closes (a typical spring loses about 5 weekdays to rain).</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-sat" ${cfg.satOk ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Include Saturdays</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-wx" ${cfg.skipBadWeather !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Skip days the forecast says are too wet, windy or snowy (within the 16-day forecast)</label>
@@ -4241,6 +4248,7 @@ function planSaveCfg() {
   const patch = {
     start:v('pl-start') || '09:00', end:v('pl-end') || '17:00',
     lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0, seedSetup:Number(v('pl-ssetup')) || 0, seedPerK:Number(v('pl-sperk')) || 0, mosqMin:Number(v('pl-mosq')) || 0, tsMin:Number(v('pl-ts')) || 0, maxDetour:Number(v('pl-detour')) || PLAN_DEFAULTS.maxDetour,
+    rainBuffer:v('pl-rain') === '' ? PLAN_DEFAULTS.rainBuffer : Math.max(0, Math.min(15, Math.round(Number(v('pl-rain')) || 0))),
     returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked, skipBadWeather:document.getElementById('pl-wx') ? document.getElementById('pl-wx').checked : true,
   };
   if (base && base.addr !== addr) patch.base = addr ? { addr, lat:null, lng:null } : null;   // address changed: needs finding again
@@ -4377,7 +4385,13 @@ async function planBuild() {
       if (seed.length) m += cfg.seedSetup + cfg.seedPerK * ((sqft || 8000) / 1000);
       return round5(m);
     };
-    const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft), end:items.map(i => i.end || '9999').sort()[0] });
+    const rainBuf = Math.max(0, Math.round(cfg.rainBuffer == null ? PLAN_DEFAULTS.rainBuffer : cfg.rainBuffer));
+    const bufEnd = i => {
+      if (!rainBufItem(i) || !rainBuf) return i.end || '9999';
+      const b = workdaysBefore(i.end, rainBuf, cfg.satOk), st = i.avail || i.start || '';
+      return b < st ? st : b;   // a window shorter than the buffer: aim for its first day
+    };
+    const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft), end:items.map(bufEnd).sort()[0] });
     const openOn = (i, date) => (i.avail || i.start || '') <= date;
     const todayIso = schedToday();
     const startDate = plannerStart <= todayIso ? addDays(todayIso, 1) : plannerStart;
@@ -4419,7 +4433,9 @@ async function planBuild() {
             return { st, add, near:ctx.C(last.node, st.node) };
           }).filter(o2 => o2.add <= maxDetour);
           // 'nn' = prefer the stop nearest the last one; 'ins' = prefer the one that adds the least driving
-          opts.sort(mode === 'nn' ? ((x, y) => x.near - y.near) : ((x, y) => x.add - y.add));
+          // with a rain buffer, the day fills with stops of the round that closes soonest first, then tops up with later ones
+          const tier = o2 => rainBuf && o2.st.end > seed.end ? 1 : 0;
+          opts.sort((x, y) => tier(x) - tier(y) || (mode === 'nn' ? x.near - y.near : x.add - y.add));
           let pick = null;
           for (const o2 of opts) { if (planDayEval(planBestOrder(order.concat(o2.st), ctx), ctx).ok) { pick = o2; break; } }
           if (!pick) break;
@@ -4433,7 +4449,7 @@ async function planBuild() {
       // ---- stage 2: improve — move a stop to another day, or swap two stops between days, when that
       //      cuts driving and every day still fits and no stop is pushed past its window ----
       const dayCost = stops => stops.length ? planDayEval(planBestOrder(stops, ctx), ctx).cost : 0;
-      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= (i.end || '9999') || days[from].date > (i.end || '9999')));
+      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || days[from].date > bufEnd(i)));
       const driveBefore = days.reduce((t, d) => t + planDayEval(planBestOrder(d.stops, ctx), ctx).drive, 0);
       let moved = 0;
       for (let pass = 0; pass < 6; pass++) {
@@ -4494,7 +4510,7 @@ async function planBuild() {
     });
     const out = days.map(d => planDayFrom(planBestOrder(d.stops, ctx, true), ctx, Mi, d.date));
     const driveAfter = out.reduce((t, d) => t + d.driveMin, 0);
-    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, driveBefore, driveAfter, tries:tries.length, wxSkipped, _ctx:ctx, _Mi:Mi,
+    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, driveBefore, driveAfter, tries:tries.length, wxSkipped, _ctx:ctx, _Mi:Mi, rainBuf, bufEnd, satOk:!!cfg.satOk,
       limit:seasonLimit(+(plannerStart || schedToday()).slice(0, 4)), miles:Math.round(out.reduce((t, d) => t + d.miles, 0)) };
     plannerMsg = (source === 'road' ? 'Drive times and distances are real road figures.' : source === 'mixed' ? 'Some drive times are estimates (the road service was partly unreachable).' : 'The road service was unreachable, so drive times are straight-line estimates (about 30 mph). Run it again for real times.')
       + (wxSkipped.length ? ' Left out ' + wxSkipped.map(d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' (' + ((wxFlags(d) || { bad:[] }).bad[0] || 'weather') + ')').join(', ') + '.' : '')
@@ -4504,10 +4520,32 @@ async function planBuild() {
   renderPlanner();
 }
 
+// How much rain room each lawn round has left in this plan
+function rainRoomHtml(R) {
+  if (!R.bufEnd || !R.days.length) return '';
+  const g = {};
+  R.days.forEach(d => d.rows.forEach(r => r.s.items.forEach(i => {
+    if (!rainBufItem(i)) return;
+    const k = i.code + '|' + i.period + '|' + i.end, o = g[k] || (g[k] = { label:i.label, end:i.end, last:d.date, n:0 });
+    if (d.date > o.last) o.last = d.date;
+    o.n++;
+  })));
+  const rows = Object.values(g).sort((a, b) => a.end.localeCompare(b.end));
+  if (!rows.length) return '';
+  const day = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  const line = o => {
+    const head = `<strong>${escHtml(o.label)}</strong> · ${o.n} stop${o.n === 1 ? '' : 's'}, last one ${day(o.last)}`;
+    if (o.last > o.end) return `<div style="color:var(--overdue)">✗ ${head}: ${workdaysBetween(o.end, o.last, R.satOk)} workday(s) after the window closes ${fmtDate(o.end)}. Add Saturdays or start sooner.</div>`;
+    const spare = workdaysBetween(o.last, o.end, R.satOk);
+    if (spare >= R.rainBuf) return `<div style="color:var(--accent)">✓ ${head}: ${spare} workday${spare === 1 ? '' : 's'} to spare before ${fmtDate(o.end)}.</div>`;
+    return `<div style="color:var(--warn)">⚠ ${head}: only ${spare} workday${spare === 1 ? '' : 's'} to spare before ${fmtDate(o.end)} (you keep ${R.rainBuf} for rain). Add Saturdays or start sooner.</div>`;
+  };
+  return `<div class="card mb-8" style="font-size:12px;line-height:1.6"><div class="section-label" style="margin-top:0">Room for rain days</div>${rows.map(line).join('')}</div>`;
+}
 function plannerResultHtml(R) {
   const dayName = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
   const hm = m => Math.floor(m / 60) + 'h ' + String(Math.round(m % 60)).padStart(2, '0') + 'm';
-  const out = R.days.map((d, di) => `
+  const out = rainRoomHtml(R) + R.days.map((d, di) => `
     <div class="card" style="padding:12px 14px">
       <div class="flex-between" style="gap:10px;flex-wrap:wrap;margin-bottom:6px">
         <div><div style="font-weight:800;font-size:15px">${dayName(d.date)}</div>
@@ -4525,6 +4563,7 @@ function plannerResultHtml(R) {
             <div style="font-size:11px;color:var(--text-dim)">${escHtml(r.s.items[0].addr)}</div>
             <div style="font-size:11px;color:var(--text-muted)">${r.s.items.map(i => escHtml(i.label)).join(' + ')} · ${r.s.work} min</div>
             ${late.length ? '<div style="font-size:11px;color:var(--overdue)">After the window closed (' + late.map(i => fmtDate(i.end)).join(', ') + ')</div>' : ''}
+            ${(() => { const b = R.bufEnd ? r.s.items.filter(i => rainBufItem(i) && d.date <= i.end && d.date > R.bufEnd(i)) : []; return b.length ? '<div style="font-size:11px;color:var(--warn)">In the rain days: the window closes ' + fmtDate(b[0].end) + '</div>' : ''; })()}
             ${r.s.items.some(i => i.note && d.date < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn)">Before March 1: only if soil temps are decent and there is no snow on the ground</div>' : ''}
           </div></div>`;
       }).join('')}
