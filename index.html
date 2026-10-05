@@ -2368,9 +2368,9 @@ function logVisits(iso) {
   const by = {};
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => {
     if (e.d !== iso || e.js == null) return;
-    const v = by[e.k] || (by[e.k] = { k:e.k, c:e.c, start:e.js, end:null, drive:null, codes:[], sqft:0 });
+    const v = by[e.k] || (by[e.k] = { k:e.k, c:e.c, start:e.js, end:null, drive:null, codes:[], sqft:0, gal:0, lb:0 });
     v.start = Math.min(v.start, e.js);
-    v.codes.push(svcCode(e.s)); if (e.q) v.sqft = Math.max(v.sqft, e.q);
+    v.codes.push(svcCode(e.s)); if (e.q) v.sqft = Math.max(v.sqft, e.q); v.gal += e.g || 0; v.lb += e.lb || 0;
     if (e.je != null && e.je >= e.js) v.end = v.end == null ? e.je : Math.max(v.end, e.je);
   }));
   const list = Object.values(by).sort((x, y) => x.start - y.start);
@@ -2386,6 +2386,34 @@ function logVisits(iso) {
 // Oct 5 2026 (9 timed Rd 6 stops): about 15 min on site + 11 min between stops, whatever the lawn size, against the
 // 40-50 min the planner had been using, so it planned 7 stops on a day Devon did 10.
 const TIMED_MIN_STOPS = 6;
+// Refills (Devon, Oct 5 2026): herbicide tank fill + mix 10-15 min (Z-Spray Intermediate, 18 gal), fertilizer hopper
+// 2-4 min (220 lb). Spread over the stops by what each one uses, so a heavy spray day plans fewer stops.
+// Oct 5 was a light day (10 gal of mix all day, no tank refill), which is why the timer numbers are a no-refill baseline.
+function refillMin(gal, lb, cfg) {
+  cfg = cfg || getPlanCfg();
+  return (cfg.tankGal > 0 ? gal / cfg.tankGal * (cfg.sprayFillMin || 0) : 0) + (cfg.hopperLb > 0 ? lb / cfg.hopperLb * (cfg.fertFillMin || 0) : 0);
+}
+// what a lawn stop is expected to use: this customer's last logged visit for the same round (any year), else their
+// last lawn visit for the fertilizer and a 1,000 sq ft spot spray (0.34 gal); else the lawn size at 4 lb / 1,000 sq ft
+function expectedLoad(cid, code, sqft) {
+  const c = custById(cid), k = c ? nameKey(c.Name) : null; let same = null, any = null;
+  if (k) Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => {
+    if (e.k !== k) return; const sc = svcCode(e.s); if (!sc || !/^\d/.test(sc)) return;
+    if (sc === code && (!same || e.d > same.d)) same = e;
+    if (!any || e.d > any.d) any = e;
+  }));
+  if (same && (same.g || same.lb)) return { gal:same.g || 0, lb:same.lb || 0 };
+  const ra = roundGalPerK()[code];   // no history for this round: the season's spray-mix per 1,000 sq ft for it
+  return { gal:ra != null ? ra * (sqft || 8000) / 1000 : 0.34, lb:any && any.lb ? any.lb : ((sqft || 8000) / 1000) * 4 };
+}
+let _rgpk = null, _rgpkAt = null;
+function roundGalPerK() {
+  if (_rgpk && _rgpkAt === TREATLOG.fetchedAt) return _rgpk;
+  const g = {}, q = {}, from = addDays(schedToday(), -365);
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { const c = svcCode(e.s); if (!c || !/^\d/.test(c) || e.d < from || !e.q) return; g[c] = (g[c] || 0) + (e.g || 0); q[c] = (q[c] || 0) + e.q; }));
+  _rgpk = {}; Object.keys(q).forEach(c => { _rgpk[c] = g[c] / (q[c] / 1000); }); _rgpkAt = TREATLOG.fetchedAt;
+  return _rgpk;
+}
 let _timedStats = null, _timedStatsAt = null;
 function timedStopStats() {
   if (_timedStats && _timedStatsAt === TREATLOG.fetchedAt) return _timedStats;
@@ -2400,7 +2428,7 @@ function timedStopStats() {
       const c = byKey[v.k], on = v.end != null ? v.end - v.start : null;
       const kind = v.codes.some(x => x && /^\d/.test(x)) ? 'lawn' : (v.codes.includes('PEST') ? 'pest' : '');
       if (on != null && on >= 2 && on <= 180 && c && kind) {
-        const rec = { cid:custIdStr(c), on, k:(v.sqft || Number(c.SqFt_Lawn) || 8000) / 1000 };
+        const rec = { cid:custIdStr(c), on, k:(v.sqft || Number(c.SqFt_Lawn) || 8000) / 1000, refill:refillMin(v.gal, v.lb) };
         (kind === 'lawn' ? lawn : pest).push(rec);
       }
       const nx = vs[n + 1];
@@ -2417,7 +2445,9 @@ function timedStopStats() {
     const vx = lawn.reduce((t, r) => t + (r.k - mx) ** 2, 0), slope = vx ? lawn.reduce((t, r) => t + (r.k - mx) * (r.on - my), 0) / vx : 0;
     T.lawnPerK = Math.round(Math.min(1.5, Math.max(0.3, slope)) * 10) / 10;
     T.onSite = Math.round(med(lawn.map(r => r.on)));
-    T.lawnSetup = Math.round(med(lawn.map(r => r.on - T.lawnPerK * r.k)) + T.turn);
+    // refills are added per stop by the planner, so take this day's share out of the measured time
+    T.refill = lawn.reduce((t, r) => t + r.refill, 0) / lawn.length;
+    T.lawnSetup = Math.max(8, Math.round(med(lawn.map(r => r.on - T.lawnPerK * r.k)) + T.turn - T.refill));
   }
   if (pest.length) { T.pestOnSite = Math.round(med(pest.map(r => r.on))); T.pestMin = T.pestOnSite + T.turn; }
   const own = {}; lawn.forEach(r => (own[r.cid] = own[r.cid] || { lawn:[], pest:[] }).lawn.push(r.on)); pest.forEach(r => (own[r.cid] = own[r.cid] || { lawn:[], pest:[] }).pest.push(r.on));
@@ -2769,7 +2799,7 @@ function renderSyncResults() {
 // nothing to tick off twice. Per-customer choices (which program, skipped rounds)
 // live in a small 'plan' record kept in customerPrograms.
 const LPP_LOG_API = 'https://script.google.com/macros/s/AKfycbxl5cWjUIxRvfbw3YBi9rKk_Q5bljH94ZvW3KqTxfNor8QCOb7w_QrjUMJpND8Bz4zA/exec';
-const TREATLOG_KEY = 'fieldpro_treatlog';
+const TREATLOG_KEY = 'fieldpro_treatlog_v2';   // v2: entries carry sq ft, spray-mix gal, fertilizer lbs
 
 // Pest control: first week of each of these months (1-12).
 const PEST_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
@@ -2927,6 +2957,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ── LPP Log loading ──
 function loadTreatLogCache() {
+  try { localStorage.removeItem('fieldpro_treatlog'); } catch(e) {}   // the pre-v2 cache
   try { const raw = localStorage.getItem(TREATLOG_KEY); if (raw) TREATLOG = JSON.parse(raw); } catch(e) {}
 }
 function saveTreatLogCache() {
@@ -2964,6 +2995,9 @@ function slimLogEntryBase(e) {
   if (!d || !e.customer) return null;
   return {
     c: String(e.customer).trim(), k: nameKey(e.customer), d, s: String(e.service || ''), q: Number(String(e.sqFt || '').replace(/,/g, '')) || 0,
+    // spray-mix gallons; spring rows don't record them, so for lawn rounds they come from the herbicide fl oz
+    // (1.3 fl oz goes in 0.34 gal of mix, the same rate on every round)
+    g: +((/([\d.]+)\s*gal/i.exec(e.totalMixed || '') || [])[1] || 0) || (/Lawn Care/i.test(e.service || '') ? +((/\+\s*([\d.]+)\s*fl oz/i.exec(e.totalUsed || '') || [])[1] || 0) * 0.34 / 1.3 : 0), lb: +((/([\d.]+)\s*lbs?\b/i.exec(e.totalUsed || '') || [])[1] || 0),
     // a "blanket" 2,4-D pass: 2,4-D in the active ingredients and not a spot spray
     b: /2,4-D/i.test(e.activeIng || '') && !/SPOT SPRAY ONLY/i.test(e.method || '')
   };
@@ -3986,7 +4020,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-05-a';
+var APP_BUILD = '2026-10-05-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4279,7 +4313,7 @@ function renderNearMe() {
 // Builds days that fit between the first stop and the end of the day, using real road drive
 // times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
 // Lawn time is measured from Devon's 2026 log (real-time days): about 32 min at the stop + 0.8 min per 1,000 sq ft
-const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, skipBadWeather:true, mileWeight:0.5, attempts:6, satOk:false, base:null, rainBuffer:5 };
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, skipBadWeather:true, mileWeight:0.5, attempts:6, satOk:false, base:null, rainBuffer:5, sprayFillMin:12, tankGal:18, fertFillMin:3, hopperLb:220 };
 // Rain buffer: lawn rounds and aeration & seed are planned to finish this many workdays before their window closes,
 // so rain days (about 5 in a typical spring, Devon doesn't work them) don't push anyone past the deadline.
 // Pest, mosquito and tree & shrub are left out: their windows are monthly and flexible.
@@ -4331,7 +4365,7 @@ function renderPlanner() {
       <div class="section-label" style="margin-top:0">Your day</div>
       <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:10px">
         ${field('pl-start', 'Leave home at', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
-        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min, sprays and bait stations)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}${field('pl-rain', 'Rain days to keep spare (lawn rounds)', cfg.rainBuffer, 'number', 'min="0" max="15"')}
+        ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min, sprays and bait stations)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-sfill', 'Herbicide tank fill + mix (min)', cfg.sprayFillMin, 'number', 'min="0"')}${field('pl-tank', 'Tank holds (gal)', cfg.tankGal, 'number', 'min="1"')}${field('pl-ffill', 'Fertilizer hopper fill (min)', cfg.fertFillMin, 'number', 'min="0"')}${field('pl-hopper', 'Hopper holds (lb)', cfg.hopperLb, 'number', 'min="1"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}${field('pl-rain', 'Rain days to keep spare (lawn rounds)', cfg.rainBuffer, 'number', 'min="0" max="15"')}
       </div>
       ${timedBoxHtml(cfg)}
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">${plannerTimes(cfg).timed ? '' : `An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. `}Rain days: lawn rounds and aeration &amp; seed are planned to finish ${cfg.rainBuffer} workday${cfg.rainBuffer === 1 ? '' : 's'} before their window closes (a typical spring loses about 5 weekdays to rain).</div>
@@ -4362,7 +4396,7 @@ function timedBoxHtml(cfg) {
   const TM = plannerTimes(cfg), T = TM.T, on = cfg.useTimed !== false;
   const need = TIMED_MIN_STOPS - T.n;
   const body = T.n >= TIMED_MIN_STOPS
-    ? `From ${T.n} lawn stop${T.n === 1 ? '' : 's'} you timed in the LPP Log (Start / Done): about <strong>${T.onSite} min on site</strong> + <strong>${T.turn} min between stops</strong> (loading, logging), not counting the drive. That makes an 8,000 sq ft lawn about <strong>${round5(T.lawnSetup + T.lawnPerK * 8)} min</strong>, a 20,000 sq ft one about ${round5(T.lawnSetup + T.lawnPerK * 20)} min.${T.nPest >= 4 ? ` Pest stops: about ${T.pestMin} min (${T.nPest} timed).` : ''} Customers you have timed use their own times. It keeps learning as you use the timer.`
+    ? `From ${T.n} lawn stop${T.n === 1 ? '' : 's'} you timed in the LPP Log (Start / Done): about <strong>${T.onSite} min on site</strong> + <strong>${T.turn} min between stops</strong> (loading, logging), not counting the drive. That makes an 8,000 sq ft lawn about <strong>${round5(T.lawnSetup + T.lawnPerK * 8)} min</strong>, a 20,000 sq ft one about ${round5(T.lawnSetup + T.lawnPerK * 20)} min.${T.nPest >= 4 ? ` Pest stops: about ${T.pestMin} min (${T.nPest} timed).` : ''} Customers you have timed use their own times. On top of that each lawn stop gets its share of tank and hopper refills, from what that customer usually takes (a heavy spray day plans fewer stops). It keeps learning as you use the timer.`
     : `Use Start / Done in the LPP Log and the planner will learn how long your stops really take (${T.n} lawn stop${T.n === 1 ? '' : 's'} timed so far, needs ${need} more).`;
   return `<div style="font-size:12px;background:var(--surface2,rgba(127,127,127,.08));border-radius:8px;padding:8px 10px;margin-bottom:10px">
     <label style="display:flex;align-items:flex-start;gap:6px"><input type="checkbox" id="pl-timed" ${on ? 'checked' : ''} onchange="planSaveCfg();renderPlanner()" style="width:16px;height:16px;margin-top:1px;accent-color:var(--accent)"> <span>⏱ Use my timed stops for lawn and pest times${TM.timed ? ' (the lawn boxes above are not used while this is on)' : ''}</span></label>
@@ -4378,6 +4412,8 @@ function planSaveCfg() {
     start:v('pl-start') || '09:00', end:v('pl-end') || '17:00',
     lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0, seedSetup:Number(v('pl-ssetup')) || 0, seedPerK:Number(v('pl-sperk')) || 0, mosqMin:Number(v('pl-mosq')) || 0, tsMin:Number(v('pl-ts')) || 0, maxDetour:Number(v('pl-detour')) || PLAN_DEFAULTS.maxDetour,
     rainBuffer:v('pl-rain') === '' ? PLAN_DEFAULTS.rainBuffer : Math.max(0, Math.min(15, Math.round(Number(v('pl-rain')) || 0))),
+    sprayFillMin:v('pl-sfill') === '' ? PLAN_DEFAULTS.sprayFillMin : Math.max(0, Number(v('pl-sfill')) || 0), tankGal:Number(v('pl-tank')) || PLAN_DEFAULTS.tankGal,
+    fertFillMin:v('pl-ffill') === '' ? PLAN_DEFAULTS.fertFillMin : Math.max(0, Number(v('pl-ffill')) || 0), hopperLb:Number(v('pl-hopper')) || PLAN_DEFAULTS.hopperLb,
     useTimed:document.getElementById('pl-timed') ? document.getElementById('pl-timed').checked : true,
     returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked, skipBadWeather:document.getElementById('pl-wx') ? document.getElementById('pl-wx').checked : true,
   };
@@ -4506,7 +4542,7 @@ async function planBuild() {
     const W = cfg.mileWeight == null ? PLAN_DEFAULTS.mileWeight : cfg.mileWeight;
     const ctx = { D:(a, b) => M[a][b], C:(a, b) => M[a][b] + W * Mi[a][b], hasBase, startMin:toMin(cfg.start), endMin:toMin(cfg.end), ret:hasBase && cfg.returnHome };
     const { D, startMin, endMin, ret } = ctx;
-    const TM = plannerTimes(cfg);
+    const TM = plannerTimes(cfg), refillMemo = new Map();
     const itemWork = (list, sqft, cid) => {
       const lawn = list.filter(i => !i.pest && !i.seed && !i.svcKey), pest = list.filter(i => i.pest), seed = list.filter(i => i.seed), others = list.filter(i => i.svcKey);
       const own = TM.timed && TM.T.perCust[cid];
@@ -4517,6 +4553,7 @@ async function planBuild() {
         // this property's own timed visits: 2+ are trusted, one is averaged with the general figure
         if (own && own.lawn) { const mine = own.lawn.med + TM.T.turn; first = own.lawn.n >= 2 ? mine : (mine + first) / 2; }
         m += first + TM.lawnPerK * ((sqft || 8000) / 1000) * (lawn.length - 1);
+        if (TM.timed) lawn.forEach(i => { const key = cid + '|' + i.code, r = refillMemo.has(key) ? refillMemo.get(key) : (L => refillMin(L.gal, L.lb, cfg))(expectedLoad(cid, i.code, sqft)); refillMemo.set(key, r); m += r; });
       }
       if (pest.length) m += (own && own.pest && own.pest.n >= 2 ? own.pest.med + TM.T.turn : TM.pestMin) * pest.length;
       if (seed.length) m += cfg.seedSetup + cfg.seedPerK * ((sqft || 8000) / 1000);
