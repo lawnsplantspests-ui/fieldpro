@@ -2368,8 +2368,9 @@ function logVisits(iso) {
   const by = {};
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => {
     if (e.d !== iso || e.js == null) return;
-    const v = by[e.k] || (by[e.k] = { k:e.k, c:e.c, start:e.js, end:null, drive:null });
+    const v = by[e.k] || (by[e.k] = { k:e.k, c:e.c, start:e.js, end:null, drive:null, codes:[], sqft:0 });
     v.start = Math.min(v.start, e.js);
+    v.codes.push(svcCode(e.s)); if (e.q) v.sqft = Math.max(v.sqft, e.q);
     if (e.je != null && e.je >= e.js) v.end = v.end == null ? e.je : Math.max(v.end, e.je);
   }));
   const list = Object.values(by).sort((x, y) => x.start - y.start);
@@ -2379,6 +2380,50 @@ function logVisits(iso) {
     prevEnd = v.end;
   });
   return list;
+}
+// ── How long a stop really takes, from the job timer ── On site = Start to Done. Between stops = the gap to the next
+// timed stop that day minus a drive estimate: loading, logging, walking the property. Gaps over 45 min are breaks.
+// Oct 5 2026 (9 timed Rd 6 stops): about 15 min on site + 11 min between stops, whatever the lawn size, against the
+// 40-50 min the planner had been using, so it planned 7 stops on a day Devon did 10.
+const TIMED_MIN_STOPS = 6;
+let _timedStats = null, _timedStatsAt = null;
+function timedStopStats() {
+  if (_timedStats && _timedStatsAt === TREATLOG.fetchedAt) return _timedStats;
+  const med = a => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y), h = s.length >> 1; return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2; };
+  const byKey = {}; STATE.customers.forEach(c => { byKey[nameKey(c.Name)] = c; });
+  const days = new Set();
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.js != null) days.add(e.d); }));
+  const lawn = [], pest = [], turn = [];
+  [...days].forEach(iso => {
+    const vs = logVisits(iso);
+    vs.forEach((v, n) => {
+      const c = byKey[v.k], on = v.end != null ? v.end - v.start : null;
+      const kind = v.codes.some(x => x && /^\d/.test(x)) ? 'lawn' : (v.codes.includes('PEST') ? 'pest' : '');
+      if (on != null && on >= 2 && on <= 180 && c && kind) {
+        const rec = { cid:custIdStr(c), on, k:(v.sqft || Number(c.SqFt_Lawn) || 8000) / 1000 };
+        (kind === 'lawn' ? lawn : pest).push(rec);
+      }
+      const nx = vs[n + 1];
+      if (v.end != null && nx && c && byKey[nx.k]) {
+        const gap = nx.start - v.end, a = custPoint(custIdStr(c)), b = custPoint(custIdStr(byKey[nx.k]));
+        if (a && b && gap >= 0 && gap <= 45) turn.push(Math.max(0, gap - (haversineMi(a, b) * 1.3 / 25 * 60 + 1)));
+      }
+    });
+  });
+  const T = { n:lawn.length, nPest:pest.length, nDays:days.size, turn:Math.round(med(turn) == null ? 10 : med(turn)), perCust:{} };
+  if (lawn.length) {
+    // size makes little difference on the lawns timed so far; keep a small per-1,000 sq ft term for the big commercial sites
+    const mx = lawn.reduce((t, r) => t + r.k, 0) / lawn.length, my = lawn.reduce((t, r) => t + r.on, 0) / lawn.length;
+    const vx = lawn.reduce((t, r) => t + (r.k - mx) ** 2, 0), slope = vx ? lawn.reduce((t, r) => t + (r.k - mx) * (r.on - my), 0) / vx : 0;
+    T.lawnPerK = Math.round(Math.min(1.5, Math.max(0.3, slope)) * 10) / 10;
+    T.onSite = Math.round(med(lawn.map(r => r.on)));
+    T.lawnSetup = Math.round(med(lawn.map(r => r.on - T.lawnPerK * r.k)) + T.turn);
+  }
+  if (pest.length) { T.pestOnSite = Math.round(med(pest.map(r => r.on))); T.pestMin = T.pestOnSite + T.turn; }
+  const own = {}; lawn.forEach(r => (own[r.cid] = own[r.cid] || { lawn:[], pest:[] }).lawn.push(r.on)); pest.forEach(r => (own[r.cid] = own[r.cid] || { lawn:[], pest:[] }).pest.push(r.on));
+  Object.keys(own).forEach(cid => { T.perCust[cid] = { lawn:own[cid].lawn.length ? { n:own[cid].lawn.length, med:med(own[cid].lawn) } : null, pest:own[cid].pest.length ? { n:own[cid].pest.length, med:med(own[cid].pest) } : null }; });
+  _timedStats = T; _timedStatsAt = TREATLOG.fetchedAt;
+  return T;
 }
 function stopTimeHtml(rt, s) {
   const iso = s.completedDate || rt.date; if (!iso) return '';
@@ -2860,14 +2905,16 @@ function logDoneSince(name, code, since) {
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && e.d >= since && match(e) && (!first || e.d < first)) first = e.d; }));
   return first;
 }
-// a stop on a route is checked off once the log shows its work was done on or after that route's day
+// a stop on a route is checked off once the log shows its work was done on or after that route's day. A planned day
+// counts work from the day it was planned: Devon pulls stops forward (Oct 5 2026 he did 9 stops planned for Oct 7-13).
 function syncRoutesFromLog() {
   let changed = 0;
   STATE.routes.forEach(rt => (rt.stops || []).forEach(stop => {
     if (stop.status === 'completed' || !rt.date) return;
     const items = (stop.items || [{ code:stop.code }]).filter(it => it.code && loggableCode(it.code));
     if (!items.length) return;
-    const dates = items.map(it => logDoneSince(stop.customerName, it.code, rt.date));
+    const since = rt.planned && rt.createdAt && rt.createdAt < rt.date ? rt.createdAt : rt.date;
+    const dates = items.map(it => logDoneSince(stop.customerName, it.code, since));
     if (dates.every(Boolean)) { stop.status = 'completed'; stop.completedDate = dates.sort().pop(); stop.viaLog = true; changed++; }
   }));
   if (changed) { saveState(); renderCurrentPage(); }
@@ -2916,7 +2963,7 @@ function slimLogEntryBase(e) {
   const d = logDateToIso(e.date);
   if (!d || !e.customer) return null;
   return {
-    c: String(e.customer).trim(), k: nameKey(e.customer), d, s: String(e.service || ''),
+    c: String(e.customer).trim(), k: nameKey(e.customer), d, s: String(e.service || ''), q: Number(String(e.sqFt || '').replace(/,/g, '')) || 0,
     // a "blanket" 2,4-D pass: 2,4-D in the active ingredients and not a spot spray
     b: /2,4-D/i.test(e.activeIng || '') && !/SPOT SPRAY ONLY/i.test(e.method || '')
   };
@@ -3939,7 +3986,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-03-e';
+var APP_BUILD = '2026-10-05-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4246,6 +4293,12 @@ function planRecord(create) {
   return r;
 }
 function getPlanCfg() { const r = planRecord(false); return Object.assign({}, PLAN_DEFAULTS, (r && r.cfg) || {}); }
+// the stop times the planner uses: from the LPP Log job timer once there are enough timed stops, else the typed numbers
+function plannerTimes(cfg) {
+  const T = timedStopStats(), timed = cfg.useTimed !== false && T.n >= TIMED_MIN_STOPS;
+  return { T, timed, lawnSetup:timed ? T.lawnSetup : cfg.lawnSetup, lawnPerK:timed ? T.lawnPerK : cfg.lawnPerK,
+    pestMin:cfg.useTimed !== false && T.nPest >= 4 ? T.pestMin : cfg.pestMin };
+}
 function savePlanCfg(patch) { const r = planRecord(true); r.cfg = Object.assign({}, r.cfg, patch); saveState(); }
 const toMin = hhmm => { const [h, m] = String(hhmm).split(':').map(Number); return h * 60 + (m || 0); };
 const clock = min => { min = Math.round(min); let h = Math.floor(min / 60), m = min % 60; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ' ' + ap; };
@@ -4280,7 +4333,8 @@ function renderPlanner() {
         ${field('pl-start', 'Leave home at', cfg.start, 'time')}${field('pl-end', 'Done by', cfg.end, 'time')}
         ${field('pl-lsetup', 'Lawn setup (min)', cfg.lawnSetup, 'number', 'min="0"')}${field('pl-lperk', 'Min per 1,000 sq ft', cfg.lawnPerK, 'number', 'min="0" step="0.1"')}${field('pl-pest', 'Pest visit (min)', cfg.pestMin, 'number', 'min="0"')}${field('pl-ssetup', 'Aerate & seed setup (min)', cfg.seedSetup, 'number', 'min="0"')}${field('pl-sperk', 'Seed min per 1,000 sq ft', cfg.seedPerK, 'number', 'min="0" step="0.1"')}${field('pl-mosq', 'Mosquito visit (min, sprays and bait stations)', cfg.mosqMin, 'number', 'min="0"')}${field('pl-ts', 'Tree & shrub visit (min)', cfg.tsMin, 'number', 'min="0"')}${field('pl-detour', 'Keep days compact: skip a stop adding over (min)', cfg.maxDetour, 'number', 'min="5"')}${field('pl-rain', 'Rain days to keep spare (lawn rounds)', cfg.rainBuffer, 'number', 'min="0" max="15"')}
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. These lawn numbers were measured from your logged days. Rain days: lawn rounds and aeration &amp; seed are planned to finish ${cfg.rainBuffer} workday${cfg.rainBuffer === 1 ? '' : 's'} before their window closes (a typical spring loses about 5 weekdays to rain).</div>
+      ${timedBoxHtml(cfg)}
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">${plannerTimes(cfg).timed ? '' : `An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. `}Rain days: lawn rounds and aeration &amp; seed are planned to finish ${cfg.rainBuffer} workday${cfg.rainBuffer === 1 ? '' : 's'} before their window closes (a typical spring loses about 5 weekdays to rain).</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-sat" ${cfg.satOk ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Include Saturdays</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-wx" ${cfg.skipBadWeather !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Skip days the forecast says are too wet, windy or snowy (within the 16-day forecast)</label>
@@ -4304,6 +4358,16 @@ function renderPlanner() {
     </div>
     <div id="planner-out">${plannerResult ? plannerResultHtml(plannerResult) : ''}</div>`;
 }
+function timedBoxHtml(cfg) {
+  const TM = plannerTimes(cfg), T = TM.T, on = cfg.useTimed !== false;
+  const need = TIMED_MIN_STOPS - T.n;
+  const body = T.n >= TIMED_MIN_STOPS
+    ? `From ${T.n} lawn stop${T.n === 1 ? '' : 's'} you timed in the LPP Log (Start / Done): about <strong>${T.onSite} min on site</strong> + <strong>${T.turn} min between stops</strong> (loading, logging), not counting the drive. That makes an 8,000 sq ft lawn about <strong>${round5(T.lawnSetup + T.lawnPerK * 8)} min</strong>, a 20,000 sq ft one about ${round5(T.lawnSetup + T.lawnPerK * 20)} min.${T.nPest >= 4 ? ` Pest stops: about ${T.pestMin} min (${T.nPest} timed).` : ''} Customers you have timed use their own times. It keeps learning as you use the timer.`
+    : `Use Start / Done in the LPP Log and the planner will learn how long your stops really take (${T.n} lawn stop${T.n === 1 ? '' : 's'} timed so far, needs ${need} more).`;
+  return `<div style="font-size:12px;background:var(--surface2,rgba(127,127,127,.08));border-radius:8px;padding:8px 10px;margin-bottom:10px">
+    <label style="display:flex;align-items:flex-start;gap:6px"><input type="checkbox" id="pl-timed" ${on ? 'checked' : ''} onchange="planSaveCfg();renderPlanner()" style="width:16px;height:16px;margin-top:1px;accent-color:var(--accent)"> <span>⏱ Use my timed stops for lawn and pest times${TM.timed ? ' (the lawn boxes above are not used while this is on)' : ''}</span></label>
+    <div style="color:var(--text-dim);margin-top:4px">${body}</div></div>`;
+}
 function planSaveCfg() {
   const v = id => { const e = document.getElementById(id); return e ? e.value : ''; };
   if (!document.getElementById('pl-start')) return;
@@ -4314,6 +4378,7 @@ function planSaveCfg() {
     start:v('pl-start') || '09:00', end:v('pl-end') || '17:00',
     lawnSetup:Number(v('pl-lsetup')) || 0, lawnPerK:Number(v('pl-lperk')) || 0, pestMin:Number(v('pl-pest')) || 0, seedSetup:Number(v('pl-ssetup')) || 0, seedPerK:Number(v('pl-sperk')) || 0, mosqMin:Number(v('pl-mosq')) || 0, tsMin:Number(v('pl-ts')) || 0, maxDetour:Number(v('pl-detour')) || PLAN_DEFAULTS.maxDetour,
     rainBuffer:v('pl-rain') === '' ? PLAN_DEFAULTS.rainBuffer : Math.max(0, Math.min(15, Math.round(Number(v('pl-rain')) || 0))),
+    useTimed:document.getElementById('pl-timed') ? document.getElementById('pl-timed').checked : true,
     returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked, skipBadWeather:document.getElementById('pl-wx') ? document.getElementById('pl-wx').checked : true,
   };
   if (base && base.addr !== addr) patch.base = addr ? { addr, lat:null, lng:null } : null;   // address changed: needs finding again
@@ -4441,12 +4506,19 @@ async function planBuild() {
     const W = cfg.mileWeight == null ? PLAN_DEFAULTS.mileWeight : cfg.mileWeight;
     const ctx = { D:(a, b) => M[a][b], C:(a, b) => M[a][b] + W * Mi[a][b], hasBase, startMin:toMin(cfg.start), endMin:toMin(cfg.end), ret:hasBase && cfg.returnHome };
     const { D, startMin, endMin, ret } = ctx;
-    const itemWork = (list, sqft) => {
+    const TM = plannerTimes(cfg);
+    const itemWork = (list, sqft, cid) => {
       const lawn = list.filter(i => !i.pest && !i.seed && !i.svcKey), pest = list.filter(i => i.pest), seed = list.filter(i => i.seed), others = list.filter(i => i.svcKey);
+      const own = TM.timed && TM.T.perCust[cid];
       let m = 0;
       others.forEach(i => { m += (i.svcKey === 'MOSQ' || i.svcKey === 'BAIT') ? cfg.mosqMin : cfg.tsMin; });
-      if (lawn.length) m += cfg.lawnSetup + cfg.lawnPerK * ((sqft || 8000) / 1000) * lawn.length;
-      if (pest.length) m += cfg.pestMin * pest.length;
+      if (lawn.length) {
+        let first = TM.lawnSetup + TM.lawnPerK * ((sqft || 8000) / 1000);
+        // this property's own timed visits: 2+ are trusted, one is averaged with the general figure
+        if (own && own.lawn) { const mine = own.lawn.med + TM.T.turn; first = own.lawn.n >= 2 ? mine : (mine + first) / 2; }
+        m += first + TM.lawnPerK * ((sqft || 8000) / 1000) * (lawn.length - 1);
+      }
+      if (pest.length) m += (own && own.pest && own.pest.n >= 2 ? own.pest.med + TM.T.turn : TM.pestMin) * pest.length;
       if (seed.length) m += cfg.seedSetup + cfg.seedPerK * ((sqft || 8000) / 1000);
       return round5(m);
     };
@@ -4457,7 +4529,7 @@ async function planBuild() {
       const b = workdaysBefore(e0, rainBuf, cfg.satOk), st = i.avail || i.start || '';
       return b < st ? st : b;   // a window shorter than the buffer: aim for its first day
     };
-    const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft), end:items.map(bufEnd).sort()[0] });
+    const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft, cid), end:items.map(bufEnd).sort()[0] });
     const openOn = (i, date) => (i.avail || i.start || '') <= date;
     // lawn treatments for the same customer stay ROUND_GAP_DAYS apart inside the plan too (Rd 6 planned Oct 13 -> Rd 7 not before Nov 10)
     const isLawnItem = i => !i.pest && !i.svcKey && !i.seed;
@@ -4691,6 +4763,7 @@ function planShowMap(only) {
     setTimeout(() => _planMap && _planMap.invalidateSize(), 150);
   }, 80);
 }
+let planLastMoved = 0;
 function planCreateRoute(di, quiet) {
   const d = plannerResult && plannerResult.days[di]; if (!d) return;
   const route = {
@@ -4700,15 +4773,40 @@ function planCreateRoute(di, quiet) {
       roundName:r.s.items.map(i => i.label).join(' + '), serviceType:r.s.items[0].svc, status:'pending', code:r.s.items[0].code, period:r.s.items[0].period, items:r.s.items.map(i => ({ code:i.code, period:i.period, manual:!!i.manual })),
       eta:clock(r.arrive), workMin:r.s.work, driveMin:r.drive }))
   };
+  const moved = planLastMoved = planDropOlderStops(route);
   STATE.routes.push(route);
-  if (!quiet) { saveState(); alert('Created "' + route.name + '" in Routes.'); }
+  if (!quiet) { saveState(); alert('Created "' + route.name + '" in Routes.' + (moved ? '\n' + moved + ' of these stops were on an earlier planned day and were taken off it.' : '')); }
   return route;
+}
+// Re-planning replaces the old plan: a stop that is now on a new day comes off any earlier planned day that still has it
+// pending, and a planned day left empty is removed. Finished stops and hand-made routes are never touched.
+function planDropOlderStops(route) {
+  const key = (cid, it) => String(cid) + '|' + it.code + '|' + (it.period || '');
+  const fresh = new Set(); route.stops.forEach(s => (s.items || []).forEach(it => fresh.add(key(s.customerId, it))));
+  let moved = 0;
+  STATE.routes = STATE.routes.filter(rt => {
+    if (!rt.planned || rt === route) return true;
+    const before = (rt.stops || []).length;
+    rt.stops = (rt.stops || []).filter(s => {
+      if (s.status === 'completed') return true;
+      const items = s.items || [{ code:s.code, period:s.period }];
+      const keep = items.filter(it => !fresh.has(key(s.customerId, it)));
+      if (keep.length === items.length) return true;
+      moved++;
+      if (!keep.length) return false;
+      if (s.items) { s.items = keep; s.code = keep[0].code; s.period = keep[0].period; }
+      return true;
+    });
+    return rt.stops.length || !before;
+  });
+  return moved;
 }
 function planCreateAll() {
   if (!plannerResult) return;
-  plannerResult.days.forEach((_, i) => planCreateRoute(i, true));
+  let moved = 0;
+  plannerResult.days.forEach((_, i) => { planCreateRoute(i, true); moved += planLastMoved; });
   saveState();
-  alert('Created ' + plannerResult.days.length + ' routes in Routes.');
+  alert('Created ' + plannerResult.days.length + ' routes in Routes.' + (moved ? '\n' + moved + ' stops were on earlier planned days and were taken off them, so nothing is planned twice.' : ''));
   navigateTo('routes');
 }
 
