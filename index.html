@@ -4027,7 +4027,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-c';
+var APP_BUILD = '2026-10-06-d';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4577,6 +4577,9 @@ async function planBuild() {
     const openOn = (i, date) => (i.avail || i.start || '') <= date;
     // lawn treatments for the same customer stay ROUND_GAP_DAYS apart inside the plan too (Rd 6 planned Oct 13 -> Rd 7 not before Nov 10)
     const isLawnItem = i => !i.pest && !i.svcKey && !i.seed;
+    // a lawn stop nothing else waits on, in a round where other customers' next round does wait (needBy)
+    const priCodes = new Set(usable.filter(i => i.needBy && isLawnItem(i)).map(i => i.code));
+    const isDeferrable = i => isLawnItem(i) && !i.needBy && priCodes.has(i.code);
     const gapOkAt = (cid, date, dayList, skip) => dayList.every((d, k) => k === skip || !d.stops.some(x => x.cid === cid && x.items.some(isLawnItem)) || Math.abs(daysBetween(d.date, date)) >= ROUND_GAP_DAYS);
     const todayIso = schedToday();
     const startDate = plannerStart <= todayIso ? addDays(todayIso, 1) : plannerStart;
@@ -4599,7 +4602,10 @@ async function planBuild() {
         // density = how many other stops are within 15 minutes; a day starts in the thick of the stops, so the
         // far-flung ones are left to group with each other later instead of being used to fill a day
         const dens = new Map(cands.map(s => [s, cands.reduce((t, o) => t + (o !== s && D(s.node, o.node) <= 15 ? 1 : 0), 0) * (1 + (rnd() - 0.5) * jitter) + far(s) / 1000]));
-        cands.sort((a, b) => a.end.localeCompare(b.end) || dens.get(b) - dens.get(a));
+        // full-program customers first (their Rd 6 has to leave 28 days for Rd 7): they seed every day while any are
+        // left; Rd 6-only stops (Dan Reed commercial, maintenance lawns) only top up a day that has room
+        const pri = s => s.items.some(i => i.needBy && isLawnItem(i)) ? 0 : (s.items.some(isDeferrable) ? 2 : 1);
+        cands.sort((a, b) => pri(a) - pri(b) || a.end.localeCompare(b.end) || dens.get(b) - dens.get(a));
         let seed = null;
         for (const s of cands) { if (planDayEval([s], ctx).ok) { seed = s; break; } tooLong.push(s); left = left.filter(i => i.cid !== s.cid); }
         if (!seed) continue;
@@ -4619,7 +4625,7 @@ async function planBuild() {
           }).filter(o2 => o2.add <= maxDetour);
           // 'nn' = prefer the stop nearest the last one; 'ins' = prefer the one that adds the least driving
           // with a rain buffer, the day fills with stops of the round that closes soonest first, then tops up with later ones
-          const tier = o2 => rainBuf && o2.st.end > seed.end ? 1 : 0;
+          const tier = o2 => (o2.st.items.some(isDeferrable) ? 2 : 0) + (rainBuf && o2.st.end > seed.end ? 1 : 0);
           opts.sort((x, y) => tier(x) - tier(y) || (mode === 'nn' ? x.near - y.near : x.add - y.add));
           let pick = null;
           for (const o2 of opts) { if (planDayEval(planBestOrder(order.concat(o2.st), ctx), ctx).ok) { pick = o2; break; } }
@@ -4636,7 +4642,8 @@ async function planBuild() {
       const dayCost = stops => stops.length ? planDayEval(planBestOrder(stops, ctx), ctx).cost : 0;
       // a stop already past its window may only move earlier (Oct 2026: Snavely's and Tracey Jones's overdue October
       // pest slid onto their November pest day because that saved a trip)
-      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || (days[from].date > bufEnd(i) && days[to].date <= days[from].date)))
+      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || (days[from].date > bufEnd(i) && days[to].date <= days[from].date))
+          && (!(i.needBy && isLawnItem(i)) || days[to].date <= days[from].date))   // a full-program Rd 6 is never moved later
         && (!s.items.some(isLawnItem) || gapOkAt(s.cid, days[to].date, days, from));
       const driveBefore = days.reduce((t, d) => t + planDayEval(planBestOrder(d.stops, ctx), ctx).drive, 0);
       let moved = 0;
