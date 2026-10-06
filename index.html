@@ -2365,15 +2365,21 @@ function renderRouteDetail(el) {
 const fmtMins = m => m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min';
 const fmtClockMin = m => { const h = Math.floor(m / 60), ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ':' + String(m % 60).padStart(2, '0') + ' ' + ap; };
 function logVisits(iso) {
-  const by = {};
-  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => {
-    if (e.d !== iso || e.js == null) return;
-    const v = by[e.k] || (by[e.k] = { k:e.k, c:e.c, start:e.js, end:null, drive:null, codes:[], sqft:0, gal:0, lb:0 });
-    v.start = Math.min(v.start, e.js);
-    v.codes.push(svcCode(e.s)); if (e.q) v.sqft = Math.max(v.sqft, e.q); v.gal += e.g || 0; v.lb += e.lb || 0;
-    if (e.je != null && e.je >= e.js) v.end = v.end == null ? e.je : Math.max(v.end, e.je);
-  }));
-  const list = Object.values(by).sort((x, y) => x.start - y.start);
+  // entries for one customer that overlap in time are one visit; a later start after the finish is a second trip
+  // (Oct 6 2026: Frank Hill pest 12:37-1:04, back 4:34-5:21 for Rd 6 because he was mowing)
+  const byCust = {};
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.d === iso && e.js != null) (byCust[e.k] = byCust[e.k] || []).push(e); }));
+  const list = [];
+  Object.values(byCust).forEach(es => {
+    es.sort((x, y) => x.js - y.js);
+    let v = null;
+    es.forEach(e => {
+      if (!v || (v.end != null && e.js > v.end)) list.push(v = { k:e.k, c:e.c, start:e.js, end:null, drive:null, codes:[], sqft:0, gal:0, lb:0 });
+      v.codes.push(svcCode(e.s)); if (e.q) v.sqft = Math.max(v.sqft, e.q); v.gal += e.g || 0; v.lb += e.lb || 0;
+      if (e.je != null && e.je >= e.js) v.end = v.end == null ? e.je : Math.max(v.end, e.je);
+    });
+  });
+  list.sort((x, y) => x.start - y.start);
   let prevEnd = null;
   list.forEach(v => {
     if (prevEnd != null) { const g = v.start - prevEnd; v.drive = g >= 0 && g <= 120 ? g : null; }
@@ -2457,7 +2463,8 @@ function timedStopStats() {
 }
 function stopTimeHtml(rt, s) {
   const iso = s.completedDate || rt.date; if (!iso) return '';
-  const v = logVisits(iso).find(x => x.k === nameKey(s.customerName)); if (!v) return '';
+  const mine = logVisits(iso).filter(x => x.k === nameKey(s.customerName)), codes = (s.items || [{ code:s.code }]).map(it => it.code);
+  const v = mine.find(x => x.codes.some(c => codes.includes(c))) || mine[0]; if (!v) return '';   // two trips: the one that did this stop's work
   const site = v.end != null ? `${fmtMins(v.end - v.start)} on site, ${fmtClockMin(v.start)}–${fmtClockMin(v.end)}` : `started ${fmtClockMin(v.start)}`;
   return `<div style="font-size:12px;margin-top:3px;color:var(--text-dim)">⏱ ${site}${s.workMin ? ` (planned ${s.workMin})` : ''}${v.drive != null ? ' · drove ' + v.drive + ' min' : ''}</div>`;
 }
@@ -4020,7 +4027,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-05-b';
+var APP_BUILD = '2026-10-06-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
