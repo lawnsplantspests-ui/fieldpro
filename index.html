@@ -3063,7 +3063,10 @@ function inferGrub(thisYr, lastYr) {
 function inferTrack(entries) {
   const codes = entries.map(e => svcCode(e.s)).filter(c => c && c !== 'PEST');
   if (!codes.length) return null;
-  if (codes.includes('1') || codes.includes('2B')) return 'full';
+  // Devon (Oct 6 2026): full program = the customers who get Rd 1 (and Rd 5). 2A/2B is only which pre-emergent was
+  // used, and Rd 5 alone isn't enough (Keith Bashore buys it without the full program). A late full-program signup
+  // with no Rd 1 (Susan Renee) has to be set on the customer's card.
+  if (codes.includes('1') || codes.includes('7')) return 'full';
   return 'std';
 }
 
@@ -4050,7 +4053,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-f';
+var APP_BUILD = '2026-10-06-g';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
