@@ -647,6 +647,7 @@ function loadAll() {
   // Load from cache first for instant UI
   loadFromCache();
   applyGeoToCustomers();
+  loadSyncBase();
   loadTreatLogCache();
   wxLoadCache();
   offerSoilLoadCache();
@@ -671,6 +672,7 @@ function loadAll() {
       if (d.phcVisits) STATE.phcVisits = d.phcVisits;
       if (d.soilSamples) STATE.soilSamples = d.soilSamples;
       if (d.baitStations) STATE.baitStations = d.baitStations;
+      setSyncBase(STATE);   // what this app last got from the sheet: saves only send changes made since
       apiLoaded = true;
       applyGeoToCustomers();
       saveToCache();
@@ -686,24 +688,75 @@ function loadAll() {
 }
 
 let apiLoaded = false;   // true once the sheet has been read this session
+// ── Saving without overwriting other devices ── fpSaveAll replaces whole collections, so a phone that loaded days
+// ago used to save its old copy over newer changes (it wiped settings 4 times, the last between Oct 3 and Oct 6 2026:
+// 11 customer setups). Now every save first reads the sheet and sends it back with only THIS app's changes applied:
+// a record counts as changed here when it differs from the copy this app last got from the sheet (SYNC_BASE).
+const SAVE_KEYS = ['programs','customerPrograms','routes','products','ponds','pondVisits','lawnVisits','phcVisits','soilSamples','baitStations'];
+const SYNC_BASE_KEY = 'fieldpro_syncbase';
+let SYNC_BASE = null;
+function setSyncBase(src) {
+  SYNC_BASE = {};
+  SAVE_KEYS.forEach(k => { const m = {}; (src[k] || []).forEach(r => { if (r && r.id != null) m[r.id] = JSON.stringify(r); }); SYNC_BASE[k] = m; });
+  try { localStorage.setItem(SYNC_BASE_KEY, JSON.stringify(SYNC_BASE)); } catch(e) {}
+}
+function loadSyncBase() { try { SYNC_BASE = JSON.parse(localStorage.getItem(SYNC_BASE_KEY) || 'null'); } catch(e) { SYNC_BASE = null; } }
+// three-way merge of one collection: this app's changes since the base win, everything else comes from the sheet
+function mergeCollection(local, server, base) {
+  local = local || []; server = server || []; base = base || {};
+  const sid = r => String(r.id);
+  const sv = {}; server.forEach(r => { if (r && r.id != null) sv[sid(r)] = r; });
+  const out = [], seen = new Set();
+  let localChanges = 0;
+  local.forEach(r => {
+    if (!r || r.id == null) { out.push(r); return; }
+    const id = sid(r); seen.add(id);
+    const mine = JSON.stringify(r), was = base[id];
+    if (was === undefined || mine !== was) { out.push(r); if (!sv[id] || JSON.stringify(sv[id]) !== mine) localChanges++; }   // added or changed here
+    else if (sv[id]) out.push(sv[id]);                                                 // untouched here: the sheet's copy (maybe newer)
+    // untouched here and gone from the sheet: deleted elsewhere, so it stays out
+  });
+  // deleted here (and not changed elsewhere since): leave it out of what is sent
+  Object.keys(base).forEach(id => { if (!seen.has(id) && sv[id] && JSON.stringify(sv[id]) === base[id]) { seen.add(id); localChanges++; } });
+  server.forEach(r => { if (r && r.id != null && !seen.has(sid(r))) { seen.add(sid(r)); out.push(r); } });   // added (or changed) elsewhere
+  return { list:out, localChanges };
+}
+let saveTimer = null, saveBusy = false, saveAgain = false;
 function saveState() {
   syncGeoFromCustomers();
   saveToCache();
-  if (!apiLoaded && STATE.customers.length === 0) { console.warn('Not saving: nothing has been loaded yet.'); return; }
-  // Fire API save in background
-  api({ action: 'fpSaveAll', data: {
-    programs: STATE.programs,
-    customerPrograms: STATE.customerPrograms,
-    routes: STATE.routes,
-    products: STATE.products,
-    ponds: STATE.ponds,
-    pondVisits: STATE.pondVisits,
-    lawnVisits: STATE.lawnVisits,
-    phcVisits: STATE.phcVisits,
-    soilSamples: STATE.soilSamples,
-    baitStations: STATE.baitStations,
-  }}, function(){}, function(err){ console.warn('Save to API failed:', err); });
+  if (!apiLoaded && !SYNC_BASE) { console.warn('Not saving: nothing has been loaded from the sheet yet.'); return; }
+  clearTimeout(saveTimer); saveTimer = setTimeout(syncWithSheet, 1200);   // a burst of clicks is one save
 }
+function apiP(payload) { return new Promise((res, rej) => api(payload, res, rej)); }
+function syncWithSheet() {
+  if (saveBusy) { saveAgain = true; return Promise.resolve(); }
+  if (!SYNC_BASE) return Promise.resolve();
+  saveBusy = true;
+  return apiP({ action:'fpGetAll' }).then(d => {
+    const merged = {}; let changes = 0, differs = false;
+    SAVE_KEYS.forEach(k => {
+      const m = mergeCollection(STATE[k], d[k], SYNC_BASE[k]);
+      merged[k] = m.list; changes += m.localChanges;
+      if (JSON.stringify(m.list) !== JSON.stringify(STATE[k] || [])) differs = true;
+    });
+    const done = () => {
+      SAVE_KEYS.forEach(k => { STATE[k] = merged[k]; });
+      if (d.customers) STATE.customers = d.customers;
+      setSyncBase(merged); applyGeoToCustomers(); saveToCache();
+      if (differs) renderCurrentPage();   // another device changed something: show it
+    };
+    if (!changes) { done(); return; }
+    return apiP({ action:'fpSaveAll', data:merged }).then(done);
+  }).catch(err => {
+    console.warn('Save to the sheet failed, will retry:', err);
+    clearTimeout(saveTimer); saveTimer = setTimeout(syncWithSheet, 60000);
+  }).then(() => { saveBusy = false; if (saveAgain) { saveAgain = false; syncWithSheet(); } });
+}
+// coming back to the app after a while: pick up what other devices saved (and send anything still waiting)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && SYNC_BASE && apiLoaded) syncWithSheet();
+});
 
 // ══════════ NAVIGATION ══════════
 // Primary nav — what you reach for every day
@@ -4053,7 +4106,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-g';
+var APP_BUILD = '2026-10-06-h';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
