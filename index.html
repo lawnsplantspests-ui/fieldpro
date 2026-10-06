@@ -2828,8 +2828,8 @@ const seasonLimit = Y => seasonEnd(Y);   // Devon (Oct 6 2026): finish Friday No
 // previous one plus ROUND_GAP_DAYS (see buildCustomerSchedule).
 const SCHED_ROUNDS = {
   '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'02-14', end:'03-31', note:'Can start Feb 14 if soil temps are decent and there is no snow on the ground' },
-  '2A': { label:'Rd 2A — Pre-emergent + 3-way',   svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
-  '2B': { label:'Rd 2B — Dimension + 3-way',      svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
+  '2A': { label:'Rd 2 — Pre-emergent + 3-way',      svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
+  '2B': { label:'Rd 2 — Pre-emergent + 3-way',    svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
   '3':  { label:'Rd 3 — Weed & feed (no grub)',   svc:'Lawn Fert & Weed', start:'05-01', end:'06-30', blanket:true },
   '4':  { label:'Rd 4 — Grub control',            svc:'Grub Control',     start:'05-15', end:'06-30', blanket:true },
   '5':  { label:'Rd 5 — Insects / grassy weeds',  svc:'Lawn Fert & Weed', start:'07-01', end:'08-31' },
@@ -3095,17 +3095,18 @@ function editPlan(cid, fn) {
 // own round list: stored as program codes ('S' = the late-May slot, Rd 3 or Rd 4 by the grub setting)
 const ROUND_CHOICES = ['1', '2A', '2B', 'S', '5', '6', '7'];
 function customRounds(plan) { const r = plan && plan.myRounds; return Array.isArray(r) && r.length ? r.filter(c => ROUND_CHOICES.includes(c)) : null; }
-const roundListText = list => list.map(c => c === 'S' ? '3/4' : c).join(', ');
+// 2A / 2B are the same round with two pre-emergent products (only the log tells them apart)
+const roundListText = list => list.map(c => c === 'S' ? '3/4' : c === '2A' || c === '2B' ? '2' : c).join(', ');
 function schedSetRounds(cid) {
   const p = getPlan(String(cid)) || {}, cur = customRounds(p);
-  const ans = prompt('Rounds this customer gets, e.g. 2 3 5 6\n(1, 2, 2B, 3 = weed & feed, 4 = with grub control, 5, 6, 7)\nLeave blank to go back to the program\'s rounds.', cur ? roundListText(cur).replace(/3\/4/, p.grub ? '4' : '3') : '');
+  const ans = prompt('Rounds this customer gets, e.g. 2 3 5 6\n(1, 2, 3 = weed & feed, 4 = with grub control, 5, 6, 7)\nLeave blank to go back to the program\'s rounds.', cur ? roundListText(cur).replace(/3\/4/, p.grub ? '4' : '3') : '');
   if (ans === null) return;
   const toks = String(ans).toUpperCase().split(/[\s,;+&]+/).filter(Boolean);
   if (!toks.length) { editPlan(String(cid), q => { delete q.myRounds; }); return; }
   const out = [], bad = []; let grub = null;
   toks.forEach(t => {
     const k = t.replace(/^RD\.?/, '');
-    const c = k === '2' ? '2A' : (k === '3' || k === '4') ? 'S' : k;
+    const c = (k === '2' || k === '2A' || k === '2B') ? '2A' : (k === '3' || k === '4') ? 'S' : k;
     if (k === '3') grub = false; if (k === '4') grub = true;
     if (ROUND_CHOICES.includes(c)) { if (!out.includes(c)) out.push(c); } else bad.push(t);
   });
@@ -4049,7 +4050,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-e';
+var APP_BUILD = '2026-10-06-f';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
