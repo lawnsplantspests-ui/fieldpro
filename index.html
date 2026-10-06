@@ -2919,6 +2919,9 @@ const SERVICES = {
             { code:'7', name:'Round 7 — Horticultural oil',                    start:'10-25', end:'11-20', useLog:true, logRe:/^PHC\s*-\s*Horticultural/i } ] },
   // Round 8 of the tree & shrub program. Its own switch: only some customers get it.
   ADES: { label:'Tree & shrub — Round 8 (anti-desiccant)', svc:'Tree & Shrub Care', kind:'window', start:'11-01', endFn:Y => seasonEnd(Y), placeholder:true },
+  // Lime goes on in the fall, on the Rd 7 visit (Devon picks the customers each year: perYear = switched on for one
+  // year only). Logged as 'Lawn Care - Lime Treatment (Sol-U-Cal ...)' or marked done here.
+  LIME: { label:'Lime (Sol-U-Cal)', svc:'Lawn Fert & Weed', kind:'window', start:'10-01', endFn:Y => seasonEnd(Y), log:/^Lawn Care\s*-\s*Lime/i, perYear:true },
 };
 function codeShort(c) {
   if (c === 'PEST') return 'Pest';
@@ -2947,7 +2950,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 // The log stays the single source of truth for the regulatory record; FieldPro never writes entries itself.
 // Only the work that goes in the pesticide log gets a button (not seed, fertilizer-only or oil rounds).
 const LPP_LOG_APP = 'https://lawnsplantspests-ui.github.io/lpp-log/';
-const loggableCode = c => /^\d[ABC]?$/.test(c) || c === 'PEST' || c === 'MOSQ' || c === 'BAIT' || /^TS[1-7]$/.test(c);
+const loggableCode = c => /^\d[ABC]?$/.test(c) || c === 'PEST' || c === 'MOSQ' || c === 'BAIT' || c === 'LIME' || /^TS[1-7]$/.test(c);
 function lastLoggedService(name, re) {
   const k = nameKey(name); let best = null;
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && re.test(e.s) && (!best || e.d > best.d)) best = e; }));
@@ -2967,12 +2970,13 @@ function lppLogUrl(name, code) {
   else if (code === 'PEST') { q.set('pfx', 'Pest Control'); const l = lastLoggedService(name, /^Pest Control/i); if (l) q.set('svc', l); }
   else if (code === 'BAIT') { q.set('svc', 'Mosquito - Bait Station'); const n = baitStationCount(name); if (n) q.set('st', n); }
   else if (code === 'MOSQ') { q.set('pfx', 'Mosquito'); q.set('not', 'Bait'); const l = lastLoggedService(name, /^Mosquito(?!\s*-\s*Bait)/i); if (l) q.set('svc', l); }
+  else if (code === 'LIME') q.set('pfx', 'Lawn Care - Lime');   // maintenance (5 lb) or corrective (12.5 lb): picked in the LPP Log
   else if (code === 'TS2') q.set('pfx', 'PHC - Fertilization - Spring');
   else if (code === 'TS6') q.set('pfx', 'PHC - Fertilization - Fall');
   else if (code === 'TS1') q.set('pfx', 'PHC - Horticultural Oil - Spring');
   else if (code === 'TS7') q.set('pfx', 'PHC - Horticultural Oil - Fall');
   else q.set('svc', 'PHC - Round 3-5 Treatment (pick product)');   // rounds 3-5: one generic service, the product is picked at logging
-  if (!/^\d[ABC]?$/.test(code) && code !== 'PEST' && code !== 'MOSQ' && code !== 'BAIT') treeLinkParams(name, q);
+  if (!/^\d[ABC]?$/.test(code) && code !== 'PEST' && code !== 'MOSQ' && code !== 'BAIT' && code !== 'LIME') treeLinkParams(name, q);
   return LPP_LOG_APP + '?' + q.toString();
 }
 function lppLogBtn(name, code, label) {
@@ -2987,6 +2991,7 @@ function logDoneSince(name, code, since) {
     if (code === 'PEST') return svcCode(e.s) === 'PEST';
     if (code === 'MOSQ') return /^Mosquito(?!\s*-\s*Bait)/i.test(e.s);
     if (code === 'BAIT') return /^Mosquito\s*-\s*Bait/i.test(e.s);
+    if (code === 'LIME') return /^Lawn Care\s*-\s*Lime/i.test(e.s);
     if (code === 'TS2' || code === 'TS6') return /^PHC\s*-\s*Fertiliz/i.test(e.s);
     if (code === 'TS1' || code === 'TS7') return /^PHC\s*-\s*Horticultural/i.test(e.s);
     if (/^TS[345]$/.test(code)) return /^PHC\b(?!\s*-\s*(?:Fertiliz|Horticultural))/i.test(e.s);
@@ -3180,7 +3185,7 @@ function schedMarkDone(cid, key) { editPlan(cid, p => { p.done[key] = schedToday
 function schedUnmarkDone(cid, key) { editPlan(cid, p => { delete p.done[key]; }); }
 function schedSetTextName(cid, v) { editPlan(cid, p => { const t = String(v || '').trim(); if (t) p.textName = t; else delete p.textName; }); }
 function schedSetWorkSqft(cid, v) { const n = Number(String(v).replace(/,/g, '')); editPlan(cid, p => { if (n > 0) p.workSqft = n; else delete p.workSqft; }); }
-function schedSetSvc(cid, key, on) { editPlan(cid, p => { p.svc = p.svc || {}; if (on === null) delete p.svc[key]; else p.svc[key] = on; }); }
+function schedSetSvc(cid, key, on) { editPlan(cid, p => { p.svc = p.svc || {}; if (on === null) delete p.svc[key]; else p.svc[key] = (on === true && SERVICES[key] && SERVICES[key].perYear) ? Number(schedToday().slice(0, 4)) : on; }); }
 function schedSvcEndYear(cid, key) {
   const Y = Number(schedToday().slice(0, 4));
   editPlan(cid, p => { p.svcEnd = p.svcEnd || {}; if (Number(p.svcEnd[key]) >= Y) delete p.svcEnd[key]; else p.svcEnd[key] = Y; });
@@ -3328,8 +3333,8 @@ function schedFor(c, mine, today) {
   Object.keys(SERVICES).forEach(key => {
     const def = SERVICES[key], want = (plan.svc || {})[key];
     const logDates = def.log ? thisYr.concat(lastYr).filter(e => def.log.test(e.s)).map(e => e.d).sort() : [];
-    const enrolled = want === true || (want !== false && !!def.infer && logDates.length > 0);
-    svcInfo[key] = { enrolled, source: want === true ? 'set' : (enrolled ? 'history' : (want === false ? 'off' : '')) };
+    const enrolled = def.perYear ? Number(want) === Y : (want === true || (want !== false && !!def.infer && logDates.length > 0));
+    svcInfo[key] = { enrolled, source: (want === true || (def.perYear && Number(want) === Y)) ? 'set' : (enrolled ? 'history' : (want === false ? 'off' : '')) };
     if (!enrolled) return;
     const manualDone = plan.done || {};
     const base2 = { svcKey:key, noSqft:true, manual:true, note:def.placeholder ? 'Dates not confirmed yet — check before routing' : '' };
@@ -3386,6 +3391,13 @@ function schedFor(c, mine, today) {
       });
     }
   });
+  // lime goes on with the winterizer: it opens when this customer's Rd 7 opens, so the planner puts them on one visit
+  const limeIt = rounds.find(r => r.code === 'LIME' && r.status !== 'done' && r.status !== 'skipped');
+  const r7 = rounds.find(r => r.code === '7' && r.status !== 'done' && r.status !== 'skipped' && r.status !== 'missed');
+  if (limeIt && r7 && (r7.avail || r7.start) > (limeIt.avail || '')) {
+    limeIt.avail = r7.avail || r7.start; limeIt.withRd7 = true;
+    if (limeIt.status === 'due' && schedToday() < limeIt.avail) limeIt.status = daysBetween(schedToday(), limeIt.avail) <= SOON_DAYS ? 'soon' : 'later';
+  }
   const last = mine.slice().sort((a,b) => b.d.localeCompare(a.d))[0] || null;
   rounds.forEach(r => { r.last = last; });
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
@@ -3856,7 +3868,7 @@ const SMS_SERVICE = {
   '1':'round 1 fertilizer', '2A':'round 2 pre-emergent and weed control', '2B':'round 2 pre-emergent and weed control', '3':'round 3 weed and feed',
   '4':'round 4 grub control', '5':'round 5 insect and weed control', '5A':'round 5 insect control', '5B':'round 5 grassy weed control',
   '5C':'round 5 insect and grassy weed control', '6':'round 6 fall weed and feed', '7':'round 7 winterizer',
-  PEST:'perimeter pest control', MOSQ:'mosquito treatment', BAIT:'mosquito bait station service', SEED:'aeration and seed', ADES:'anti-desiccant treatment',
+  PEST:'perimeter pest control', MOSQ:'mosquito treatment', BAIT:'mosquito bait station service', SEED:'aeration and seed', ADES:'anti-desiccant treatment', LIME:'lime',
   TS1:'tree and shrub round 1 horticultural oil', TS2:'tree and shrub round 2 fertilizer', TS3:SMS_TS_MIXED.replace('{n}', '3'), TS4:SMS_TS_MIXED.replace('{n}', '4'),
   TS5:SMS_TS_MIXED.replace('{n}', '5'), TS6:'tree and shrub round 6 fertilizer', TS7:'tree and shrub round 7 horticultural oil',
 };
@@ -4106,7 +4118,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-h';
+var APP_BUILD = '2026-10-06-i';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4633,7 +4645,14 @@ async function planBuild() {
       const lawn = list.filter(i => !i.pest && !i.seed && !i.svcKey), pest = list.filter(i => i.pest), seed = list.filter(i => i.seed), others = list.filter(i => i.svcKey);
       const own = TM.timed && TM.T.perCust[cid];
       let m = 0;
-      others.forEach(i => { m += (i.svcKey === 'MOSQ' || i.svcKey === 'BAIT') ? cfg.mosqMin : cfg.tsMin; });
+      others.forEach(i => {
+        if (i.svcKey === 'LIME') {
+          // a separate spreader pass over the lawn (same as the lawn's own on-site time) plus hopper refills at the
+          // corrective rate, 12.5 lb / 1,000 sq ft; a lime-only stop (no lawn round) also pays the between-stops time
+          const k = (sqft || 8000) / 1000, pass = Math.max(5, TM.lawnSetup - (TM.timed ? TM.T.turn : 0)) + TM.lawnPerK * k;
+          m += pass + refillMin(0, k * 12.5, cfg) + (lawn.length ? 0 : (TM.timed ? TM.T.turn : 0));
+        } else m += (i.svcKey === 'MOSQ' || i.svcKey === 'BAIT') ? cfg.mosqMin : cfg.tsMin;
+      });
       if (lawn.length) {
         let first = TM.lawnSetup + TM.lawnPerK * ((sqft || 8000) / 1000);
         // this property's own timed visits: 2+ are trusted, one is averaged with the general figure
