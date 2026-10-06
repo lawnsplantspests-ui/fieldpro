@@ -4027,7 +4027,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-b';
+var APP_BUILD = '2026-10-06-c';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4634,7 +4634,9 @@ async function planBuild() {
       // ---- stage 2: improve — move a stop to another day, or swap two stops between days, when that
       //      cuts driving and every day still fits and no stop is pushed past its window ----
       const dayCost = stops => stops.length ? planDayEval(planBestOrder(stops, ctx), ctx).cost : 0;
-      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || days[from].date > bufEnd(i)))
+      // a stop already past its window may only move earlier (Oct 2026: Snavely's and Tracey Jones's overdue October
+      // pest slid onto their November pest day because that saved a trip)
+      const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || (days[from].date > bufEnd(i) && days[to].date <= days[from].date)))
         && (!s.items.some(isLawnItem) || gapOkAt(s.cid, days[to].date, days, from));
       const driveBefore = days.reduce((t, d) => t + planDayEval(planBestOrder(d.stops, ctx), ctx).drive, 0);
       let moved = 0;
