@@ -2821,7 +2821,7 @@ const SOON_DAYS = 21;          // "opening soon" horizon
 // (the Friday before Thanksgiving week), and never later than the Wednesday before Thanksgiving.
 function thanksgiving(Y) { const off = (4 - new Date(Y, 10, 1).getDay() + 7) % 7; return isoLocal(new Date(Y, 10, 1 + off + 21)); }
 const seasonEnd = Y => addDays(thanksgiving(Y), -6);
-const seasonLimit = Y => addDays(thanksgiving(Y), -1);
+const seasonLimit = Y => seasonEnd(Y);   // Devon (Oct 6 2026): finish Friday Nov 20 - the planner plans nothing after the Friday before Thanksgiving week (was the Wednesday)
 
 // Windows are Devon's (Oct 3 2026): Rd 1 Feb/Mar, Rd 2 Mar/Apr, Rd 3/4 May/Jun (grub from about May 15),
 // Rd 5 Jul/Aug, Rd 6 Sep/Oct, Rd 7 winterizer Oct/Nov. Windows overlap, so a round also waits for the
@@ -4027,7 +4027,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-a';
+var APP_BUILD = '2026-10-06-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4756,7 +4756,7 @@ function plannerResultHtml(R) {
       }).join('')}
     </div>`).join('');
   const note = (R.tooLong.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">Too long for one day, so not planned: ${R.tooLong.map(s => escHtml(s.items[0].name)).join(', ')}</div>` : '')
-    + (R.notPlanned.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">${R.notPlanned.length} stops were not planned: they open too late, or there isn't room before Thanksgiving week (last day ${fmtDate(R.limit)}). For example ${escHtml(R.notPlanned[0].name)}, opens ${fmtDate(R.notPlanned[0].avail || R.notPlanned[0].start)}.</div>` : '');
+    + (R.notPlanned.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">${R.notPlanned.length} stops were not planned: they open too late, or there isn't room by the end of the season (last day ${fmtDate(R.limit)}). For example ${escHtml(R.notPlanned[0].name)}, opens ${fmtDate(R.notPlanned[0].avail || R.notPlanned[0].start)}.</div>` : '');
   return (R.days.length ? `<div class="flex-between mb-8" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">${R.days.length} day${R.days.length === 1 ? '' : 's'} of work</h2><span class="flex-row gap-6"><button class="btn secondary sm" onclick="planShowMap()">🗺️ See on a map</button><button class="btn secondary sm" onclick="planCreateAll()">Create all days</button></span></div>` : '') + out + note
     + (R.hasBase ? '' : '<div style="font-size:12px;color:var(--warn);margin:8px 0">No home location set, so the drive to the first stop and home is not counted.</div>');
 }
