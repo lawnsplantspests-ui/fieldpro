@@ -3092,6 +3092,27 @@ function editPlan(cid, fn) {
   saveState();
   renderCurrentPage();
 }
+// own round list: stored as program codes ('S' = the late-May slot, Rd 3 or Rd 4 by the grub setting)
+const ROUND_CHOICES = ['1', '2A', '2B', 'S', '5', '6', '7'];
+function customRounds(plan) { const r = plan && plan.myRounds; return Array.isArray(r) && r.length ? r.filter(c => ROUND_CHOICES.includes(c)) : null; }
+const roundListText = list => list.map(c => c === 'S' ? '3/4' : c).join(', ');
+function schedSetRounds(cid) {
+  const p = getPlan(String(cid)) || {}, cur = customRounds(p);
+  const ans = prompt('Rounds this customer gets, e.g. 2 3 5 6\n(1, 2, 2B, 3 = weed & feed, 4 = with grub control, 5, 6, 7)\nLeave blank to go back to the program\'s rounds.', cur ? roundListText(cur).replace(/3\/4/, p.grub ? '4' : '3') : '');
+  if (ans === null) return;
+  const toks = String(ans).toUpperCase().split(/[\s,;+&]+/).filter(Boolean);
+  if (!toks.length) { editPlan(String(cid), q => { delete q.myRounds; }); return; }
+  const out = [], bad = []; let grub = null;
+  toks.forEach(t => {
+    const k = t.replace(/^RD\.?/, '');
+    const c = k === '2' ? '2A' : (k === '3' || k === '4') ? 'S' : k;
+    if (k === '3') grub = false; if (k === '4') grub = true;
+    if (ROUND_CHOICES.includes(c)) { if (!out.includes(c)) out.push(c); } else bad.push(t);
+  });
+  if (bad.length || !out.length) { alert('Could not read: ' + (bad.join(', ') || ans) + '\nUse round numbers like 2 3 5 6.'); return; }
+  out.sort((a, b) => ROUND_CHOICES.indexOf(a) - ROUND_CHOICES.indexOf(b));
+  editPlan(String(cid), q => { q.myRounds = out; if (!SCHED_TRACKS[q.track]) q.track = out.includes('1') || out.includes('7') ? 'full' : 'std'; if (grub !== null) q.grub = grub; });
+}
 function schedSetTrack(cid, track) { editPlan(cid, p => { p.track = track || null; }); }
 function schedSetGrub(cid, v) { editPlan(cid, p => { p.grub = v; }); }
 function schedSetSeed(cid, mode) {
@@ -3172,7 +3193,8 @@ function schedFor(c, mine, today) {
     const lastTreat = Object.values(done).sort().pop() || null;   // latest lawn round logged this year
     let prevOpen = null;   // earliest date the previous round (still to do) could be done
     let prevItem = null;   // ...and that round, so it can be told when it has to be done by
-    SCHED_TRACKS[track].rounds.forEach(c0 => {
+    // a customer can have their own list of rounds (Keith Bashore: 2A, 3, 5, 6 - no Rd 1, no Rd 7)
+    (customRounds(plan) || SCHED_TRACKS[track].rounds).forEach(c0 => {
       const code = c0 === 'S' ? (grub ? '4' : '3') : c0;
       // a round counts as done by any of its equivalents (2A/2B; Rd 3/Rd 4 in the late-May slot)
       const alts = c0 === 'S' ? [code, code === '4' ? '3' : '4'] : (code === '2A' || code === '2B') ? ['2A', '2B'] : [code];
@@ -3312,7 +3334,7 @@ function schedFor(c, mine, today) {
   const order = { due:0, late:1, consider:2, soon:3, later:4 };
   const open = rounds.filter(r => r.status in order).sort((a,b) => order[a.status] - order[b.status] || (a.avail || '').localeCompare(b.avail || ''));
   const thisYrOther = thisYr.filter(e => !svcCode(e.s)).sort((a,b) => a.d.localeCompare(b.d));
-  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, svcInfo, svcEnd:plan.svcEnd || {}, workSqft:Number(plan.workSqft) || null, sqOnFile, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, pestMonths:plan.pestMonths || null, trackFrom:plan.trackFrom || null, rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
+  return { cid, c, track, trackSource, needsTrack, grub, grubSource, seed:plan.seed || null, svcInfo, svcEnd:plan.svcEnd || {}, workSqft:Number(plan.workSqft) || null, sqOnFile, pestOff:!!plan.noPest, pestEnd:plan.pestEnd || null, pestMonths:plan.pestMonths || null, trackFrom:plan.trackFrom || null, myRounds:customRounds(plan), rounds, open, next:open[0] || null, last, blanketDates, other:thisYrOther, sqLawn, sqPest };
 }
 
 function buildSchedule() {
@@ -3549,7 +3571,7 @@ function schedCustomerCard(cid) {
         : `<span style="color:var(--text-dim)">${row.track && row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'Lawn program starts in ' + row.trackFrom + '.' : row.track ? 'Nothing else scheduled this season.' : 'No lawn program set.'}</span>`}</div>
       ${(offerSoilEnsure(), soilLine(row.c))}
       ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
-        ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}${row.track ? `<button class="btn ${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'primary' : 'secondary'} sm" onclick="schedToggleStartNextYear('${cid}')" title="Nothing is scheduled until next year">${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'Starts ' + row.trackFrom + ' — undo' : 'Starts next year'}</button>` : ''}
+        ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}${row.track ? `<button class="btn ${row.myRounds ? 'primary' : 'secondary'} sm" onclick="schedSetRounds('${cid}')" title="Pick exactly which rounds this customer gets">${row.myRounds ? 'Own rounds: ' + roundListText(row.myRounds).replace('3/4', row.grub ? '4' : '3') : 'Own rounds…'}</button>` : ''}${row.track ? `<button class="btn ${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'primary' : 'secondary'} sm" onclick="schedToggleStartNextYear('${cid}')" title="Nothing is scheduled until next year">${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'Starts ' + row.trackFrom + ' — undo' : 'Starts next year'}</button>` : ''}
         <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>` : ''}
       ${row.sqOnFile > 0 ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px;align-items:center">
         <span style="font-size:12px;color:var(--text-dim)">Area I normally treat (sq ft):</span>
@@ -4027,7 +4049,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-d';
+var APP_BUILD = '2026-10-06-e';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
