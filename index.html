@@ -931,9 +931,9 @@ function renderLogs() {
       <p class="hub-sub">Service history and your pesticide application records.</p>
       <div class="hub-grid">
         <button class="hub-tile" onclick="navigateTo('history')">
-          <div class="hub-tile-emoji">📜</div>
-          <div class="hub-tile-label">Service History</div>
-          <div class="hub-tile-sub">Completed work, by customer or date</div>
+          <div class="hub-tile-emoji">📅</div>
+          <div class="hub-tile-label">Day log</div>
+          <div class="hub-tile-sub">What was logged on any day, from the LPP Log — or find a customer's days</div>
         </button>
         <a class="hub-tile" href="https://lawnsplantspests-ui.github.io/lpp-log/" target="_blank" rel="noopener">
           <div class="hub-tile-emoji">🧪</div>
@@ -4252,7 +4252,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-k';
+var APP_BUILD = '2026-10-06-l';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -5096,56 +5096,90 @@ function planCreateAll() {
 }
 
 // ══════════ HISTORY ══════════
+// ── Day log, straight from the LPP Log ── pick a day and see every entry: times (Job Start/End), customer, service,
+// area, product and amount. The month's tab is fetched in full the first time it is opened (the schedule's copy
+// of the log keeps only a few fields). Searching a customer lists the days they were treated.
+let histDate = null, histQuery = '';
+const LOGFULL = {};   // 'Oct_2026' -> full entries
+const LOG_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function histTab(iso) { return LOG_MON[+iso.slice(5, 7) - 1] + '_' + iso.slice(0, 4); }
+function histLoad(tab, force) {
+  if (!force && LOGFULL[tab] && LOGFULL[tab] !== 'loading' && LOGFULL[tab] !== 'error') return;
+  LOGFULL[tab] = 'loading';
+  lppPost({ action:'getLog', tab }).then(r => { LOGFULL[tab] = r.entries || []; }).catch(() => { LOGFULL[tab] = 'error'; })
+    .then(() => { if (currentPage === 'history') renderHistory(); });
+}
+function histGo(iso) { histDate = iso; renderHistory(); }
 function renderHistory() {
-  let completed = [];
-  STATE.customerPrograms.forEach(cp => {
-    const cust = STATE.customers.find(c => (c.ID||c.customerId||c.id) === cp.customerId);
-    cp.rounds.forEach((r, idx) => {
-      if (r.status !== 'completed' && r.status !== 'skipped') return;
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
-        const name = (cust?.Name||cust?.name||'').toLowerCase();
-        if (!name.includes(s) && !r.name.toLowerCase().includes(s) && !(r.serviceType||'').toLowerCase().includes(s)) return;
-      }
-      // Check if this was synced from LPP
-      const custId = (cust?.ID||cust?.customerId||'').toString();
-      const isSynced = STATE.sheetData.some(row => {
-        const sheetCust = (row['Customer']||'').trim();
-        return sheetCust === custId;
-      });
-      completed.push({ ...r, cpId: cp.id, roundIdx: idx, customerName: cust?.Name||cust?.name||'?', programName: cp.programName, isSynced });
-    });
-  });
-  completed.sort((a,b) => (b.completedDate||'z').localeCompare(a.completedDate||'z'));
-
-  const syncedCount = completed.filter(r => r.isSynced).length;
-  const unsyncedCount = completed.filter(r => !r.isSynced && r.status === 'completed').length;
-
-  document.getElementById('page-history').innerHTML = `
-    <h1>Completed Jobs</h1>
-    <div class="stat-row">
-      <div class="stat-box"><div class="label">Total Completed</div><div class="value" style="color:var(--accent)">${completed.filter(r=>r.status==='completed').length}</div></div>
-      <div class="stat-box"><div class="label">Skipped</div><div class="value" style="color:var(--text-muted)">${completed.filter(r=>r.status==='skipped').length}</div></div>
-      <div class="stat-box"><div class="label">LPP Verified</div><div class="value" style="color:var(--accent)">${syncedCount}</div></div>
-      <div class="stat-box"><div class="label">Not in LPP Log</div><div class="value" style="color:${unsyncedCount > 0 ? 'var(--warn)' : 'var(--text-dim)'}">${unsyncedCount}</div></div>
-    </div>
-    <div class="search-bar"><input placeholder="Filter by customer, round, service..." value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderHistory()"></div>
-    ${completed.slice(0,100).map(r => `
-      <div class="card" style="padding:10px;border-left:3px solid ${r.status==='completed' ? (r.isSynced ? 'var(--accent)' : 'var(--warn)') : 'var(--text-muted)'}">
-        <div class="flex-row gap-10">
-          <div style="font-size:14px;color:${r.status==='completed'?'var(--accent)':'var(--text-muted)'}">${r.status==='completed'?'✓':'—'}</div>
-          <div style="min-width:70px;font-size:12px;color:var(--text-muted);font-family:var(--font-mono)">${fmtDate(r.completedDate)}</div>
-          <div style="flex:1"><span style="font-weight:600">${escHtml(r.customerName)}</span><span style="color:var(--text-dim);font-size:13px"> — ${escHtml(r.name)}</span></div>
-          <span class="badge ${svcColorClass(r.serviceType)}" style="font-size:9px">${escHtml(r.serviceType)}</span>
-          ${r.status === 'completed' && r.isSynced ? '<span class="badge" style="background:var(--accent-dim);color:var(--accent);font-size:9px">LPP ✓</span>' : ''}
-          ${r.status === 'completed' && !r.isSynced ? '<span class="badge" style="background:var(--warn-bg);color:var(--warn);font-size:9px">No LPP Record</span>' : ''}
-          <button class="btn ghost sm" onclick="undoCompleteRound('${r.cpId}',${r.roundIdx})" title="Undo — mark as pending">↩️</button>
-        </div>
+  const el = document.getElementById('page-history'); if (!el) return;
+  if (!histDate) histDate = schedToday();
+  const iso = histDate, tab = histTab(iso), full = LOGFULL[tab];
+  if (!full || full === 'error') { if (full !== 'error') histLoad(tab); }
+  const us = iso.slice(5, 7) + '/' + iso.slice(8, 10) + '/' + iso.slice(0, 4);
+  const clk = t => { const m = logClockMin(t); return m == null ? '' : fmtClockMin(m); };
+  const q = histQuery.trim().toLowerCase();
+  // days with work, from the schedule's copy of the log (already loaded) - for the day strip and the customer search
+  const days = {};
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { (days[e.d] = days[e.d] || new Set()).add(e.k); }));
+  let body = '';
+  if (q) {
+    const hits = {};
+    Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.c.toLowerCase().includes(q)) (hits[e.d] = hits[e.d] || []).push(e); }));
+    const ds = Object.keys(hits).sort().reverse();
+    body = ds.length ? `<div class="section-label">${ds.length} day${ds.length === 1 ? '' : 's'} with "${escHtml(histQuery)}"</div>` + ds.map(d => `
+      <div class="card clickable" style="padding:9px 12px" onclick="histQuery='';histGo('${d}')">
+        <div style="font-weight:700;font-size:13px">${fmtDateFull(d)}</div>
+        ${hits[d].map(e => `<div style="font-size:12px;color:var(--text-dim)">${escHtml(e.c)} · ${escHtml(shortSvc(e.s))}${e.q ? ' · ' + e.q.toLocaleString() + ' sq ft' : ''}</div>`).join('')}
+      </div>`).join('') : '<div class="card"><p style="color:var(--text-dim);margin:0">No customer by that name in the log this year or last.</p></div>';
+  } else if (full === 'loading' || full === undefined) {
+    body = '<div class="card"><p style="color:var(--text-dim);margin:0">⏳ Reading ' + escHtml(tab.replace('_', ' ')) + ' from the LPP Log…</p></div>';
+  } else if (full === 'error') {
+    body = `<div class="card"><p style="color:var(--warn);margin:0 0 8px">Could not reach the LPP Log.</p><button class="btn secondary sm" onclick="histLoad('${tab}',true)">Try again</button></div>`;
+  } else {
+    const es = full.filter(e => String(e.date || '').slice(0, 10) === us)
+      .sort((a, b) => (logClockMin(a.jobStart || a.time) ?? 9999) - (logClockMin(b.jobStart || b.time) ?? 9999));
+    const vs = logVisits(iso), onSite = vs.reduce((t, v) => t + (v.end != null ? v.end - v.start : 0), 0), drive = vs.reduce((t, v) => t + (v.drive || 0), 0);
+    const nCust = new Set(es.map(e => nameKey(e.customer))).size;
+    body = es.length ? `
+      <div class="card" style="font-size:13px">
+        <strong>${es.length} entr${es.length === 1 ? 'y' : 'ies'} · ${nCust} customer${nCust === 1 ? '' : 's'}</strong>
+        ${vs.length ? `<div style="color:var(--text-dim);margin-top:3px">⏱ ${vs.length} timed · ${fmtMins(onSite)} on site · ${fmtMins(drive)} between stops · ${fmtClockMin(vs[0].start)} – ${fmtClockMin(Math.max(...vs.map(v => v.end || v.start)))}</div>` : '<div style="color:var(--text-muted);margin-top:3px">No job timer used this day.</div>'}
       </div>
-    `).join('')}
-    ${completed.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">No completed jobs yet.</p></div>' : ''}
-    ${completed.length > 100 ? '<div style="text-align:center;padding:10px;color:var(--text-muted);font-size:12px">Showing first 100 of ' + completed.length + '</div>' : ''}
-  `;
+      ${es.map(e => {
+        const st = clk(e.jobStart), en = clk(e.jobEnd), tm = st ? st + (en ? '–' + en : '') : clk(e.time);
+        const spot = /SPOT SPRAY ONLY/i.test(e.method || '');
+        return `<div class="card" style="padding:10px 12px">
+          <div class="flex-between" style="gap:8px;align-items:flex-start">
+            <div style="min-width:0">
+              <div style="font-weight:700;font-size:14px;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border)" onclick="const c=STATE.customers.find(x=>nameKey(x.Name)===nameKey(${escHtml(JSON.stringify(e.customer))}));if(c){detailCustomerId=custIdStr(c);navigateTo('customers');detailCustomerId=custIdStr(c);renderCustomers();}">${escHtml(e.customer)}</div>
+              <div style="font-size:12px;color:var(--text-dim)">${escHtml(e.service)}</div>
+            </div>
+            <div style="font-size:12px;font-family:var(--font-mono);color:var(--text-dim);white-space:nowrap">${escHtml(tm)}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${e.sqFt ? Number(String(e.sqFt).replace(/,/g, '')).toLocaleString() + ' sq ft' : ''}${spot && e.spotSqFt ? ' · spot ' + Number(e.spotSqFt).toLocaleString() : ''}${e.totalUsed ? ' · ' + escHtml(e.totalUsed) : ''}</div>
+          ${e.product ? `<div style="font-size:11px;color:var(--text-muted)">${escHtml(e.product)}</div>` : ''}
+          ${e.weather || e.temp || e.wind ? `<div style="font-size:11px;color:var(--text-muted)">${escHtml([e.weather, e.temp, e.wind].filter(Boolean).join(' · '))}</div>` : ''}
+        </div>`;
+      }).join('')}`
+      : '<div class="card"><p style="color:var(--text-dim);margin:0">Nothing logged this day.</p></div>';
+  }
+  // the last two weeks as quick buttons, busy days marked with how many customers
+  const strip = []; for (let k = 13; k >= 0; k--) strip.push(addDays(schedToday(), -k));
+  el.innerHTML = `
+    <button class="btn ghost sm" onclick="navigateTo('logs')" style="margin-bottom:14px">← Logs</button>
+    <h1>Day log</h1>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:10px">Straight from the LPP Log.</p>
+    <div class="flex-row gap-6" style="align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn secondary sm" onclick="histGo(addDays(histDate,-1))">◀</button>
+      <div class="input-group" style="margin:0"><input type="date" value="${iso}" onchange="if(this.value)histGo(this.value)"></div>
+      <button class="btn secondary sm" onclick="histGo(addDays(histDate,1))">▶</button>
+      <button class="btn ghost sm" onclick="histGo(schedToday())">Today</button>
+      <button class="btn ghost sm" onclick="histLoad(histTab(histDate),true);refreshTreatLog(true)" title="Read the LPP Log again">🔄</button>
+    </div>
+    <div class="filter-pills" style="flex-wrap:wrap">${strip.map(d => { const n = days[d] ? days[d].size : 0; const wd = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short' }); return `<button class="${d === iso ? 'active' : ''}" onclick="histGo('${d}')" style="${n ? '' : 'opacity:.55'}">${wd} ${+d.slice(8)}${n ? ` <span style="font-size:10px;opacity:.75">${n}</span>` : ''}</button>`; }).join('')}</div>
+    <div class="search-bar"><input id="hist-q" placeholder="Find a customer's days…" value="${escHtml(histQuery)}" oninput="histQuery=this.value;renderHistory();const e=document.getElementById('hist-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}"></div>
+    <div style="font-size:15px;font-weight:700;margin:6px 0 8px">${q ? '' : fmtDateFull(iso)}</div>
+    ${body}`;
 }
 
 // ══════════ MODALS ══════════
