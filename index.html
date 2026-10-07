@@ -971,80 +971,133 @@ function getWorkboardItems() {
   return items;
 }
 
+// ── Work board ── built from the Schedule (the LPP Log decides what is done), one tab per kind of work.
+// The old board read the legacy per-customer program rounds, which only 3 customers still had.
+const WB_TABS = [
+  { key:'today', label:'Today',        icon:'📍' },
+  { key:'late',  label:'Late',         icon:'⚠️' },
+  { key:'lawn',  label:'Lawn',         icon:'🌱', test:i => /^\d/.test(i.code) || i.code === 'SEED' },
+  { key:'lime',  label:'Lime',         icon:'🧪', test:i => i.code === 'LIME' },
+  { key:'pest',  label:'Pest',         icon:'🐜', test:i => i.code === 'PEST' },
+  { key:'mosq',  label:'Mosquito',     icon:'🦟', test:i => i.code === 'MOSQ' || i.code === 'BAIT' },
+  { key:'ts',    label:'Tree & shrub', icon:'🌳', test:i => /^TS\d$/.test(i.code) || i.code === 'ADES' },
+  { key:'ponds', label:'Ponds',        icon:'🌊' },
+];
+let wbTab = (() => { try { return localStorage.getItem('fieldpro_wb_tab') || 'today'; } catch(e) { return 'today'; } })();
+function wbSetTab(k) { wbTab = k; try { localStorage.setItem('fieldpro_wb_tab', k); } catch(e) {} renderWorkboard(); }
+function wbPondAlerts() {
+  const out = [];
+  STATE.ponds.forEach(p => {
+    if (p.active === false) return;
+    const freq = p.visitFreqDays || 14;
+    const lastVisit = STATE.pondVisits.filter(v => v.pondId === p.id).sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+    let status = '', days = null;
+    if (!lastVisit) status = 'overdue';
+    else {
+      days = Math.floor((new Date() - new Date(lastVisit.date)) / 86400000);
+      if (days >= freq + 3) status = 'overdue'; else if (days >= freq - 2) status = 'due';
+    }
+    if (status) out.push({ pond:p, status, lastVisit, days });
+  });
+  return out;
+}
+function wbPondHtml(a) {
+  return `<div class="card clickable" onclick="pondDetailId='${a.pond.id}';navigateTo('ponds')" style="border-left:3px solid ${a.status === 'overdue' ? 'var(--overdue)' : 'var(--accent)'}">
+    <div style="font-weight:700;font-size:14px">🌊 ${escHtml(a.pond.name)}</div>
+    <div style="font-size:12px;color:var(--text-dim)">${escHtml(a.pond.location || '')} · ${a.lastVisit ? 'last visit ' + fmtDate(a.lastVisit.date) + ' (' + a.days + ' days ago)' : 'no visits yet'}</div></div>`;
+}
 function renderWorkboard() {
-  const items = getWorkboardItems();
-  // Also get completed counts per service for stats
-  const allRounds = [];
-  STATE.customerPrograms.forEach(cp => {
-    cp.rounds.forEach(r => { allRounds.push(r); });
-  });
-
-  let filtered = items;
-  if (filterService !== 'all') filtered = filtered.filter(i => i.serviceType === filterService);
-  if (searchTerm) {
-    const s = searchTerm.toLowerCase();
-    filtered = filtered.filter(i => i.customerName.toLowerCase().includes(s) || i.name.toLowerCase().includes(s) || i.serviceType.toLowerCase().includes(s));
+  const el = document.getElementById('page-workboard'); if (!el) return;
+  const S = buildSchedule(), today = S.today;
+  const act = i => i.status === 'due' || i.status === 'late';
+  // where each item already sits on a route that isn't done
+  const onRoute = {};
+  STATE.routes.forEach(rt => (rt.stops || []).forEach(st => {
+    if (st.status === 'completed' || !rt.date) return;
+    (st.items || [{ code:st.code, period:st.period }]).forEach(it => { const k = st.customerId + '|' + it.code; if (!onRoute[k] || rt.date < onRoute[k]) onRoute[k] = rt.date; });
+  }));
+  const soonCut = addDays(today, 14);
+  const ponds = wbPondAlerts();
+  const todayRoutes = STATE.routes.filter(rt => rt.date === today);
+  const tabItems = t => t.key === 'late' ? S.items.filter(i => i.status === 'late') : t.test ? S.items.filter(t.test) : [];
+  const countOf = t => t.key === 'today' ? todayRoutes.reduce((n, rt) => n + (rt.stops || []).filter(st => st.status !== 'completed').length, 0)
+    : t.key === 'ponds' ? ponds.length
+    : tabItems(t).filter(act).length + (t.key === 'late' ? ponds.filter(a => a.status === 'overdue').length : 0);
+  const q = (searchTerm || '').toLowerCase();
+  const match = i => !q || (i.name + ' ' + (i.city || '') + ' ' + (i.label || '') + ' ' + codeShort(i.code)).toLowerCase().includes(q);
+  const row = i => {
+    const r = onRoute[i.cid + '|' + i.code];
+    const color = i.status === 'late' ? 'var(--overdue)' : i.status === 'due' ? 'var(--accent)' : 'var(--border)';
+    const showSq = i.sqft && (/^\d/.test(i.code) || i.code === 'LIME' || i.code === 'SEED');
+    return `<div class="card" style="padding:10px 12px;border-left:3px solid ${color}">
+      <div class="flex-row gap-10" style="align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          <div class="flex-row gap-6" style="flex-wrap:wrap"><span style="font-weight:700;font-size:14px;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border)" onclick="detailCustomerId='${i.cid}';navigateTo('customers');detailCustomerId='${i.cid}';renderCustomers()">${escHtml(i.name)}</span>${schedBadge(i.status)}</div>
+          <div style="font-size:12px;color:var(--text-dim)">${escHtml(i.city || '')}${i.city ? ' · ' : ''}${escHtml(i.label || codeShort(i.code))}${showSq ? ' · ' + Number(i.sqft).toLocaleString() + ' sq ft' : ''}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${schedWhen(i)}${i.needBy && act(i) ? ` · <span style="color:var(--warn)">do by ${fmtDate(i.needBy)} so ${escHtml(i.needFor || 'the next round')} fits</span>` : ''}${i.withRd7 ? ' · goes on with Rd 7' : ''}${r ? ` · <span style="color:var(--accent)">on the ${fmtDate(r)} route</span>` : ''}</div>
+        </div>
+        <div class="flex-row gap-6" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+          ${act(i) && loggableCode(i.code) ? lppLogBtn(i.name, i.code) : ''}
+          ${act(i) && i.manual && !loggableCode(i.code) ? `<button class="btn success sm" onclick="schedMarkDone('${i.cid}','${i.period}:${i.code}')">Mark done</button>` : ''}
+        </div>
+      </div></div>`;
+  };
+  // late first, then due (soonest do-by / window end first), grouped by town so nearby work sits together;
+  // then what opens in the next 2 weeks
+  const ord = (a, b) => (a.needBy || a.end || '').localeCompare(b.needBy || b.end || '') || (a.city || '').localeCompare(b.city || '') || a.name.localeCompare(b.name);
+  const sections = list => {
+    const late = list.filter(i => i.status === 'late').sort(ord);
+    const due = list.filter(i => i.status === 'due' || i.status === 'consider').sort(ord);
+    const soon = list.filter(i => (i.status === 'soon' || i.status === 'later') && (i.avail || i.start || '') <= soonCut)
+      .sort((a, b) => (a.avail || '').localeCompare(b.avail || '') || ord(a, b));
+    let h = '';
+    if (late.length) h += `<div class="section-label" style="color:var(--overdue)">⚠ Late (${late.length})</div>${late.map(row).join('')}`;
+    if (due.length) h += `<div class="section-label" style="color:var(--accent)">● Due now (${due.length})</div>${due.map(row).join('')}`;
+    if (soon.length) h += `<div class="section-label" style="color:var(--text-muted)">Opening in the next 2 weeks (${soon.length})</div>${soon.map(row).join('')}`;
+    return h || `<div class="card"><p style="color:var(--text-dim);margin:0">${q ? 'Nothing matches the search.' : 'Nothing due here right now.'}</p></div>`;
+  };
+  let body = '';
+  const tab = WB_TABS.find(t => t.key === wbTab) || WB_TABS[0];
+  if (tab.key === 'today') {
+    body = todayRoutes.length ? todayRoutes.map(rt => {
+      const left = (rt.stops || []).filter(st => st.status !== 'completed').length;
+      const stops = (rt.stops || []).filter(st => !q || (st.customerName || '').toLowerCase().includes(q));
+      return `<div class="card clickable" onclick="navigateTo('routes')" style="border-left:3px solid var(--accent)">
+        <div class="flex-between"><div style="font-weight:700;font-size:14px">${escHtml(rt.name)}</div><span class="badge" style="background:var(--accent-dim);color:var(--accent)">${left} of ${(rt.stops || []).length} left</span></div>
+        ${stops.map((st, k) => `<div style="font-size:13px;padding:5px 0;border-top:1px solid var(--border);${st.status === 'completed' ? 'color:var(--text-muted);text-decoration:line-through' : ''}">${k + 1}. ${escHtml(st.customerName)} <span style="color:var(--text-dim)">· ${escHtml(st.roundName || codeShort(st.code))}${st.eta ? ' · ' + st.eta : ''}</span></div>`).join('')}
+      </div>`;
+    }).join('')
+      : `<div class="card"><p style="margin:0 0 8px;color:var(--text-dim)">No route for today.</p><button class="btn secondary sm" onclick="navigateTo('schedule')">Plan days of work</button></div>`;
+    const lateAll = S.items.filter(i => i.status === 'late' && match(i)).sort(ord);
+    if (lateAll.length) body += `<div class="section-label" style="color:var(--overdue)">⚠ Late anywhere (${lateAll.length})</div>${lateAll.slice(0, 10).map(row).join('')}${lateAll.length > 10 ? `<div style="font-size:12px;color:var(--text-dim)">…and ${lateAll.length - 10} more on the Late tab.</div>` : ''}`;
+  } else if (tab.key === 'ponds') {
+    const list = ponds.filter(a => !q || a.pond.name.toLowerCase().includes(q));
+    body = list.length ? list.map(wbPondHtml).join('') : '<div class="card"><p style="color:var(--text-dim);margin:0">No pond visits due.</p></div>';
+  } else {
+    const op = tab.key === 'late' ? ponds.filter(a => a.status === 'overdue') : [];
+    const list = tabItems(tab).filter(match);
+    body = list.length || !op.length ? sections(list) : '';
+    if (tab.key === 'late') {
+      if (op.length) body += `<div class="section-label" style="color:var(--overdue)">🌊 Ponds overdue (${op.length})</div>${op.map(wbPondHtml).join('')}`;
+    }
   }
-
-  const overdueItems = filtered.filter(i => i.overdue);
-  const dueItems = filtered.filter(i => i.due && !i.overdue);
-  const upcomingItems = filtered.filter(i => i.upcoming);
-
-  // Per-service stats
-  const svcStats = {};
-  SERVICE_TYPES.forEach(s => { svcStats[s] = { total: 0, completed: 0, pending: 0 }; });
-  STATE.customerPrograms.forEach(cp => {
-    cp.rounds.forEach(r => {
-      if (svcStats[r.serviceType]) {
-        svcStats[r.serviceType].total++;
-        if (r.status === 'completed') svcStats[r.serviceType].completed++;
-        else if (r.status === 'pending') svcStats[r.serviceType].pending++;
-      }
-    });
-  });
-
-  document.getElementById('page-workboard').innerHTML = `
+  const nLate = S.items.filter(i => i.status === 'late').length, nDue = S.items.filter(i => i.status === 'due').length;
+  el.innerHTML = `
     <h1>Work Board</h1>
     <div class="stat-row">
-      <div class="stat-box"><div class="label">Overdue</div><div class="value" style="color:var(--overdue)">${items.filter(i=>i.overdue).length}</div></div>
-      <div class="stat-box"><div class="label">Due Now</div><div class="value" style="color:var(--accent)">${items.filter(i=>i.due).length}</div></div>
-      <div class="stat-box"><div class="label">Upcoming</div><div class="value" style="color:var(--text-dim)">${items.filter(i=>i.upcoming).length}</div></div>
+      <div class="stat-box clickable" onclick="wbSetTab('late')"><div class="label">Late</div><div class="value" style="color:var(--overdue)">${nLate}</div></div>
+      <div class="stat-box"><div class="label">Due now</div><div class="value" style="color:var(--accent)">${nDue}</div></div>
+      <div class="stat-box clickable" onclick="wbSetTab('today')"><div class="label">Today's stops</div><div class="value">${countOf(WB_TABS[0])}</div></div>
       <div class="stat-box"><div class="label">Customers</div><div class="value">${STATE.customers.filter(c => !isInactive(custIdStr(c))).length}</div></div>
     </div>
-    ${(()=>{
-      const pondAlerts = [];
-      STATE.ponds.forEach(p => {
-        if (p.active === false) return;
-        const freq = p.visitFreqDays || 14;
-        const visits = STATE.pondVisits.filter(v => v.pondId === p.id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
-        const lastVisit = visits[0];
-        let status = '';
-        if (!lastVisit) { status = 'overdue'; }
-        else {
-          const daysSince = Math.floor((new Date() - new Date(lastVisit.date)) / 86400000);
-          if (daysSince >= freq + 3) status = 'overdue';
-          else if (daysSince >= freq - 2) status = 'due';
-        }
-        if (status) pondAlerts.push({ pond: p, status, lastVisit });
-      });
-      if (!pondAlerts.length) return '';
-      return '<div class="section-label" style="color:' + (pondAlerts.some(a=>a.status==='overdue') ? 'var(--overdue)' : 'var(--accent)') + '">🌊 Pond Visits (' + pondAlerts.length + ')</div>' +
-        pondAlerts.map(a => '<div class="card clickable" onclick="pondDetailId=\'' + a.pond.id + '\';navigateTo(\'ponds\')" style="border-left:3px solid ' + (a.status==='overdue'?'var(--overdue)':'var(--accent)') + '"><div class="flex-row gap-10"><div style="font-size:20px">🌊</div><div style="flex:1"><div style="font-weight:700;font-size:14px">' + escHtml(a.pond.name) + '</div><div style="font-size:12px;color:var(--text-dim)">' + (a.lastVisit ? 'Last visit: ' + fmtDate(a.lastVisit.date) : 'No visits yet') + '</div></div><span class="badge" style="background:' + (a.status==='overdue'?'var(--danger-bg);color:var(--overdue)':'var(--accent-dim);color:var(--accent)') + '">' + (a.status==='overdue'?'Overdue':'Due Soon') + '</span></div></div>').join('');
-    })()}
-    <div class="search-bar"><input placeholder="Filter by customer, round, service..." value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderWorkboard()"></div>
-    <div class="filter-pills">
-      <button class="${filterService==='all'?'active':''}" onclick="filterService='all';renderWorkboard()">All</button>
-      ${SERVICE_TYPES.filter(s => svcStats[s].total > 0).map(s => {
-        const st = svcStats[s];
-        return `<button class="${filterService===s?'active':''}" onclick="filterService='${s}';renderWorkboard()">${s} <span style="opacity:.7;font-size:9px">${st.completed}/${st.total}</span></button>`;
-      }).join('')}
+    <div class="filter-pills" style="flex-wrap:wrap">
+      ${WB_TABS.map(t => { const n = countOf(t); return `<button class="${wbTab === t.key ? 'active' : ''}" onclick="wbSetTab('${t.key}')">${t.icon} ${t.label}${n ? ` <span style="opacity:.75;font-size:10px">${n}</span>` : ''}</button>`; }).join('')}
     </div>
-    ${overdueItems.length ? `<div class="section-label" style="color:var(--overdue)">⚠ Overdue (${overdueItems.length})</div>${overdueItems.map(i => workCardHtml(i,'overdue')).join('')}` : ''}
-    ${dueItems.length ? `<div class="section-label" style="color:var(--accent)">● Due Now (${dueItems.length})</div>${dueItems.map(i => workCardHtml(i,'due')).join('')}` : ''}
-    ${upcomingItems.length ? `<div class="section-label" style="color:var(--text-muted)">Upcoming (${upcomingItems.length})</div>${upcomingItems.slice(0,30).map(i => workCardHtml(i,'')).join('')}` : ''}
-    ${filtered.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">No pending work. Assign programs to customers to populate the work board.</p></div>' : ''}
-  `;
+    <div class="search-bar"><input id="wb-search" placeholder="Search customer, town or service…" value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderWorkboard();wbRefocus()"></div>
+    ${body}`;
 }
+// typing in the search re-draws the page; put the cursor back in the box
+function wbRefocus() { const e = document.getElementById('wb-search'); if (e) { e.focus(); e.setSelectionRange(e.value.length, e.value.length); } }
 
 function workCardHtml(item, statusClass) {
   return `
@@ -4118,7 +4171,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-i';
+var APP_BUILD = '2026-10-06-j';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
