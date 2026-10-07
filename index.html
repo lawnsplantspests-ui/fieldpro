@@ -987,16 +987,35 @@ const WB_TABS = [
 ];
 let wbTab = (() => { try { return localStorage.getItem('fieldpro_wb_tab') || 'today'; } catch(e) { return 'today'; } })();
 function wbSetTab(k) { wbTab = k; try { localStorage.setItem('fieldpro_wb_tab', k); } catch(e) {} renderWorkboard(); }
+// Pond visits are logged in the LPP Log as 'Aquatics - ...' under the pond's customer (Devon, Oct 6 2026);
+// FieldPro's own pond visit form (water tests) is the other source. The pond's customer = its linked customer,
+// else a customer with the pond's name (Spring Hill HOA).
+function pondCustomer(p) { return (p.customerId && custById(p.customerId)) || STATE.customers.find(c => nameKey(c.Name) === nameKey(p.name)) || null; }
+function pondLogDates(p) {
+  const c = pondCustomer(p); if (!c) return [];
+  const k = nameKey(c.Name), out = [];
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && /^Aquatics/i.test(e.s)) out.push(e.d); }));
+  return [...new Set(out)].sort();
+}
+function pondLastDate(p) {
+  const fv = STATE.pondVisits.filter(v => v.pondId === p.id).map(v => (v.date || '').slice(0, 10)).sort().pop() || '';
+  const lv = pondLogDates(p).pop() || '';
+  return fv > lv ? { date:fv, src:'visit' } : lv ? { date:lv, src:'log' } : null;
+}
+function lppLogBtnAq(name) {
+  const u = LPP_LOG_APP + '?' + new URLSearchParams({ c:name, pfx:'Aquatics' }).toString();
+  return `<div style="margin-top:6px"><button class="btn secondary sm" data-url="${escHtml(u)}" onclick="window.open(this.dataset.url,'_blank')">📋 Log a treatment</button></div>`;
+}
 function wbPondAlerts() {
   const out = [];
   STATE.ponds.forEach(p => {
     if (p.active === false) return;
     const freq = p.visitFreqDays || 14;
-    const lastVisit = STATE.pondVisits.filter(v => v.pondId === p.id).sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+    const last = pondLastDate(p), lastVisit = last ? { date:last.date, src:last.src } : null;
     let status = '', days = null;
     if (!lastVisit) status = 'overdue';
     else {
-      days = Math.floor((new Date() - new Date(lastVisit.date)) / 86400000);
+      days = daysBetween(lastVisit.date, schedToday());
       if (days >= freq + 3) status = 'overdue'; else if (days >= freq - 2) status = 'due';
     }
     if (status) out.push({ pond:p, status, lastVisit, days });
@@ -1006,7 +1025,7 @@ function wbPondAlerts() {
 function wbPondHtml(a) {
   return `<div class="card clickable" onclick="pondDetailId='${a.pond.id}';navigateTo('ponds')" style="border-left:3px solid ${a.status === 'overdue' ? 'var(--overdue)' : 'var(--accent)'}">
     <div style="font-weight:700;font-size:14px">🌊 ${escHtml(a.pond.name)}</div>
-    <div style="font-size:12px;color:var(--text-dim)">${escHtml(a.pond.location || '')} · ${a.lastVisit ? 'last visit ' + fmtDate(a.lastVisit.date) + ' (' + a.days + ' days ago)' : 'no visits yet'}</div></div>`;
+    <div style="font-size:12px;color:var(--text-dim)">${escHtml(a.pond.location || '')} · ${a.lastVisit ? 'last visit ' + fmtDate(a.lastVisit.date) + ' (' + a.days + ' days ago' + (a.lastVisit.src === 'log' ? ', LPP Log' : '') + ')' : 'no visits yet'}</div></div>`;
 }
 function renderWorkboard() {
   const el = document.getElementById('page-workboard'); if (!el) return;
@@ -4252,7 +4271,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-l';
+var APP_BUILD = '2026-10-06-m';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -6247,7 +6266,8 @@ function renderPonds() {
     </div>
     ${STATE.ponds.map(p => {
       const visits = STATE.pondVisits.filter(v => v.pondId === p.id);
-      const lastVisit = visits.sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+      const lastVisit = visits.sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];   // water test readings
+      const last = pondLastDate(p), nLog = pondLogDates(p).length;
       return `
         <div class="card clickable" onclick="pondDetailId='${p.id}';renderPonds()">
           <div class="flex-row gap-10">
@@ -6255,14 +6275,12 @@ function renderPonds() {
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;font-size:14px">${escHtml(p.name)}</div>
               <div style="font-size:12px;color:var(--text-dim)">${escHtml(p.location||'')} · ${p.sizeAcres ? p.sizeAcres + ' acres' : 'Size not set'}</div>
-              <div style="font-size:11px;color:var(--text-muted)">${visits.length} visits${lastVisit ? ' · Last: ' + fmtDate(lastVisit.date) : ''}${p.active===false ? ' · <span style="color:var(--text-muted)">Inactive</span>' : ''}</div>
+              <div style="font-size:11px;color:var(--text-muted)">${nLog} logged in the LPP Log${visits.length ? ' · ' + visits.length + ' water tests' : ''}${last ? ' · Last: ' + fmtDate(last.date) : ''}${p.active===false ? ' · <span style="color:var(--text-muted)">Inactive</span>' : ''}</div>
               ${(()=>{
                 if (p.active === false) return '';
                 const freq = p.visitFreqDays || 14;
-                if (!lastVisit) return '<span class="badge" style="background:var(--danger-bg);color:var(--overdue);font-size:9px">No visits yet</span>';
-                const lastDate = new Date(lastVisit.date);
-                const now = new Date();
-                const daysSince = Math.floor((now - lastDate) / 86400000);
+                if (!last) return '<span class="badge" style="background:var(--danger-bg);color:var(--overdue);font-size:9px">No visits yet</span>';
+                const daysSince = daysBetween(last.date, schedToday());
                 if (daysSince >= freq + 3) return '<span class="badge" style="background:var(--danger-bg);color:var(--overdue);font-size:9px">Overdue (' + daysSince + 'd)</span>';
                 if (daysSince >= freq - 2) return '<span class="badge" style="background:var(--accent-dim);color:var(--accent);font-size:9px">Due soon</span>';
                 return '<span class="badge" style="background:var(--bg-input);color:var(--text-muted);font-size:9px">' + (freq - daysSince) + 'd until next</span>';
@@ -6310,6 +6328,14 @@ function renderPondDetail(el) {
     </div>
 
     ${p.notes ? `<div class="card mb-16"><div style="font-size:13px;color:var(--text-dim)"><strong style="color:var(--text)">Notes:</strong> ${escHtml(p.notes)}</div></div>` : ''}
+    ${(() => {
+      // treatments logged in the LPP Log (Aquatics) for this pond's customer, newest first
+      const pc = pondCustomer(p); if (!pc) return '<div class="card mb-16" style="font-size:12px;color:var(--warn)">Not linked to a customer, so treatments in the LPP Log cannot be found. Edit the pond and pick its customer.</div>';
+      const k = nameKey(pc.Name), es = [];
+      Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.k === k && /^Aquatics/i.test(e.s)) es.push(e); }));
+      es.sort((x, y) => y.d.localeCompare(x.d));
+      return `<div class="card mb-16"><div style="font-weight:700;font-size:13px;margin-bottom:4px">Treatments in the LPP Log (${es.length})</div>${es.length ? es.map(e => `<div style="font-size:12px;color:var(--text-dim);padding:3px 0;border-top:1px solid var(--border);cursor:pointer" onclick="histGo('${e.d}');navigateTo('history')">${fmtDate(e.d)} · ${escHtml(e.s.replace(/^Aquatics\s*-\s*/i, ''))}</div>`).join('') : '<div style="font-size:12px;color:var(--text-muted)">None this year or last.</div>'}${lppLogBtnAq(pc.Name)}</div>`;
+    })()}
 
     <!-- Trend Charts -->
     ${chartVisits.length >= 2 ? `
