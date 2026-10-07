@@ -407,6 +407,8 @@ a.btn{text-decoration:none}
   .eq-part-pn{grid-column:1/-1}
   .eq-split{grid-template-columns:1fr}
 }
+/* phone: a stop's buttons go on their own line so the customer's name has room */
+@media (max-width: 600px) { .stop-card { flex-wrap: wrap; } .stop-card .stop-btns { width: 100%; justify-content: flex-start !important; padding-left: 34px; } }
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2384,37 +2386,59 @@ function renderRoutes() {
     renderRouteDetail(el);
     return;
   }
-
+  // Today / Upcoming / Past, each with its own delete; past days fold away and can be cleared in one go
+  const today = schedToday();
+  const sorted = STATE.routes.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const todays = sorted.filter(r => r.date === today), upcoming = sorted.filter(r => (r.date || '') > today), past = sorted.filter(r => r.date && r.date < today).reverse();
+  const card = rt => {
+    const completed = rt.stops?.filter(s => s.status === 'completed').length || 0;
+    const total = rt.stops?.length || 0;
+    const allDone = completed === total && total > 0;
+    const isToday = rt.date === today;
+    return `
+      <div class="card clickable" onclick="detailRouteId='${rt.id}';renderRoutes()">
+        <div class="flex-row gap-10">
+          <div style="width:40px;height:40px;border-radius:8px;background:${allDone ? 'var(--accent-dim)' : isToday ? 'var(--warn-bg)' : 'var(--bg-input)'};color:${allDone ? 'var(--accent)' : isToday ? 'var(--warn)' : 'var(--text-dim)'};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0">
+            ${allDone ? '✓' : completed > 0 ? completed + '/' + total : total}
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px">${escHtml(rt.name || fmtDateFull(rt.date))}</div>
+            <div style="font-size:12px;color:var(--text-dim)">${total} stops${rt.backHome ? ' · home by ' + escHtml(rt.backHome) : ''}${isToday ? ' · Today' : ''}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)">${fmtDate(rt.date)}</div>
+            <span class="badge" style="background:${allDone ? 'var(--accent-dim)' : completed > 0 ? 'var(--warn-bg)' : 'var(--bg-input)'};color:${allDone ? 'var(--accent)' : completed > 0 ? 'var(--warn)' : 'var(--text-dim)'}">${allDone ? 'Done' : completed > 0 ? 'In progress' : 'Planned'}</span>
+          </div>
+          <button class="btn ghost sm" style="color:var(--danger);flex-shrink:0" title="Delete this route" onclick="event.stopPropagation();deleteRoute('${rt.id}')">🗑</button>
+        </div>
+      </div>`;
+  };
+  const pastLeft = past.reduce((n, r) => n + (r.stops || []).filter(s => s.status !== 'completed').length, 0);
   el.innerHTML = `
     <div class="flex-between mb-16">
       <h1 style="margin:0">Routes</h1>
-      <button class="btn primary" onclick="showBuildRoute()">+ Build Route</button>
+      <div class="flex-row gap-6"><button class="btn secondary sm" onclick="navigateTo('schedule')">Plan days of work</button><button class="btn primary sm" onclick="showBuildRoute()">+ Build Route</button></div>
     </div>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">Plan your daily routes. Select due work, optimize the order, then work the route.</p>
-    ${STATE.routes.sort((a,b) => (a.date||'').localeCompare(b.date||'')).map(rt => {
-      const completed = rt.stops?.filter(s => s.status === 'completed').length || 0;
-      const total = rt.stops?.length || 0;
-      const allDone = completed === total && total > 0;
-      return `
-        <div class="card clickable" onclick="detailRouteId='${rt.id}';renderRoutes()">
-          <div class="flex-row gap-10">
-            <div style="width:40px;height:40px;border-radius:8px;background:${allDone ? 'var(--accent-dim)' : rt.date===todayStr() ? 'var(--warn-bg)' : 'var(--bg-input)'};color:${allDone ? 'var(--accent)' : rt.date===todayStr() ? 'var(--warn)' : 'var(--text-dim)'};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0">
-              ${allDone ? '✓' : completed > 0 ? completed + '/' + total : total}
-            </div>
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:14px">${escHtml(rt.name || fmtDateFull(rt.date))}</div>
-              <div style="font-size:12px;color:var(--text-dim)">${total} stops · ${escHtml(rt.serviceFilter||'Mixed')}${rt.date === todayStr() ? ' · Today' : ''}</div>
-            </div>
-            <div style="text-align:right">
-              <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)">${fmtDate(rt.date)}</div>
-              <span class="badge" style="background:${allDone ? 'var(--accent-dim)' : completed > 0 ? 'var(--warn-bg)' : 'var(--bg-input)'};color:${allDone ? 'var(--accent)' : completed > 0 ? 'var(--warn)' : 'var(--text-dim)'}">${allDone ? 'Done' : completed > 0 ? 'In Progress' : 'Planned'}</span>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('')}
-    ${STATE.routes.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">No routes yet. Click "Build Route" to plan your day.</p></div>' : ''}
+    ${todays.length ? `<div class="section-label" style="color:var(--warn)">Today</div>${todays.map(card).join('')}` : ''}
+    <div class="section-label">Upcoming (${upcoming.length})</div>
+    ${upcoming.length ? upcoming.map(card).join('') : '<div class="card"><p style="color:var(--text-dim);margin:0">No upcoming routes. Plan days of work from the Schedule.</p></div>'}
+    ${past.length ? `
+      <div class="flex-between" style="margin-top:14px"><div class="section-label" style="margin:0">Past (${past.length})</div>
+        <span class="flex-row gap-6"><button class="btn ghost sm" onclick="routesShowPast=!routesShowPast;renderRoutes()">${routesShowPast ? 'Hide' : 'Show'}</button><button class="btn ghost sm" style="color:var(--danger)" onclick="deletePastRoutes()">Delete all past</button></span></div>
+      ${pastLeft ? `<div style="font-size:12px;color:var(--text-dim);margin:4px 0 6px">${pastLeft} stop${pastLeft === 1 ? '' : 's'} on past days were never done. They are still on the Schedule, so planning again picks them up.</div>` : ''}
+      ${routesShowPast ? past.map(card).join('') : ''}` : ''}
+    ${STATE.routes.length === 0 ? '<div class="card"><p style="color:var(--text-dim)">No routes yet. Plan days of work from the Schedule, or Build Route.</p></div>' : ''}
   `;
+}
+let routesShowPast = false;
+function deletePastRoutes() {
+  const today = schedToday(), past = STATE.routes.filter(r => r.date && r.date < today);
+  if (!past.length) return;
+  if (!confirm('Delete ' + past.length + ' past route' + (past.length === 1 ? '' : 's') + '?\n\nWork that was logged stays in the LPP Log, and anything not done is still on the Schedule.')) return;
+  const ids = new Set(past.map(r => r.id));
+  STATE.routes = STATE.routes.filter(r => !ids.has(r.id));
+  saveState();
+  renderRoutes();
 }
 
 function renderRouteDetail(el) {
@@ -2436,7 +2460,8 @@ function renderRouteDetail(el) {
         <button class="btn primary sm" onclick="openInAppleMaps('${rt.id}')">🗺️ Maps</button>
         <button class="btn secondary sm" onclick="showCallAhead('route','${rt.id}')">💬 Texts</button>
         <button class="btn secondary sm" onclick="reorderRoute('${rt.id}')">📍 Order by distance</button>
-        <button class="btn secondary sm" onclick="showEditRoute('${rt.id}')">✏️ Edit</button>
+        <button class="btn secondary sm" onclick="routeAddStop('${rt.id}')">＋ Add stop</button>
+        <button class="btn secondary sm" onclick="showEditRoute('${rt.id}')">✏️ Name / date</button>
         <button class="btn danger sm" onclick="deleteRoute('${rt.id}')">Delete</button>
       </div>
     </div>
@@ -2454,10 +2479,11 @@ function renderRouteDetail(el) {
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.viaLog ? '✓ logged ' + fmtDate(s.completedDate) + ' · ' : ''}${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
           ${stopTimeHtml(rt, s)}${stopUnloggedHtml(rt, s)}
         </div>
-        <div class="flex-row gap-6" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+        <div class="flex-row gap-6 stop-btns" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
           ${(s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)) : stopUnlogged(rt, s)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('')}
           ${s.status !== 'completed' ? smsStopBtn(rt.id, i, s) : ''}
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
+          ${s.status !== 'completed' ? `<button class="btn ghost sm" onclick="routeMoveStop('${rt.id}',${i})" title="Move to another day">↪ Move</button>` : ''}
           <button class="btn ghost sm" onclick="removeRouteStop('${rt.id}',${i})" style="color:var(--danger)" title="Remove stop">✕</button>
         </div>
       </div>
@@ -2625,6 +2651,61 @@ function deleteRoute(id) {
   saveState();
   detailRouteId = null;
   renderRoutes();
+}
+
+// ── changing a route: move a stop to another day, add a stop from what is due ──
+function routeMoveStop(routeId, idx) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt || !rt.stops[idx]) return;
+  const st = rt.stops[idx], today = schedToday();
+  const others = STATE.routes.filter(r => r.id !== routeId && (r.date || '') >= today).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  showModal('Move ' + escHtml(st.customerName), `
+    <div style="font-size:13px;color:var(--text-dim);margin-bottom:10px">${escHtml(st.roundName || codeShort(st.code))}</div>
+    ${others.length ? `<div class="section-label" style="margin-top:0">To another route</div>${others.map(r => `<button class="btn secondary" style="width:100%;margin-bottom:6px;justify-content:space-between;display:flex" onclick="routeMoveStopTo('${routeId}',${idx},'${r.id}')"><span>${escHtml(r.name || fmtDateFull(r.date))}</span><span style="color:var(--text-dim)">${(r.stops || []).length} stops</span></button>`).join('')}` : ''}
+    <div class="section-label">To a new day</div>
+    <div class="flex-row gap-6" style="align-items:flex-end">
+      <div class="input-group" style="margin:0;flex:1"><label>Date</label><input type="date" id="mv-date" value="${addDays(rt.date && rt.date >= today ? rt.date : today, 1)}"></div>
+      <button class="btn primary" onclick="routeMoveStopTo('${routeId}',${idx},null,document.getElementById('mv-date').value)">Move</button>
+    </div>`);
+}
+function routeMoveStopTo(routeId, idx, targetId, date) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt || !rt.stops[idx]) return;
+  let target = targetId ? STATE.routes.find(r => r.id === targetId) : STATE.routes.find(r => r.id !== routeId && r.date === date);
+  if (!target) {
+    if (!date) { alert('Pick a date.'); return; }
+    target = { id:uid(), name:fmtDate(date) + ' — planned day', date, serviceFilter:'Mixed', createdAt:todayStr(), planned:true, stops:[] };
+    STATE.routes.push(target);
+  }
+  const [st] = rt.stops.splice(idx, 1);
+  st.eta = ''; st.driveMin = null;   // the times belonged to the old day
+  target.stops.push(st);
+  if (rt.planned && !rt.stops.length) STATE.routes = STATE.routes.filter(r => r.id !== rt.id);   // an emptied planned day goes away
+  saveState(); closeModal();
+  if (!STATE.routes.some(r => r.id === routeId)) detailRouteId = null;
+  renderRoutes();
+}
+let routeAddQuery = '';
+function routeAddStop(routeId) { routeAddQuery = ''; showModal('Add a stop', '<div id="ras-body"></div>', true); routeAddRender(routeId); }
+function routeAddRender(routeId) {
+  const rt = STATE.routes.find(r => r.id === routeId), box = document.getElementById('ras-body'); if (!rt || !box) return;
+  const have = new Set((rt.stops || []).flatMap(s => (s.items || [{ code:s.code }]).map(it => s.customerId + '|' + it.code)));
+  const q = routeAddQuery.toLowerCase();
+  const order = { late:0, due:1, consider:2, soon:3, later:4 };
+  const list = buildSchedule().items.filter(i => !have.has(i.cid + '|' + i.code) && (!q || (i.name + ' ' + (i.city || '') + ' ' + (i.label || '')).toLowerCase().includes(q)))
+    .sort((a, b) => order[a.status] - order[b.status] || (a.city || '').localeCompare(b.city || '') || a.name.localeCompare(b.name)).slice(0, 40);
+  box.innerHTML = `
+    <div class="search-bar" style="margin-bottom:8px"><input id="ras-q" placeholder="Search customer, town or service…" value="${escHtml(routeAddQuery)}" oninput="routeAddQuery=this.value;routeAddRender('${routeId}');const e=document.getElementById('ras-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}"></div>
+    ${list.length ? list.map(i => `<div class="card clickable" style="padding:8px 10px" onclick="routeAddItem('${routeId}','${i.cid}','${i.code}','${i.period}')">
+      <div class="flex-row gap-6" style="flex-wrap:wrap"><strong style="font-size:13px">${escHtml(i.name)}</strong>${schedBadge(i.status)}</div>
+      <div style="font-size:12px;color:var(--text-dim)">${escHtml(i.city || '')}${i.city ? ' · ' : ''}${escHtml(i.label || codeShort(i.code))}</div></div>`).join('') : '<p style="color:var(--text-dim)">Nothing matches.</p>'}`;
+}
+function routeAddItem(routeId, cid, code, period) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt) return;
+  const i = buildSchedule().items.find(x => x.cid === cid && x.code === code && String(x.period) === String(period)); if (!i) return;
+  const it = { code:i.code, period:i.period, manual:!!i.manual };
+  const same = (rt.stops || []).find(s => String(s.customerId) === String(cid) && s.status !== 'completed');
+  if (same) { same.items = (same.items || [{ code:same.code, period:same.period }]).concat(it); same.roundName = (same.roundName ? same.roundName + ' + ' : '') + i.label; }
+  else rt.stops.push({ customerId:i.cid, customerName:i.name, address:i.addr, cpId:null, roundIdx:null, roundName:i.label, serviceType:i.svc, status:'pending', code:i.code, period:i.period, items:[it] });
+  saveState(); closeModal(); renderRoutes();
 }
 
 function removeRouteStop(routeId, stopIdx) {
@@ -4171,7 +4252,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-j';
+var APP_BUILD = '2026-10-06-k';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
