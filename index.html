@@ -3596,7 +3596,7 @@ const SCHED_STATUS = {
 };
 function schedBadge(st) { const s = SCHED_STATUS[st] || SCHED_STATUS.later; return `<span class="badge" style="background:${s.bg};color:${s.fg}">${s.text}</span>`; }
 function schedWhen(r) {
-  if (r.status === 'done') return 'Done ' + fmtDate(r.doneOn);
+  if (r.status === 'done') return 'Done ' + (/^\d{4}$/.test(String(r.doneOn)) ? 'in ' + r.doneOn : fmtDate(r.doneOn));   // a year only: done that year, date not recorded
   if (r.status === 'soon' || r.status === 'later') return 'Opens ' + fmtDate(r.avail) + ' · through ' + fmtDate(r.end);
   if (r.status === 'skipped') return 'Skipped for ' + r.period;
   return 'Window ' + fmtDate(r.start) + ' – ' + fmtDate(r.end) + (r.avail > r.start && ['due','late','consider'].includes(r.status) ? ' · open from ' + fmtDate(r.avail) : '');
@@ -4274,7 +4274,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-07-c';
+var APP_BUILD = '2026-10-07-d';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
