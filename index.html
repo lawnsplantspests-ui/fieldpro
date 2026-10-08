@@ -2476,7 +2476,7 @@ function renderRouteDetail(el) {
         ${routeTimeSummary(rt)}
       </div>
       <div class="flex-row gap-6" style="flex-wrap:wrap">
-        <button class="btn primary sm" onclick="openInAppleMaps('${rt.id}')">🗺️ Maps</button>
+        ${routeMapsButtons(rt)}
         <button class="btn secondary sm" onclick="showCallAhead('route','${rt.id}')">💬 Texts</button>
         <button class="btn secondary sm" onclick="reorderRoute('${rt.id}')">📍 Order by distance</button>
         <button class="btn secondary sm" onclick="routeAddStop('${rt.id}')">＋ Add stop</button>
@@ -2502,6 +2502,7 @@ function renderRouteDetail(el) {
           ${(s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)) : stopUnlogged(rt, s)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('')}
           ${s.status !== 'completed' ? smsStopBtn(rt.id, i, s) : ''}
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
+          ${s.status !== 'completed' && appleMapsUrl(s) ? `<a class="btn ghost sm" href="${escHtml(appleMapsUrl(s))}" target="_blank" rel="noopener" title="Apple Maps directions">🧭</a>` : ''}
           ${s.status !== 'completed' ? `<button class="btn ghost sm" onclick="routeMoveStop('${rt.id}',${i})" title="Move to another day">↪ Move</button>` : ''}
           <button class="btn ghost sm" onclick="removeRouteStop('${rt.id}',${i})" style="color:var(--danger)" title="Remove stop">✕</button>
         </div>
@@ -2771,38 +2772,27 @@ function saveEditRoute(routeId) {
   renderRoutes();
 }
 
+// ── Maps ── Apple Maps directions to one stop (it has no multi-stop link); the saved map pin is used when there is one,
+// so the directions go to the right driveway. These are plain links: iPhone blocks a window opened after waiting for
+// GPS (the old button did that, so it worked on the computer but not the phone).
+function stopDest(st) {
+  const pt = st.customerId != null ? custPoint(st.customerId) : null;
+  return pt ? pt.lat.toFixed(6) + ',' + pt.lng.toFixed(6) : String(st.address || '').trim();
+}
+function appleMapsUrl(st) { const d = stopDest(st); return d ? 'https://maps.apple.com/?daddr=' + encodeURIComponent(d) + '&dirflg=d' : ''; }
+function googleRouteUrl(stops) { const ds = stops.map(stopDest).filter(Boolean); return ds.length ? 'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=' + encodeURIComponent(ds[ds.length - 1]) + (ds.length > 1 ? '&waypoints=' + ds.slice(0, -1).slice(0, 9).map(encodeURIComponent).join('%7C') : '') : ''; }
+function routeMapsButtons(rt) {
+  const pending = (rt.stops || []).filter(st => st.status !== 'completed');
+  const next = pending.find(st => stopDest(st));
+  const a = next ? `<a class="btn primary sm" href="${escHtml(appleMapsUrl(next))}" target="_blank" rel="noopener" title="Apple Maps directions to ${escHtml(next.customerName)}">🗺️ Next stop</a>` : '';
+  const g = googleRouteUrl(pending);
+  return a + (g ? `<a class="btn secondary sm" href="${escHtml(g)}" target="_blank" rel="noopener" title="All stops left, in Google Maps (up to 10)">All stops (Google)</a>` : '');
+}
 function openInAppleMaps(routeId) {
   const rt = STATE.routes.find(r => r.id === routeId);
-  if (!rt || !rt.stops || rt.stops.length === 0) { alert('No stops in this route.'); return; }
-  // Get pending stops with addresses
-  const pendingStops = rt.stops.filter(s => s.status !== 'completed' && s.address && s.address.trim().length > 5);
-  if (pendingStops.length === 0) {
-    // Try all stops (including completed)
-    const allWithAddr = rt.stops.filter(s => s.address && s.address.trim().length > 5);
-    if (allWithAddr.length === 0) {
-      alert('No stops have addresses. Update customer addresses in the Customers tab first, then rebuild the route.');
-      return;
-    }
-    if (!confirm(allWithAddr.length + ' stops have addresses but all are completed. Open them in Maps anyway?')) return;
-    const url = 'https://www.google.com/maps/dir/' + allWithAddr.map(s => encodeURIComponent(s.address)).join('/');
-    window.open(url, '_blank');
-    return;
-  }
-  // Get current GPS location as start point, then open Maps
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(function(pos) {
-      const start = pos.coords.latitude + ',' + pos.coords.longitude;
-      const url = 'https://www.google.com/maps/dir/' + start + '/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
-      window.open(url, '_blank');
-    }, function() {
-      // GPS failed — open without start point
-      const url = 'https://www.google.com/maps/dir/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
-      window.open(url, '_blank');
-    }, { enableHighAccuracy: true, timeout: 5000 });
-  } else {
-    const url = 'https://www.google.com/maps/dir/' + pendingStops.map(s => encodeURIComponent(s.address)).join('/');
-    window.open(url, '_blank');
-  }
+  const next = rt && (rt.stops || []).find(st => st.status !== 'completed' && stopDest(st));
+  if (!next) { alert('No stop left with an address or map pin.'); return; }
+  location.href = appleMapsUrl(next);
 }
 
 // ── Quick Round Management ──
@@ -4015,7 +4005,8 @@ function wxEnsure() {
 
 // ══════════ TAP TO TEXT (call-ahead messages) ══════════
 // Opens the phone's own Messages app with the text already written. Nothing is sent from FieldPro: you read it and tap send there.
-const SMS_DEFAULT = 'Hey {name}. I have you scheduled for your {service} for {when}. Any questions let me know.';
+// Devon (Oct 7 2026): a blank line after the greeting - "Hey John!" then the message
+const SMS_DEFAULT = 'Hey {name}!\n\nI have you scheduled for your {service} for {when}. Any questions let me know.';
 const SMS_TS_MIXED = 'tree and shrub round {n} treatment';
 const SMS_SERVICE = {
   '1':'round 1 fertilizer', '2A':'round 2 pre-emergent and weed control', '2B':'round 2 pre-emergent and weed control', '3':'round 3 weed and feed',
@@ -4075,13 +4066,13 @@ function showCallAhead(kind, key) {
       <div class="flex-between" style="gap:8px;flex-wrap:wrap"><div style="font-weight:700;font-size:13px">${r.sent ? '✓ ' : ''}${escHtml(c.Name || c.name)}</div>
         <div class="flex-row gap-6">${phone ? `<button class="btn primary sm" onclick="smsTap(${i})">💬 Text</button>` : '<span class="badge" style="background:var(--bg-input);color:var(--text-muted)">No phone</span>'}
         <button class="btn ghost sm" onclick="smsCopy(${i})">Copy</button></div></div>
-      <div style="font-size:12px;color:var(--text-dim);margin-top:4px">${escHtml(body)}</div></div>`;
+      <div style="font-size:12px;color:var(--text-dim);margin-top:4px;white-space:pre-line">${escHtml(body)}</div></div>`;
   }).join('');
   showModal('Call-ahead texts — ' + smsWhen(src.date), `
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Tap <strong>Text</strong> and your Messages app opens with this written. Read it, then send. Nothing is sent from here.</div>
     ${items || '<p style="color:var(--text-dim)">No stops.</p>'}
     <div class="section-label">Message</div>
-    <textarea id="sms-tpl" rows="3" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(tpl)}</textarea>
+    <textarea id="sms-tpl" rows="5" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(tpl)}</textarea>
     <div style="font-size:11px;color:var(--text-muted);margin:4px 0 10px">Use {name}, {service} and {when}.</div>
     <div class="flex-row gap-6" style="justify-content:flex-end"><button class="btn secondary" onclick="closeModal()">Close</button><button class="btn primary" onclick="smsSaveTemplate()">Save message</button></div>`, true);
 }
@@ -4271,7 +4262,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-06-m';
+var APP_BUILD = '2026-10-07-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
