@@ -2779,20 +2779,32 @@ function stopDest(st) {
   const pt = st.customerId != null ? custPoint(st.customerId) : null;
   return pt ? pt.lat.toFixed(6) + ',' + pt.lng.toFixed(6) : String(st.address || '').trim();
 }
-function appleMapsUrl(st) { const d = stopDest(st); return d ? 'https://maps.apple.com/?daddr=' + encodeURIComponent(d) + '&dirflg=d' : ''; }
+// Apple's unified Maps links (iOS 18.4+): /directions with a destination and repeated waypoint= for multistop routing;
+// the old ?daddr=lat,lng form stopped working with coordinates in iOS 18.4. Starts from where the phone is.
+const APPLE_MAX_STOPS = 15;   // what the Maps app takes in one route
+const amEnc = d => encodeURIComponent(d).replace(/%2C/gi, ',');   // keep commas, as in Apple's examples
+function appleMapsUrl(st) { const d = stopDest(st); return d ? 'https://maps.apple.com/directions?destination=' + amEnc(d) + '&mode=driving' : ''; }
+function appleRouteUrl(stops) {
+  const ds = stops.map(stopDest).filter(Boolean).slice(0, APPLE_MAX_STOPS);
+  if (!ds.length) return '';
+  return 'https://maps.apple.com/directions?' + ds.slice(0, -1).map(d => 'waypoint=' + amEnc(d) + '&').join('') + 'destination=' + amEnc(ds[ds.length - 1]) + '&mode=driving';
+}
 function googleRouteUrl(stops) { const ds = stops.map(stopDest).filter(Boolean); return ds.length ? 'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=' + encodeURIComponent(ds[ds.length - 1]) + (ds.length > 1 ? '&waypoints=' + ds.slice(0, -1).slice(0, 9).map(encodeURIComponent).join('%7C') : '') : ''; }
 function routeMapsButtons(rt) {
   const pending = (rt.stops || []).filter(st => st.status !== 'completed');
   const next = pending.find(st => stopDest(st));
-  const a = next ? `<a class="btn primary sm" href="${escHtml(appleMapsUrl(next))}" target="_blank" rel="noopener" title="Apple Maps directions to ${escHtml(next.customerName)}">🗺️ Next stop</a>` : '';
+  const withDest = pending.filter(st => stopDest(st));
+  const r = appleRouteUrl(withDest);
+  const route = r ? `<a class="btn primary sm" href="${escHtml(r)}" target="_blank" rel="noopener" title="All stops left, in this order, in Apple Maps">🗺️ Route in Apple Maps${withDest.length > APPLE_MAX_STOPS ? ' (first ' + APPLE_MAX_STOPS + ')' : ''}</a>` : '';
+  const a = next ? `<a class="btn secondary sm" href="${escHtml(appleMapsUrl(next))}" target="_blank" rel="noopener" title="Apple Maps directions to ${escHtml(next.customerName)}">Next stop</a>` : '';
   const g = googleRouteUrl(pending);
-  return a + (g ? `<a class="btn secondary sm" href="${escHtml(g)}" target="_blank" rel="noopener" title="All stops left, in Google Maps (up to 10)">All stops (Google)</a>` : '');
+  return route + a + (g ? `<a class="btn ghost sm" href="${escHtml(g)}" target="_blank" rel="noopener" title="All stops left, in Google Maps (up to 10)">Google</a>` : '');
 }
 function openInAppleMaps(routeId) {
   const rt = STATE.routes.find(r => r.id === routeId);
   const next = rt && (rt.stops || []).find(st => st.status !== 'completed' && stopDest(st));
   if (!next) { alert('No stop left with an address or map pin.'); return; }
-  location.href = appleMapsUrl(next);
+  location.href = appleRouteUrl(rt.stops.filter(st => st.status !== 'completed' && stopDest(st)));
 }
 
 // ── Quick Round Management ──
@@ -4262,7 +4274,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-07-b';
+var APP_BUILD = '2026-10-07-c';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
