@@ -3035,7 +3035,7 @@ const seasonLimit = Y => seasonEnd(Y);   // Devon (Oct 6 2026): finish Friday No
 // Rd 5 Jul/Aug, Rd 6 Sep/Oct, Rd 7 winterizer Oct/Nov. Windows overlap, so a round also waits for the
 // previous one plus ROUND_GAP_DAYS (see buildCustomerSchedule).
 const SCHED_ROUNDS = {
-  '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'02-14', end:'03-31', note:'Can start Feb 14 if soil temps are decent and there is no snow on the ground' },
+  '1':  { label:'Rd 1 — Fertilizer',              svc:'Lawn Fert & Weed', start:'02-14', end:'03-31', note:'Before March 1: PA law allows at most 0.5 lb nitrogen per 1,000 sq ft - put the 16-0-3 down at 3 lb per 1,000 (not 4). Only if soil temps are decent and the ground is not frozen or snow covered' },   // 3 Pa.C.S. 6813(b)(2),(3); Devon chose to back off the rate (Oct 7 2026)
   '2A': { label:'Rd 2 — Pre-emergent + 3-way',      svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
   '2B': { label:'Rd 2 — Pre-emergent + 3-way',    svc:'Lawn Fert & Weed', start:'03-01', end:'04-30', blanket:true },
   '3':  { label:'Rd 3 — Weed & feed (no grub)',   svc:'Lawn Fert & Weed', start:'05-01', end:'06-30', blanket:true },
@@ -4274,7 +4274,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-07-d';
+var APP_BUILD = '2026-10-07-e';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -5014,7 +5014,7 @@ function plannerResultHtml(R) {
             <div style="font-size:11px;color:var(--text-muted)">${r.s.items.map(i => escHtml(i.label)).join(' + ')} · ${r.s.work} min</div>
             ${late.length ? '<div style="font-size:11px;color:var(--overdue)">After the window closed (' + late.map(i => fmtDate(i.end)).join(', ') + ')</div>' : ''}
             ${(() => { const b = R.bufEnd ? r.s.items.filter(i => rainBufItem(i) && d.date <= i.end && d.date > R.bufEnd(i)) : []; return b.length ? '<div style="font-size:11px;color:var(--warn)">In the rain days: the window closes ' + fmtDate(b[0].end) + '</div>' : ''; })()}
-            ${r.s.items.some(i => i.note && d.date < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn)">Before March 1: only if soil temps are decent and there is no snow on the ground</div>' : ''}
+            ${r.s.items.some(i => i.code === '1' && d.date < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn)">Before March 1: 16-0-3 at 3 lb per 1,000 sq ft (PA limit 0.5 lb N); not on frozen or snow-covered ground</div>' : ''}
           </div></div>`;
       }).join('')}
     </div>`).join('');
