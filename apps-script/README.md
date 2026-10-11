@@ -24,6 +24,14 @@ but only writes to its own `Samples` tab.
 `nightly-backup-fieldpro.gs` still needs `BACKUP_SHEET_ID` filled in — the
 FieldPro Apps Script project has that id near the top of its own main file.
 
+## How FieldPro stores its FP_ tabs
+
+Each `FP_` tab holds one JSON list. Since 2026-10-11 (script v14) it is split
+down column A (A1, A2, …) in pieces of at most 40,000 characters, each starting
+with `~`, because Google Sheets refuses any cell over 50,000 characters. To read
+one by hand: drop the leading `~` from each cell and join them in order. Tabs
+still holding plain JSON in A1 (the old layout) read the same.
+
 ## Not covered by these backups
 
 SoilTracks reads an `ANTHROPIC_API_KEY` from **Script Properties**

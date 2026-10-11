@@ -147,6 +147,18 @@ function fpGetAll() {
 // Does NOT modify Customers or Services tabs (those belong to LPP)
 // ═══════════════════════════════════════════
 function fpSaveAll(data) {
+  // One save at a time: two devices saving at once could otherwise interleave
+  // their pieces of the same tab.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return fpSaveAll_(data);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function fpSaveAll_(data) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
 
   if (data.programs !== undefined) setJsonTab(ss, 'FP_Programs', data.programs);
@@ -232,7 +244,19 @@ function fpSyncLog(data) {
 
 // ═══════════════════════════════════════════
 // HELPERS: Read/Write JSON to FP_ tabs
+//
+// Google Sheets refuses any cell over 50,000 characters, so the JSON is cut
+// into pieces of at most CHUNK_SIZE characters and written down column A
+// (A1, A2, A3 …). Reading joins them back together. A tab saved by the old
+// one-cell version (plain JSON in A1) still reads exactly the same.
+//
+// Every piece starts with CHUNK_MARK so Sheets always keeps it as plain text:
+// a piece that happened to begin with "=", "+", "-" or look like a number or
+// date would otherwise be turned into a formula, number or date.
 // ═══════════════════════════════════════════
+var CHUNK_SIZE = 40000;
+var CHUNK_MARK = '~';
+
 function getJsonTab(ss, tabName) {
   var sheet = ss.getSheetByName(tabName);
   if (!sheet) {
@@ -240,7 +264,12 @@ function getJsonTab(ss, tabName) {
     sheet = ss.insertSheet(tabName);
     return null;
   }
-  var val = sheet.getRange('A1').getValue();
+  var last = sheet.getLastRow();
+  if (last < 1) return null;
+  var val = sheet.getRange(1, 1, last, 1).getValues().map(function(r) {
+    var s = (r[0] === null || r[0] === undefined) ? '' : String(r[0]);
+    return s.charAt(0) === CHUNK_MARK ? s.slice(1) : s;
+  }).join('');
   if (!val) return null;
   try { return JSON.parse(val); } catch(e) { return null; }
 }
@@ -250,7 +279,22 @@ function setJsonTab(ss, tabName, data) {
   if (!sheet) {
     sheet = ss.insertSheet(tabName);
   }
-  sheet.getRange('A1').setValue(JSON.stringify(data));
+  var json = JSON.stringify(data);
+  var pieces = [];
+  var i = 0;
+  while (i < json.length) {
+    var end = Math.min(i + CHUNK_SIZE, json.length);
+    // Never split an emoji (or other two-part character) across two cells
+    var code = json.charCodeAt(end - 1);
+    if (end < json.length && code >= 0xD800 && code <= 0xDBFF) end--;
+    pieces.push([CHUNK_MARK + json.slice(i, end)]);
+    i = end;
+  }
+  // Blank any leftover pieces from a longer earlier save in this same single
+  // write, so a read can never join new pieces onto stale ones.
+  var rows = Math.max(pieces.length, sheet.getLastRow());
+  while (pieces.length < rows) pieces.push(['']);
+  sheet.getRange(1, 1, rows, 1).setValues(pieces);
 }
 
 // ═══════════════════════════════════════════
