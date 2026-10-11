@@ -16,7 +16,7 @@ but only writes to its own `Samples` tab.
 
 | File | What it is |
 |---|---|
-| `soiltracks-backend-2026-05-31.gs` | The SoilTracks backend as of 2026-05-31 |
+| `soiltracks-backend.gs` | The SoilTracks backend as of 2026-05-31 |
 | `nightly-backup-soiltracks.gs` | Dated nightly copy of the SoilTracks sheet |
 | `nightly-backup-fieldpro.gs` | Dated nightly copy of the FieldPro sheet |
 

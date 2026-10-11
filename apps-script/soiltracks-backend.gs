@@ -1,22 +1,29 @@
 var SOILTRACKS_ID = "10-2QSreupS-8sdtx3V5fDrZ4uqAHnwHMOuvGVRKL9u8";
 var MASTER_CUSTOMERS_ID = "1ZLuqBz61IXa5CEQieNQbhTLxH6EJYGmxJiXjeyaswa0";
 
+// ── App password ──────────────────────────────────────────────────────────────────────────
+// This web app is reachable by anyone who has its URL, and the URL is in FieldPro's public code.
+// So every request must carry the app password, kept in Project Settings → Script properties as
+// APP_KEY (never in this code). If APP_KEY is missing, everything is refused (fails closed).
+// The old action that returned the Anthropic key to any caller is gone, and the stand-alone
+// SoilTracks page is no longer served: FieldPro's Soil page is the front end now.
+function appKeyOk_(key) {
+  var want = PropertiesService.getScriptProperties().getProperty('APP_KEY');
+  want = want ? String(want).trim() : '';
+  return !!want && typeof key === 'string' && key.trim() === want;
+}
+
 function doGet(e) {
-  var action = (e.parameter || {}).action;
-  if (action === 'getData') return jsonResponse(getDashboardData());
-  if (action === 'getApiKey') {
-    var key = PropertiesService.getScriptProperties().getProperty("ANTHROPIC_API_KEY");
-    if (!key) return jsonResponse({ success: false, error: "ANTHROPIC_API_KEY not set" });
-    return jsonResponse({ success: true, key: key });
-  }
-  return HtmlService.createHtmlOutputFromFile("Index")
-    .setTitle("SoilTracks - Lawns Plants & Pests")
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  var p = e.parameter || {};
+  if (!appKeyOk_(p.key)) return jsonResponse({ success: false, error: 'unauthorized' });
+  if (p.action === 'getData') return jsonResponse(getDashboardData());
+  return jsonResponse({ success: false, error: 'Unknown action: ' + p.action });
 }
 
 function doPost(e) {
   try {
     var payload = JSON.parse(e.postData.contents);
+    if (!appKeyOk_(payload.key)) return jsonResponse({ success: false, error: 'unauthorized' });
     var action = payload.action;
     if (action === "saveSample")       return jsonResponse(saveSample(payload.data));
     if (action === "deleteSample")     return jsonResponse(deleteSample(payload.id));
