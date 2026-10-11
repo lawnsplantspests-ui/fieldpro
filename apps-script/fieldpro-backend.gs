@@ -103,14 +103,11 @@ function fpGetAll() {
     }
   }
 
-  // ── Read EXISTING Services tab (JSON blob in B2) ──
+  // ── Read EXISTING Services tab (JSON in B2, continuing in B3 … if long) ──
   var services = null;
-  var svcSheet = ss.getSheetByName('Services');
-  if (svcSheet) {
-    var svcVal = svcSheet.getRange('B2').getValue();
-    if (svcVal) {
-      try { services = JSON.parse(svcVal); } catch(e) { services = null; }
-    }
+  var svcVal = getServicesText_(ss);
+  if (svcVal) {
+    try { services = JSON.parse(svcVal); } catch(e) { services = null; }
   }
 
   // ── Read FieldPro-specific data from FP_ tabs ──
@@ -298,6 +295,47 @@ function setJsonTab(ss, tabName, data) {
 }
 
 // ═══════════════════════════════════════════
+// Services tab (shared with the LPP Log backend, which reads and writes it
+// the same way): JSON in column B of the DATA rows — B2, then B3, B4 … in
+// pieces of at most CHUNK_SIZE once it outgrows one cell. While it fits, B2
+// is written exactly as before. Pieces after the first start with CHUNK_MARK.
+// ═══════════════════════════════════════════
+var SERVICES_MIN_ROWS = 12;
+
+function getServicesText_(ss) {
+  var sheet = ss.getSheetByName('Services');
+  if (!sheet || sheet.getLastRow() < 1) return '';
+  var rows = sheet.getDataRange().getValues();
+  var text = '';
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim().toUpperCase() === 'DATA' && rows[i][1]) {
+      var piece = String(rows[i][1]);
+      text += piece.charAt(0) === CHUNK_MARK ? piece.slice(1) : piece;
+    }
+  }
+  return text;
+}
+
+function setServicesText_(ss, text) {
+  var sheet = ss.getSheetByName('Services') || ss.insertSheet('Services');
+  var rows = [['Key', 'Value']];
+  var i = 0;
+  while (i < text.length) {
+    var end = Math.min(i + CHUNK_SIZE, text.length);
+    // Never split an emoji (or other two-part character) across two cells
+    var code = text.charCodeAt(end - 1);
+    if (end < text.length && code >= 0xD800 && code <= 0xDBFF) end--;
+    rows.push(['DATA', (i ? CHUNK_MARK : '') + text.slice(i, end)]);
+    i = end;
+  }
+  // One write that also blanks any leftover pieces (at least SERVICES_MIN_ROWS
+  // rows), so LPP Log saving at the same moment can't leave a stale piece behind.
+  var n = Math.max(rows.length, sheet.getLastRow(), SERVICES_MIN_ROWS);
+  while (rows.length < n) rows.push(['', '']);
+  sheet.getRange(1, 1, n, 2).setValues(rows);
+}
+
+// ═══════════════════════════════════════════
 // fpAddCustomers — Appends new customers to the shared Customers tab
 // ═══════════════════════════════════════════
 function fpAddCustomers(customers) {
@@ -341,7 +379,7 @@ function fpAddProduct(product) {
   var sheet = ss.getSheetByName('Services');
   if (!sheet) return { status: 'error', message: 'Services tab not found' };
 
-  var val = sheet.getRange('B2').getValue();
+  var val = getServicesText_(ss);
   var services = {};
   if (val) {
     try { services = JSON.parse(val); } catch(e) {}
@@ -369,7 +407,7 @@ function fpAddProduct(product) {
   });
 
   // Write back
-  sheet.getRange('B2').setValue(JSON.stringify(services));
+  setServicesText_(ss, JSON.stringify(services));
 
   return { status: 'ok' };
 }
