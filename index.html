@@ -4321,7 +4321,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-11-a';
+var APP_BUILD = '2026-10-11-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -4675,6 +4675,10 @@ function renderPlanner() {
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-wx" ${cfg.skipBadWeather !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Skip days the forecast says are too wet, windy or snowy (within the 16-day forecast)</label>
       <div class="section-label">Safe, efficient driving</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-curb" ${cfg.curbSide !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Pull up with the house on the passenger side (no crossing the road with the hose, no left turn into the driveway)</label>
+      <div class="flex-row gap-10" style="flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <button class="btn secondary sm" onclick="planSaveCfg();showZones()">🗺️ Zones${planZones().length ? ' (' + planZones().length + ')' : ''}</button>
+        <span style="font-size:12px;color:var(--text-dim)">${planZones().length ? planZones().map(z => escHtml(z.name || 'Zone') + ' ' + zoneDaysText(z)).join(' · ') : 'Draw areas on the map and give each a weekday, so each part of town is done on its own day.'}</span>
+      </div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-cw" ${cfg.clockwise !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Drive each day's loop clockwise, so most turns are right turns</label>
       <div class="flex-row gap-10" style="flex-wrap:wrap;align-items:flex-end">
         <div class="input-group" style="margin:0;flex:2;min-width:220px"><label>Home address (where the day starts and ends)</label><input id="pl-base" value="${escHtml(cfg.base ? cfg.base.addr : '')}" placeholder="Street, town, PA zip"></div>
@@ -4904,7 +4908,11 @@ async function planBuild() {
       const b = workdaysBefore(e0, rainBuf, cfg.satOk), st = i.avail || i.start || '';
       return b < st ? st : b;   // a window shorter than the buffer: aim for its first day
     };
-    const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft, cid), end:items.map(bufEnd).sort()[0] });
+    const zones = planZones(), zoneByCid = {};
+    custIds.forEach(id => { zoneByCid[id] = zoneOfPoint(custPoint(id), zones); });
+    const stopFor = (cid, items) => ({ cid, items, node:node[cid], work:itemWork(items, items[0].sqft, cid), end:items.map(bufEnd).sort()[0], zone:zoneByCid[cid] });
+    // zones are a strong preference: each stop done off its zone's day (when waiting wouldn't miss its window) costs extra
+    const zp = (stops, date) => stops.reduce((t, x) => t + (zoneFit(x, date, cfg.satOk) === 'off' ? ZONE_PENALTY : 0), 0);
     const openOn = (i, date) => (i.avail || i.start || '') <= date;
     // lawn treatments for the same customer stay ROUND_GAP_DAYS apart inside the plan too (Rd 6 planned Oct 13 -> Rd 7 not before Nov 10)
     const isLawnItem = i => !i.pest && !i.svcKey && !i.seed;
@@ -4936,10 +4944,16 @@ async function planBuild() {
         // full-program customers first (their Rd 6 has to leave 28 days for Rd 7): they seed every day while any are
         // left; Rd 6-only stops (Dan Reed commercial, maintenance lawns) only top up a day that has room
         const pri = s => s.items.some(i => i.needBy && isLawnItem(i)) ? 0 : (s.items.some(isDeferrable) ? 2 : 1);
-        cands.sort((a, b) => pri(a) - pri(b) || a.end.localeCompare(b.end) || dens.get(b) - dens.get(a));
+        // zones: this weekday's zone (and anything that can't wait for its own zone's day) seeds the day first, then
+        // stops in no zone; another zone's work only seeds a day that has nothing of its own left
+        const zr = s => ({ in:0, bent:0, none:1, off:2 })[zoneFit(s, date, cfg.satOk)];
+        cands.sort((a, b) => zr(a) - zr(b) || pri(a) - pri(b) || a.end.localeCompare(b.end) || dens.get(b) - dens.get(a));
         let seed = null;
         for (const s of cands) { if (planDayEval([s], ctx).ok) { seed = s; break; } tooLong.push(s); left = left.filter(i => i.cid !== s.cid); }
         if (!seed) continue;
+        // a day seeded from another zone stays in that zone
+        const dayZone = zoneFit(seed, date, cfg.satOk) === 'off' ? seed.zone : null;
+        const offDay = st => zoneFit(st, date, cfg.satOk) === 'off' && !(dayZone && st.zone === dayZone);
         let order = [seed], pool = cands.filter(s => s !== seed && !tooLong.includes(s));
         // Grow the day: only stops that add no more than the detour limit to today's loop (home -> stops -> home)
         // are allowed, so a day never reaches out to a far-off stop just to fill the hours.
@@ -4952,6 +4966,7 @@ async function planBuild() {
             for (let k = 0; k < path.length - 1; k++) add = Math.min(add, ctx.C(path[k], st.node) + ctx.C(st.node, path[k + 1]) - ctx.C(path[k], path[k + 1]));
             if (!ret) add = Math.min(add, ctx.C(path[path.length - 1], st.node));
             if (!hasBase) add = Math.min(add, ctx.C(st.node, path[0]));
+            if (offDay(st)) add += ZONE_PENALTY;
             return { st, add, near:ctx.C(last.node, st.node) };
           }).filter(o2 => o2.add <= maxDetour);
           // 'nn' = prefer the stop nearest the last one; 'ins' = prefer the one that adds the least driving
@@ -4970,7 +4985,7 @@ async function planBuild() {
       }
       // ---- stage 2: improve — move a stop to another day, or swap two stops between days, when that
       //      cuts driving and every day still fits and no stop is pushed past its window ----
-      const dayCost = stops => stops.length ? planDayEval(planBestOrder(stops, ctx), ctx).cost : 0;
+      const dayCost = (stops, date) => (stops.length ? planDayEval(planBestOrder(stops, ctx), ctx).cost : 0) + zp(stops, date);
       // a stop already past its window may only move earlier (Oct 2026: Snavely's and Tracey Jones's overdue October
       // pest slid onto their November pest day because that saved a trip)
       const canGo = (s, from, to) => s.items.every(i => openOn(i, days[to].date) && (days[to].date <= bufEnd(i) || (days[from].date > bufEnd(i) && days[to].date <= days[from].date))
@@ -4983,15 +4998,16 @@ async function planBuild() {
         for (let a = 0; a < days.length; a++) {
           for (const s of days[a].stops.slice()) {
             if (!days[a].stops.includes(s)) continue;
-            const costs = days.map(d => dayCost(d.stops));
-            const costWithout = dayCost(days[a].stops.filter(x => x !== s));
+            const costs = days.map(d => dayCost(d.stops, d.date));
+            const costWithout = dayCost(days[a].stops.filter(x => x !== s), days[a].date);
             let best = null;
             for (let b = 0; b < days.length; b++) {
               if (b === a || !canGo(s, a, b)) continue;
               const ev = planDayEval(planBestOrder(days[b].stops.concat([s]), ctx), ctx);
               if (!ev.ok) continue;
-              if (ev.cost - costs[b] > maxDetour) continue;                      // would pull a far-off stop into that day
-              const delta = ev.cost + costWithout - costs[a] - costs[b];
+              const evC = ev.cost + zp(days[b].stops.concat([s]), days[b].date);
+              if (evC - costs[b] > maxDetour) continue;                          // would pull a far-off stop (or another zone's) into that day
+              const delta = evC + costWithout - costs[a] - costs[b];
               if (delta < -1 && (!best || delta < best.delta)) best = { b, delta };
             }
             if (best) { days[a].stops = days[a].stops.filter(x => x !== s); days[best.b].stops.push(s); moved++; changed = true; }
@@ -5005,7 +5021,7 @@ async function planBuild() {
             const na = days[a].stops.filter(x => x !== s).concat([t]), nb = days[b].stops.filter(x => x !== t).concat([s]);
             const ea = planDayEval(planBestOrder(na, ctx), ctx), eb = planDayEval(planBestOrder(nb, ctx), ctx);
             if (!ea.ok || !eb.ok) continue;
-            if (ea.cost + eb.cost < dayCost(days[a].stops) + dayCost(days[b].stops) - 1) { days[a].stops = na; days[b].stops = nb; moved++; changed = true; }
+            if (ea.cost + zp(na, days[a].date) + eb.cost + zp(nb, days[b].date) < dayCost(days[a].stops, days[a].date) + dayCost(days[b].stops, days[b].date) - 1) { days[a].stops = na; days[b].stops = nb; moved++; changed = true; }
           }
         }
         if (!changed) break;
@@ -5021,6 +5037,7 @@ async function planBuild() {
         return evMemo.get(key);
       };
       const costOf = stops => stops.length ? evalDay(stops).ev.cost : 0;
+      const costAt = (stops, date) => costOf(stops) + zp(stops, date);
       const fits = stops => !stops.length || evalDay(stops).ev.ok;
       // extra drive minutes to fit st into a day's loop
       const detourOn = (stops, st) => {
@@ -5043,16 +5060,16 @@ async function planBuild() {
             if (!days[b].stops.includes(s) || !days[a].stops.length) continue;
             const det = detourOn(days[a].stops, s), nb = days[b].stops.filter(x => x !== s);
             if (det > passBy || detourOn(nb, s) <= det) continue;   // not on day a's way, or day b goes just as close
-            const na = joinDay(days[a].stops, s), before = costOf(days[a].stops) + costOf(days[b].stops);
+            const na = joinDay(days[a].stops, s), da = days[a].date, db = days[b].date, before = costAt(days[a].stops, da) + costAt(days[b].stops, db);
             if (!canGo(s, b, a)) {
               // s can't be done on day a's date (not open yet, say): swap the two days instead, so day a's area is done
               // on day b's date together with s, and the rest of day b moves to day a's date
               if (nb.length && days[a].stops.every(x => canGo(x, a, b)) && nb.every(x => canGo(x, b, a)) && fits(na) && fits(nb)
-                && costOf(na) + costOf(nb) <= before + 1) { days[b].stops = na; days[a].stops = nb; pulled++; changed = true; }
+                && costAt(na, db) + costAt(nb, da) <= before + 1) { days[b].stops = na; days[a].stops = nb; pulled++; changed = true; }
               continue;
             }
             if (fits(na)) {
-              if (costOf(na) + costOf(nb) <= before + 1) { days[a].stops = na; days[b].stops = nb; pulled++; changed = true; }
+              if (costAt(na, da) + costAt(nb, db) <= before + 1) { days[a].stops = na; days[b].stops = nb; pulled++; changed = true; }
               continue;
             }
             // day a is full: send one of its other stops (the ones furthest off its route first) to another day
@@ -5065,7 +5082,7 @@ async function planBuild() {
                 if (c === a || !canGo(t, a, c)) continue;
                 const nc = joinDay(c === b ? nb : days[c].stops, t);
                 if (!fits(nc) || detourOn(c === b ? nb : days[c].stops, t) > maxDetour) continue;
-                const after = costOf(na2) + (c === b ? costOf(nc) : costOf(nb) + costOf(nc)), was = before + (c === b ? 0 : costOf(days[c].stops));
+                const dc = days[c].date, after = costAt(na2, da) + (c === b ? costAt(nc, db) : costAt(nb, db) + costAt(nc, dc)), was = before + (c === b ? 0 : costAt(days[c].stops, dc));
                 if (after < was - 1 && (!bestMove || after - was < bestMove.delta)) bestMove = { t, c, na2, nc, delta:after - was };
               }
             }
@@ -5080,7 +5097,7 @@ async function planBuild() {
       }
       moved += pulled;
       days = days.filter(d => d.stops.length);
-      const cost = days.reduce((t, d) => t + dayCost(d.stops), 0);
+      const cost = days.reduce((t, d) => t + dayCost(d.stops, d.date), 0);
       return { days, tooLong, left, moved, driveBefore, cost, wxSkipped, pulled };
     };
 
@@ -5101,7 +5118,7 @@ async function planBuild() {
     days.forEach(d => {
       let cand = nextWorkday(nextDate, cfg.satOk);
       if (skipBadWx) for (let g = 0; g < 30 && wxRating(cand) === 'bad'; g++) cand = nextWorkday(addDays(cand, 1), cfg.satOk);   // never pull work onto a day it is skipping for weather
-      if (cand < d.date && d.stops.every(s => s.items.every(i => openOn(i, cand)) && (!s.items.some(isLawnItem) || gapOkAt(s.cid, cand, days, days.indexOf(d))))) d.date = cand;
+      if (cand < d.date && zp(d.stops, cand) <= zp(d.stops, d.date) && d.stops.every(s => s.items.every(i => openOn(i, cand)) && (!s.items.some(isLawnItem) || gapOkAt(s.cid, cand, days, days.indexOf(d))))) d.date = cand;
       nextDate = addDays(d.date, 1);
     });
     const out = days.map(d => planDayFrom(planBestOrder(d.stops, ctx, true), ctx, Mi, d.date));
@@ -5169,7 +5186,8 @@ function planPassBys(R, di) {
       const its = r.s.items, opens = its.map(i => i.avail || i.start || '').filter(x => x > d.date).sort()[0];
       const closes = its.map(i => R.bufEnd ? R.bufEnd(i) : (i.end || '9999')).filter(x => x < d.date).sort()[0];
       const gap = its.some(lawn) && R.days.some((x, xi) => xi !== oi && x.rows.some(y => String(y.s.cid) === String(r.s.cid) && y.s.items.some(lawn)) && Math.abs(daysBetween(x.date, d.date)) < ROUND_GAP_DAYS);
-      out.push({ name:its[0].name, det, why:'planned ' + fmtDate(o.date) + ' — ' + (opens ? 'not open until ' + fmtDate(opens) : closes ? 'too late for its window' : gap ? 'needs 28 days from its other lawn round' : 'no room left this day') });
+      const z = r.s.zone && zoneFit(r.s, d.date, R.satOk) === 'off' ? r.s.zone : null;
+      out.push({ name:its[0].name, det, why:'planned ' + fmtDate(o.date) + ' — ' + (opens ? 'not open until ' + fmtDate(opens) : closes ? 'too late for its window' : gap ? 'needs 28 days from its other lawn round' : z ? 'its zone ' + escHtml(z.name || '') + ' is worked ' + zoneDaysText(z) : 'no room left this day') });
     });
   });
   // left-out Schedule work open on this day (straight-line estimate, about 30 mph), named on the first day that
@@ -5198,6 +5216,7 @@ function plannerResultHtml(R) {
         <span class="flex-row gap-6">${d.ok === false ? '<span class="badge" style="background:var(--danger-bg);color:var(--overdue)">Over time</span>' : ''}<button class="btn secondary sm" onclick="showCallAhead('plan',${di})">💬 Texts</button><button class="btn primary sm" onclick="planCreateRoute(${di})">Create this day</button></span>
       </div>
       ${wxLine(d.date, d.rows.flatMap(r => r.s.items))}
+      ${(() => { const zs = [...new Set(d.rows.filter(r => r.s.zone && zoneFit(r.s, d.date, R.satOk) !== 'bent').map(r => r.s.zone))]; return zs.length ? `<div style="font-size:11px;margin-bottom:4px">${zs.map(z => `<span class="badge" style="border-left:4px solid ${z.color || 'var(--accent)'};margin-right:4px">${escHtml(z.name || 'Zone')}${z.days && z.days.length ? ' · ' + zoneDaysText(z) : ''}</span>`).join('')}</div>` : ''; })()}
       ${(() => { const pb = planPassBys(R, di); return pb.length ? `<div style="font-size:11px;color:var(--warn);margin-bottom:4px">🚚 Drives right past: ${pb.slice(0, 6).map(x => '<strong>' + escHtml(x.name) + '</strong> (' + x.why + ')').join(', ')}${pb.length > 6 ? ' and ' + (pb.length - 6) + ' more' : ''}</div>` : ''; })()}
       ${d.rows.map((r, k) => {
         const late = r.s.items.filter(i => d.date > (i.end || '9999'));
@@ -5209,6 +5228,7 @@ function plannerResultHtml(R) {
             <div style="font-size:11px;color:var(--text-dim)">${escHtml(r.s.items[0].addr)}</div>
             <div style="font-size:11px;color:var(--text-muted)">${r.s.items.map(i => escHtml(i.label)).join(' + ')} · ${r.s.work} min</div>
             ${late.length ? '<div style="font-size:11px;color:var(--overdue)">After the window closed (' + late.map(i => fmtDate(i.end)).join(', ') + ')</div>' : ''}
+            ${(() => { const f = r.s.zone ? zoneFit(r.s, d.date, R.satOk) : 'none'; return f === 'bent' ? '<div style="font-size:11px;color:var(--warn)">Off its zone day (' + escHtml(r.s.zone.name || 'Zone') + ': ' + zoneDaysText(r.s.zone) + ') — waiting would miss its window</div>' : f === 'off' ? '<div style="font-size:11px;color:var(--text-muted)">Off its zone day (' + escHtml(r.s.zone.name || 'Zone') + ': ' + zoneDaysText(r.s.zone) + ') — put on a day that had room for it</div>' : ''; })()}
             ${(() => { const b = R.bufEnd ? r.s.items.filter(i => rainBufItem(i) && d.date <= i.end && d.date > R.bufEnd(i)) : []; return b.length ? '<div style="font-size:11px;color:var(--warn)">In the rain days: the window closes ' + fmtDate(b[0].end) + '</div>' : ''; })()}
             ${r.s.items.some(i => i.code === '1' && d.date < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn)">Before March 1: 16-0-3 at 3 lb per 1,000 sq ft (PA limit 0.5 lb N); not on frozen or snow-covered ground</div>' : ''}
           </div></div>`;
@@ -5254,6 +5274,7 @@ function planShowMap(only) {
     if (_planMap) { try { _planMap.remove(); } catch (e) {} }
     _planMap = L.map('plan-map'); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap' }).addTo(_planMap);
     const cfg = getPlanCfg(), home = cfg.base && isFinite(cfg.base.lat) ? [cfg.base.lat, cfg.base.lng] : null, all = [];
+    planZones().forEach((z, i) => L.polygon(z.poly, { color:z.color || PLAN_COLORS[i % PLAN_COLORS.length], weight:1, dashArray:'4 4', fillOpacity:0.06, interactive:false }).addTo(_planMap));
     if (home) { L.circleMarker(home, { radius:9, color:'#000', fillColor:'#ffe600', fillOpacity:1 }).addTo(_planMap).bindTooltip('Home', { permanent:true }); all.push(home); }
     R.days.forEach((d, di) => {
       if (sel != null && sel !== di) return;
@@ -5266,6 +5287,153 @@ function planShowMap(only) {
     setTimeout(() => _planMap && _planMap.invalidateSize(), 150);
   }, 80);
 }
+// ══════════ ZONES ══════════
+// Areas drawn on the map, each worked on its own weekday(s), the way a TruGreen-style route has fixed territories.
+// The planner treats them as a strong preference: a zone's customers go on its day unless waiting for that day
+// would miss their window. Kept in the planner settings record, so no sheet change.
+const ZONE_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const ZONE_PENALTY = 30;   // planner cost (about minutes of driving) of doing a zone's stop off its day
+const weekdayOf = iso => new Date(iso + 'T12:00:00').getDay();
+function planZones() { return (getPlanCfg().zones || []).filter(z => z.poly && z.poly.length >= 3); }
+function inPoly(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i], [yj, xj] = poly[j];
+    if ((yi > p.lat) !== (yj > p.lat) && p.lng < (xj - xi) * (p.lat - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function zoneOfPoint(p, zones) { return p ? (zones || planZones()).find(z => inPoly(p, z.poly)) || null : null; }
+// the next day on or after `date` that is one of the zone's weekdays
+function zoneNextDay(z, date, satOk) {
+  let d = date;
+  for (let k = 0; k < 21; k++, d = addDays(d, 1)) if (z.days.includes(weekdayOf(d)) && isWorkday(d, satOk)) return d;
+  return '9999';
+}
+// how a stop sits on a date: 'in' its zone's day, 'none' (no zone, or a zone with no day set), 'bent' (off its day
+// because waiting for the zone's next day would miss the window) or 'off'. s.end is the stop's do-by date.
+function zoneFit(s, date, satOk) {
+  const z = s.zone;
+  if (!z || !z.days || !z.days.length) return 'none';
+  if (z.days.includes(weekdayOf(date))) return 'in';
+  return zoneNextDay(z, date, satOk) > (s.end || '9999') ? 'bent' : 'off';
+}
+const zoneDaysText = z => z.days && z.days.length ? z.days.slice().sort().map(d => ZONE_DAYS[d]).join(', ') : 'no day set';
+
+// ── the zone editor ──
+let _zoneMap = null, _zoneGroup = null, _zones = [], _zoneDraft = null, _zoneEditId = null, _zoneRedrawId = null;
+function showZones() {
+  _zones = JSON.parse(JSON.stringify(getPlanCfg().zones || []));
+  _zoneDraft = null; _zoneEditId = null; _zoneRedrawId = null;
+  showModal('Zones', `
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Draw an area around customers you want done together, and pick the weekday(s) to work it. The planner puts a zone's customers on its day unless waiting would miss their window. Customers outside every zone go wherever fits.</div>
+    <div class="flex-row gap-10" style="flex-wrap:wrap;align-items:flex-start">
+      <div id="zone-map" style="flex:2 1 300px;min-width:0;width:100%;height:440px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input)"></div>
+      <div id="zone-side" style="flex:1 1 240px;min-width:0"></div>
+    </div>`, true);
+  setTimeout(initZoneMap, 60);
+}
+function zoneSave() {
+  _zones.forEach(z => { z.poly = z.poly.map(p => [Math.round(p[0] * 1e5) / 1e5, Math.round(p[1] * 1e5) / 1e5]); });
+  savePlanCfg({ zones:_zones });
+  if (currentPage === 'planner') renderPlanner();
+}
+function zoneCustomers() {
+  return STATE.customers.filter(c => !isInactive(custIdStr(c))).map(c => ({ c, p:custPoint(custIdStr(c)) })).filter(x => x.p);
+}
+function initZoneMap() {
+  const el = document.getElementById('zone-map'); if (!el) return;
+  if (typeof L === 'undefined') { el.innerHTML = '<div style="padding:20px;color:var(--text-dim)">The map needs an internet connection.</div>'; return; }
+  if (_zoneMap) { try { _zoneMap.remove(); } catch (e) {} }
+  _zoneMap = L.map('zone-map', { maxZoom:19 });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap' }).addTo(_zoneMap);
+  _zoneGroup = L.layerGroup().addTo(_zoneMap);
+  _zoneMap.on('click', e => {
+    if (!_zoneDraft) return;
+    _zoneDraft.push([e.latlng.lat, e.latlng.lng]);
+    zoneDraw(); zoneSide();
+  });
+  const pts = zoneCustomers().map(x => [x.p.lat, x.p.lng]), b = getPlanCfg().base;
+  if (b && isFinite(b.lat)) pts.push([b.lat, b.lng]);
+  _zones.forEach(z => pts.push(...z.poly));
+  const view = () => { if (pts.length) _zoneMap.fitBounds(L.latLngBounds(pts), { padding:[20, 20] }); else _zoneMap.setView([GEO_HOME.lat, GEO_HOME.lng], 10); };
+  view(); zoneDraw(); zoneSide();
+  setTimeout(() => { if (_zoneMap) { _zoneMap.invalidateSize(); view(); } }, 200);   // the modal has its final size by now
+}
+const zoneColor = (z, i) => z.color || PLAN_COLORS[i % PLAN_COLORS.length];
+function zoneDraw() {
+  if (!_zoneGroup) return;
+  _zoneGroup.clearLayers();
+  const valid = _zones.filter(z => z.poly.length >= 3);
+  _zones.forEach((z, i) => {
+    if (z.poly.length < 3 || z.id === _zoneRedrawId) return;
+    const poly = L.polygon(z.poly, { color:zoneColor(z, i), weight:2, fillOpacity:z.id === _zoneEditId ? 0.25 : 0.12 }).addTo(_zoneGroup);
+    poly.bindTooltip(escHtml(z.name || 'Zone') + ' · ' + zoneDaysText(z), { sticky:true });
+    if (z.id === _zoneEditId) z.poly.forEach((p, k) => {
+      const m = L.marker(p, { draggable:true, icon:L.divIcon({ className:'', html:'<div style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + zoneColor(z, i) + '"></div>', iconSize:[14, 14] }) }).addTo(_zoneGroup);
+      m.on('drag', () => { const ll = m.getLatLng(); z.poly[k] = [ll.lat, ll.lng]; poly.setLatLngs(z.poly); });
+      m.on('dragend', () => { zoneSave(); zoneDraw(); zoneSide(); });
+    });
+  });
+  // customers: coloured by their zone, grey outside every zone
+  zoneCustomers().forEach(({ c, p }) => {
+    const z = zoneOfPoint(p, valid), zi = z ? _zones.indexOf(z) : -1;
+    L.circleMarker([p.lat, p.lng], { radius:4, weight:1, color:'#fff', fillColor:z ? zoneColor(z, zi) : '#888', fillOpacity:0.95, interactive:true })
+      .bindTooltip(escHtml(c.Name || c.name || '') + (z ? ' · ' + escHtml(z.name || 'Zone') : '')).addTo(_zoneGroup);
+  });
+  const b = getPlanCfg().base;
+  if (b && isFinite(b.lat)) L.circleMarker([b.lat, b.lng], { radius:8, color:'#000', fillColor:'#ffe600', fillOpacity:1 }).bindTooltip('Home').addTo(_zoneGroup);
+  if (_zoneDraft && _zoneDraft.length) {
+    L.polyline(_zoneDraft.concat(_zoneDraft.length >= 3 ? [_zoneDraft[0]] : []), { color:'#ff9800', weight:3, dashArray:'6 6' }).addTo(_zoneGroup);
+    _zoneDraft.forEach(p => L.circleMarker(p, { radius:5, color:'#ff9800', fillColor:'#fff', fillOpacity:1 }).addTo(_zoneGroup));
+  }
+}
+function zoneSide() {
+  const el = document.getElementById('zone-side'); if (!el) return;
+  if (_zoneDraft) {
+    el.innerHTML = `<div class="card" style="padding:10px 12px">
+      <div style="font-weight:700;margin-bottom:4px">${_zoneRedrawId ? 'Redrawing ' + escHtml((_zones.find(z => z.id === _zoneRedrawId) || {}).name || 'zone') : 'New zone'}</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Tap the map around the area, one corner at a time. ${_zoneDraft.length} point${_zoneDraft.length === 1 ? '' : 's'} so far${_zoneDraft.length < 3 ? ' (needs at least 3)' : ''}.</div>
+      <div class="flex-row gap-6" style="flex-wrap:wrap">
+        <button class="btn primary sm" onclick="zoneFinish()" ${_zoneDraft.length < 3 ? 'disabled' : ''}>Finish</button>
+        <button class="btn secondary sm" onclick="_zoneDraft.pop();zoneDraw();zoneSide()" ${_zoneDraft.length ? '' : 'disabled'}>Undo point</button>
+        <button class="btn ghost sm" onclick="_zoneDraft=null;_zoneRedrawId=null;zoneDraw();zoneSide()">Cancel</button>
+      </div></div>`;
+    return;
+  }
+  const valid = _zones.filter(z => z.poly.length >= 3), counts = new Map(); let none = 0;
+  zoneCustomers().forEach(({ p }) => { const z = zoneOfPoint(p, valid); if (z) counts.set(z, (counts.get(z) || 0) + 1); else none++; });
+  el.innerHTML = _zones.map((z, i) => `<div class="card" style="padding:10px 12px;border-left:5px solid ${zoneColor(z, i)}">
+      <input value="${escHtml(z.name || '')}" placeholder="Zone name" onchange="zoneSet('${z.id}','name',this.value)" style="width:100%;box-sizing:border-box;font-weight:700;margin-bottom:6px;padding:5px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">
+      <div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">${[1, 2, 3, 4, 5, 6].map(d => `<button class="btn ${z.days.includes(d) ? 'primary' : 'secondary'} sm" style="padding:3px 8px" onclick="zoneToggleDay('${z.id}',${d})">${ZONE_DAYS[d]}</button>`).join('')}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${counts.get(z) || 0} customer${counts.get(z) === 1 ? '' : 's'} · ${z.days.length ? 'worked ' + zoneDaysText(z) : '<span style="color:var(--warn)">pick a day</span>'}</div>
+      <div class="flex-row gap-6" style="flex-wrap:wrap">
+        <button class="btn ${_zoneEditId === z.id ? 'primary' : 'secondary'} sm" onclick="_zoneEditId=_zoneEditId==='${z.id}'?null:'${z.id}';zoneDraw();zoneSide()">${_zoneEditId === z.id ? 'Done moving' : 'Move corners'}</button>
+        <button class="btn secondary sm" onclick="_zoneRedrawId='${z.id}';_zoneEditId=null;_zoneDraft=[];zoneDraw();zoneSide()">Redraw</button>
+        <button class="btn ghost sm" style="color:var(--danger)" onclick="zoneDelete('${z.id}')">Delete</button>
+      </div></div>`).join('')
+    + `<button class="btn primary sm" style="width:100%;margin:4px 0 8px" onclick="_zoneDraft=[];_zoneEditId=null;zoneDraw();zoneSide()">＋ New zone</button>
+    <div style="font-size:11px;color:var(--text-muted)">${none} customer${none === 1 ? '' : 's'} outside every zone (grey dots).${_zones.length ? ' Where zones overlap, the one higher in this list wins.' : ''} Changes save as you go.</div>`;
+}
+function zoneFinish() {
+  if (!_zoneDraft || _zoneDraft.length < 3) return;
+  if (_zoneRedrawId) { const z = _zones.find(x => x.id === _zoneRedrawId); if (z) z.poly = _zoneDraft; }
+  else _zones.push({ id:uid(), name:'Zone ' + (_zones.length + 1), days:[], color:PLAN_COLORS[_zones.length % PLAN_COLORS.length], poly:_zoneDraft });
+  _zoneDraft = null; _zoneRedrawId = null;
+  zoneSave(); zoneDraw(); zoneSide();
+}
+function zoneSet(id, key, val) { const z = _zones.find(x => x.id === id); if (!z) return; z[key] = val; zoneSave(); zoneDraw(); }
+function zoneToggleDay(id, d) {
+  const z = _zones.find(x => x.id === id); if (!z) return;
+  z.days = z.days.includes(d) ? z.days.filter(x => x !== d) : z.days.concat([d]).sort();
+  zoneSave(); zoneDraw(); zoneSide();
+}
+function zoneDelete(id) {
+  const z = _zones.find(x => x.id === id); if (!z || !confirm('Delete the zone "' + (z.name || 'Zone') + '"?')) return;
+  _zones = _zones.filter(x => x.id !== id); if (_zoneEditId === id) _zoneEditId = null;
+  zoneSave(); zoneDraw(); zoneSide();
+}
+
 let planLastMoved = 0;
 function planCreateRoute(di, quiet) {
   const d = plannerResult && plannerResult.days[di]; if (!d) return;
