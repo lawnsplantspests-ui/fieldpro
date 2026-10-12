@@ -2540,7 +2540,7 @@ function renderRouteDetail(el) {
         </div>
         <div class="stop-num" style="background:${s.status === 'completed' ? 'var(--accent-dim)' : 'var(--bg-input)'};color:${s.status === 'completed' ? 'var(--accent)' : 'var(--text)'}">${s.status === 'completed' ? '✓' : i + 1}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(s.customerName)}</div>
+          <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(s.customerName)}${sqftTag(routeStopSqft(s))}</div>
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(s.address||'No address')}</div>
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.viaLog ? '✓ logged ' + fmtDate(s.completedDate) + ' · ' : ''}${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
           ${stopTimeHtml(rt, s)}${stopUnloggedHtml(rt, s)}
@@ -2555,7 +2555,15 @@ function renderRouteDetail(el) {
         </div>
       </div>
     `).join('')}
+    ${(() => {
+      const left = sqftTotal((rt.stops || []).filter(s => s.status !== 'completed').map(routeStopSqft));
+      return `<div class="card" style="padding:4px 14px 10px">${sqftTotalHtml(sqftTotal((rt.stops || []).map(routeStopSqft)), completed && completed < total ? ' · <strong style="color:var(--text)">' + fmtSqft(left.sqft) + ' left</strong>' : '')}</div>`;
+    })()}
   `;
+}
+function routeStopSqft(s) {
+  const lawn = (s.items && s.items.length ? s.items : [{ code:s.code }]).some(it => codeUsesSqft(it.code));
+  return { lawn, sqft:lawn ? custLawnSqft(s.customerId) : 0 };
 }
 
 // ── Time on site, from the LPP Log ── The job timer is in the LPP Log (Start when you pull in, Done when you leave);
@@ -3125,6 +3133,29 @@ const SERVICES = {
   // year only). Logged as 'Lawn Care - Lime Treatment (Sol-U-Cal ...)' or marked done here.
   LIME: { label:'Lime (Sol-U-Cal)', svc:'Lawn Fert & Weed', kind:'window', start:'10-01', endFn:Y => seasonEnd(Y), log:/^Lawn Care\s*-\s*Lime/i, perYear:true },
 };
+// work that scales with the lawn's size: lawn rounds, aeration & seed, lime (not pest, mosquito or tree & shrub)
+function codeUsesSqft(c) {
+  c = String(c || '');
+  if (!c || c === 'PEST' || c === 'BAIT' || c === 'ADES') return false;
+  if (c === 'LIME' || c === 'SEED') return true;
+  return !Object.keys(SERVICES).some(k => c === k || (c.startsWith(k) && /^\d+$/.test(c.slice(k.length))));
+}
+function custLawnSqft(cid) {
+  const c = custById(cid), p = getPlan(String(cid));
+  return Number(p && p.workSqft) || Number(c && (c.SqFt_Lawn || c.turfSqft)) || 0;
+}
+const fmtSqft = n => Number(n).toLocaleString() + ' sq ft';
+// the lawn sq ft a set of stops covers (missing = lawn stops with no size on file)
+function sqftTotal(list) {
+  const t = { sqft:0, lawns:0, missing:0, other:0 };
+  list.forEach(x => { if (!x.lawn) { t.other++; return; } t.lawns++; if (x.sqft) t.sqft += x.sqft; else t.missing++; });
+  return t;
+}
+function sqftTotalHtml(t, extra) {
+  if (!t.lawns && !t.other) return '';
+  return `<div style="font-size:12px;padding:8px 0 2px;border-top:2px solid var(--border);margin-top:2px;color:var(--text-dim)"><strong style="color:var(--text)">Total: ${t.lawns ? fmtSqft(t.sqft) + ' of lawn' : 'no lawn work'}</strong> · ${t.lawns} lawn stop${t.lawns === 1 ? '' : 's'}${t.other ? ' · ' + t.other + ' other stop' + (t.other === 1 ? '' : 's') + ' (pest, mosquito, tree &amp; shrub)' : ''}${t.missing ? ` · <span style="color:var(--warn)">${t.missing} lawn${t.missing === 1 ? '' : 's'} with no sq ft on file, not counted</span>` : ''}${extra || ''}</div>`;
+}
+const sqftTag = q => q.lawn ? ` <span style="font-size:12px;font-weight:700;color:${q.sqft ? 'var(--accent)' : 'var(--warn)'}">· ${q.sqft ? fmtSqft(q.sqft) : 'no sq ft'}</span>` : '';
 function codeShort(c) {
   if (c === 'PEST') return 'Pest';
   if (c === 'SEED') return 'Seed';
@@ -4321,7 +4352,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-11-b';
+var APP_BUILD = '2026-10-11-c';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -5205,6 +5236,10 @@ function planPassBys(R, di) {
   });
   return out.sort((x, y) => x.det - y.det);
 }
+function planStopSqft(st) {
+  const lawn = st.items.some(i => !i.pest && (!i.noSqft || i.svcKey === 'LIME'));
+  return { lawn, sqft:lawn ? Number(st.items[0].sqft) || 0 : 0 };
+}
 function plannerResultHtml(R) {
   const dayName = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
   const hm = m => Math.floor(m / 60) + 'h ' + String(Math.round(m % 60)).padStart(2, '0') + 'm';
@@ -5223,7 +5258,7 @@ function plannerResultHtml(R) {
         return `<div class="flex-row gap-10" style="padding:6px 0;border-top:1px solid var(--border);align-items:flex-start">
           <div style="font-family:var(--font-mono);font-size:12px;width:70px;flex-shrink:0;color:var(--accent)">${clock(r.arrive)}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:13px">${escHtml(r.s.items[0].name)} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${r.drive ? '· ' + r.drive + ' min drive' : ''}</span>
+            <div style="font-weight:600;font-size:13px">${escHtml(r.s.items[0].name)}${sqftTag(planStopSqft(r.s))} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${r.drive ? '· ' + r.drive + ' min drive' : ''}</span>
               <select onchange="planMoveStop(${di},${k},this.value)" style="margin-left:6px;font-size:11px;padding:2px 4px;background:var(--bg-input);color:var(--text-dim);border:1px solid var(--border);border-radius:4px"><option value="">Move to…</option>${R.days.map((x, xi) => xi === di ? '' : '<option value="' + xi + '">' + fmtDate(x.date) + '</option>').join('')}</select></div>
             <div style="font-size:11px;color:var(--text-dim)">${escHtml(r.s.items[0].addr)}</div>
             <div style="font-size:11px;color:var(--text-muted)">${r.s.items.map(i => escHtml(i.label)).join(' + ')} · ${r.s.work} min</div>
@@ -5233,6 +5268,7 @@ function plannerResultHtml(R) {
             ${r.s.items.some(i => i.code === '1' && d.date < i.period + '-03-01') ? '<div style="font-size:11px;color:var(--warn)">Before March 1: 16-0-3 at 3 lb per 1,000 sq ft (PA limit 0.5 lb N); not on frozen or snow-covered ground</div>' : ''}
           </div></div>`;
       }).join('')}
+      ${sqftTotalHtml(sqftTotal(d.rows.map(r => planStopSqft(r.s))))}
     </div>`).join('');
   const note = (R.tooLong.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">Too long for one day, so not planned: ${R.tooLong.map(s => escHtml(s.items[0].name)).join(', ')}</div>` : '')
     + (R.notPlanned.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">${R.notPlanned.length} stops were not planned: they open too late, or there isn't room by the end of the season (last day ${fmtDate(R.limit)}). For example ${escHtml(R.notPlanned[0].name)}, opens ${fmtDate(R.notPlanned[0].avail || R.notPlanned[0].start)}.</div>` : '');
