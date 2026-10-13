@@ -3737,6 +3737,87 @@ function roundCalendarHtml(S, today = schedToday()) {
   if (!open.length && !next.length) return '';
   return `<div class="card mb-8" style="font-size:12px;line-height:1.7;color:var(--text-dim)"><div class="section-label" style="margin-top:0">Rounds</div>${open.map(openLine).join('') || '<div>No lawn round is open right now.</div>'}${next.map(nextLine).join('')}</div>`;
 }
+// Work left by round: for each round this year, how many customers are done and how much is still to do
+// (stops, lawn sq ft, rough time at the stops) against the workdays left in its window
+let schedRoundOpen = {};
+function roundWorkLeftHtml(S, today = schedToday()) {
+  const Y = today.slice(0, 4), cfg = getPlanCfg(), TM = plannerTimes(cfg);
+  const buf = Math.max(0, Math.round(cfg.rainBuffer == null ? PLAN_DEFAULTS.rainBuffer : cfg.rainBuffer));
+  const dayLen = Math.max(60, toMin(cfg.end) - toMin(cfg.start));
+  const LEFT = ['late', 'due', 'consider', 'soon', 'later'];
+  const groups = {};
+  S.rows.forEach(r => (r.rounds || []).forEach(i => {
+    if (i.pest || i.svcKey === 'MOSQ' || i.svcKey === 'BAIT' || !String(i.period).startsWith(Y)) return;
+    const key = i.code === '2A' || i.code === '2B' ? '2' : i.code;
+    const R = !i.svcKey && SCHED_ROUNDS[key === '2' ? '2A' : key];
+    const g = groups[key] = groups[key] || { key, R, svc:!R, label:R ? R.label : i.label, start:'', end:'', items:[] };
+    if (i.start && (!g.start || i.start < g.start)) g.start = i.start;
+    if (i.end && i.end > g.end) g.end = i.end;
+    g.items.push(i);
+  }));
+  // a round only logged as an extra (not in anyone's program) has no window on the item: use the round's own
+  Object.values(groups).forEach(g => {
+    if (g.start) return;
+    g.start = g.R ? Y + '-' + g.R.start : Y + '-12-31';
+    g.end = g.R ? (g.R.endFn ? g.R.endFn(+Y) : Y + '-' + g.R.end) : g.start;
+  });
+  const nameHtml = g => {
+    const parts = String(g.label).split(' — ');
+    return g.svc || parts.length < 2 ? `<strong>${escHtml(g.label)}</strong>` : `<strong>${escHtml(codeShort(g.key))}</strong> ${escHtml(parts[parts.length - 1])}`;
+  };
+  // rough minutes at the stop, the planner's numbers (no driving)
+  const mins = i => {
+    const k = (i.sqft || 8000) / 1000;
+    if (i.svcKey === 'LIME') return Math.max(5, TM.lawnSetup - (TM.timed ? TM.T.turn : 0)) + TM.lawnPerK * k;
+    if (i.svcKey) return cfg.tsMin;
+    if (i.seed) return cfg.seedSetup + cfg.seedPerK * k;
+    return TM.lawnSetup + TM.lawnPerK * k;
+  };
+  const day = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  const hrs = m => m < 60 ? Math.round(m) + ' min' : (Math.round(m / 30) / 2) + ' h';
+  const all = Object.values(groups).sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  if (!all.length) return '';
+  const finished = [], rows = [];
+  all.forEach(g => {
+    const n = st => g.items.filter(i => i.status === st).length;
+    const left = g.items.filter(i => LEFT.includes(i.status)), done = n('done'), skipped = n('skipped'), missed = n('missed');
+    const total = g.items.length - skipped;
+    if (!left.length) { finished.push(Object.assign(g, { done, missed })); return; }
+    const pct = total ? Math.round(done / total * 100) : 0;
+    const sq = sqftTotal(left.map(i => ({ lawn:codeUsesSqft(i.code), sqft:i.sqft })));
+    const m = left.reduce((t, i) => t + mins(i), 0);
+    const isOpen = g.start <= today && today <= g.end;
+    const wdays = g.end >= today ? workdaysBetween(addDays(today, -1), g.end, cfg.satOk) : 0;
+    const needDays = Math.ceil(m / dayLen * 10) / 10;
+    const tight = left.length && g.end >= today && needDays > Math.max(0, wdays - buf);
+    const ready = left.filter(i => ['late', 'due', 'consider'].includes(i.status)).length, notOpen = left.length - ready;
+    const bits = [
+      `<strong style="color:var(--text)">${done} of ${total} done</strong>`,
+      left.length ? `<strong style="color:var(--text)">${left.length} left</strong>` : 'none left',
+      sq.lawns ? fmtSqft(sq.sqft) + ' of lawn' + (sq.missing ? ` <span style="color:var(--warn)">(+${sq.missing} with no sq ft)</span>` : '') : '',
+      left.length ? `about ${hrs(m)} at the stops${m >= dayLen / 2 ? ' (' + needDays + ' day' + (needDays === 1 ? '' : 's') + ')' : ''}, plus driving` : '',
+    ].filter(Boolean).join(' · ');
+    const when = g.end < today ? `window closed ${day(g.end)}` : isOpen ? `open to ${day(g.end)} · ${wdays} workday${wdays === 1 ? '' : 's'} left${buf ? (wdays > buf ? ` (${buf} kept for rain)` : ' (into the rain days)') : ''}` : `opens ${day(g.start)} · runs to ${day(g.end)}`;
+    const split = [ready && notOpen ? ready + ' ready now, ' + notOpen + ' not open yet' : '', skipped ? skipped + ' skipped' : '', missed ? `<span style="color:var(--overdue)">${missed} missed</span>` : ''].filter(Boolean).join(' · ');
+    const ord = { late:0, due:1, consider:2, soon:3, later:4, missed:5 };
+    const who = left.concat(g.items.filter(i => i.status === 'missed')).sort((a, b) => ord[a.status] - ord[b.status] || a.name.localeCompare(b.name));
+    rows.push(`<details style="padding:8px 0;border-top:1px solid var(--border)" ${schedRoundOpen[g.key] ? 'open' : ''} ontoggle="schedRoundOpen['${g.key}']=this.open">
+      <summary style="cursor:pointer;list-style:none">
+        <div class="flex-between" style="gap:8px;flex-wrap:wrap"><span style="font-size:13px;color:var(--text)">${nameHtml(g)}</span><span style="font-size:11px;color:${tight ? 'var(--overdue)' : 'var(--text-muted)'}">${when}</span></div>
+        <div class="progress-bar" style="margin:6px 0 4px"><div class="fill" style="width:${pct}%"></div></div>
+        <div style="font-size:12px;color:var(--text-dim)">${bits}</div>
+        ${split ? `<div style="font-size:11px;color:var(--text-muted)">${split}</div>` : ''}
+        ${tight ? `<div style="font-size:11px;color:var(--overdue);margin-top:2px">Tight: about ${needDays} days of stops (before driving) and ${wdays > buf ? (wdays - buf) + ' workdays before the rain days' : 'only ' + wdays + ' workday' + (wdays === 1 ? '' : 's') + ' left'}</div>` : ''}
+      </summary>
+      ${who.length ? `<div style="margin-top:6px">${who.map(i => `<div class="flex-between" style="font-size:12px;padding:3px 0;gap:8px"><a href="#" onclick="detailCustomerId='${i.cid}';navigateTo('customers');detailCustomerId='${i.cid}';renderCustomers();return false" style="color:var(--text)">${escHtml(i.name)}</a><span style="white-space:nowrap">${codeUsesSqft(i.code) ? `<span style="color:${i.sqft ? 'var(--text-muted)' : 'var(--warn)'}">${i.sqft ? fmtSqft(i.sqft) : 'no sq ft'}</span> ` : ''}${schedBadge(i.status)}</span></div>`).join('')}</div>` : ''}
+    </details>`);
+  });
+  return `<div class="card mb-8"><div class="section-label" style="margin-top:0">Work left by round</div>
+    ${rows.join('') || '<div style="font-size:12px;color:var(--text-dim)">Every round so far this year is finished.</div>'}
+    ${finished.length ? `<div style="font-size:11px;color:var(--text-muted);padding-top:8px;border-top:1px solid var(--border)">✅ Finished: ${finished.map(g => escHtml(codeShort(g.key)) + ' (' + g.done + ' done' + (g.missed ? ', ' + g.missed + ' missed' : '') + ')').join(', ')}</div>` : ''}
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Tap a round to see who's left. Times use the planner's stop times; lawns with no sq ft are counted as 8,000.</div>
+  </div>`;
+}
 function renderSchedule() {
   const el = document.getElementById('page-schedule');
   if (!el) return;
@@ -3797,6 +3878,7 @@ function renderSchedule() {
       <div class="stat-box"><div class="label">Opens ≤${SOON_DAYS}d</div><div class="value">${count(SOON)}</div></div>
     </div>
     ${roundCalendarHtml(S)}
+    ${roundWorkLeftHtml(S)}
     ${S.needsTrack.length ? `<div class="card" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>${S.needsTrack.length} lawn customer${S.needsTrack.length === 1 ? ' has' : 's have'} no program yet</strong> — nothing in the log to base one on. Open each and pick Full or Maintenance.</div><div style="font-size:12px;color:var(--text-dim);margin-top:4px">${S.needsTrack.map(r => `<a href="#" onclick="detailCustomerId='${r.cid}';navigateTo('customers');detailCustomerId='${r.cid}';renderCustomers();return false" style="color:var(--accent)">${escHtml(r.c.Name || r.c.name)}</a>`).join(' · ')}</div></div>` : ''}
     <div class="filter-pills">${pill('ready','Ready',count(READY))}${pill('soon','Opens soon',count(SOON))}</div>
     <div class="filter-pills">
@@ -4352,7 +4434,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-11-c';
+var APP_BUILD = '2026-10-13-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
