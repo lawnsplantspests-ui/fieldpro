@@ -2543,11 +2543,13 @@ function renderRouteDetail(el) {
           <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(s.customerName)}${sqftTag(routeStopSqft(s))}</div>
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(s.address||'No address')}</div>
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.viaLog ? '✓ logged ' + fmtDate(s.completedDate) + ' · ' : ''}${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
+          ${bareOf(s.customerId) ? `<div style="font-size:11px;color:var(--warn);margin-top:2px">🟫 ${escHtml(bareText(bareOf(s.customerId)))}</div>` : ''}
           ${stopTimeHtml(rt, s)}${stopUnloggedHtml(rt, s)}
         </div>
         <div class="flex-row gap-6 stop-btns" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
           ${(s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)) : stopUnlogged(rt, s)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('')}
           ${s.status !== 'completed' ? smsStopBtn(rt.id, i, s) : ''}
+          <button class="btn ghost sm" onclick="schedToggleBare('${s.customerId}')" title="${bareOf(s.customerId) ? 'Clear the bare spots note' : 'Mark bare spots / drought damage'}">🟫${bareOf(s.customerId) ? '✓' : ''}</button>
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
           ${s.status !== 'completed' && appleMapsUrl(s) ? `<a class="btn ghost sm" href="${escHtml(appleMapsUrl(s))}" target="_blank" rel="noopener" title="Apple Maps directions">🧭</a>` : ''}
           ${s.status !== 'completed' ? `<button class="btn ghost sm" onclick="routeMoveStop('${rt.id}',${i})" title="Move to another day">↪ Move</button>` : ''}
@@ -3977,6 +3979,10 @@ function schedCustomerCard(cid) {
         <button class="btn ${row.seed && row.seed !== 'sep' ? 'primary' : 'secondary'} sm" onclick="schedSetSeed('${cid}','date')">Pick a date</button>
         ${row.seed && row.seed !== 'sep' ? `<input type="date" value="${escHtml(row.seed)}" onchange="schedSeedDate('${cid}',this.value)" style="padding:6px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">` : ''}
       </div>
+      ${row.sqLawn > 0 || row.track ? (b => `<div class="flex-row gap-6" style="flex-wrap:wrap;margin:4px 0;align-items:center">
+        <span style="font-size:12px;color:var(--text-dim)">Bare spots:</span>
+        <button class="btn ${b ? 'primary' : 'secondary'} sm" onclick="schedToggleBare('${cid}')">${b ? '🟫 Noted ' + fmtDate(b.date) + ' — clear' : '🟫 Mark bare spots'}</button>
+        <span style="font-size:11px;color:${b && !row.seed ? 'var(--warn)' : 'var(--text-muted)'}">${b ? (b.note ? escHtml(b.note) + ' · ' : '') + (row.seed ? 'on aeration &amp; seed' : 'top of Offers → Aeration &amp; seed' + (row.track === 'std' ? ' · maintenance: seed not included' : '')) : 'drought damage, thin areas'}</span></div>`)(bareOf(cid)) : ''}
       ${Object.keys(SERVICES).map(key => {
         const def = SERVICES[key], inf = row.svcInfo[key] || {}, Yn = Number(Y), ended = Number((row.svcEnd || {})[key]) >= Yn;
         return `<div class="flex-row gap-6" style="flex-wrap:wrap;margin:4px 0;align-items:center">
@@ -4286,6 +4292,10 @@ const smsStopBtn = (rid, i, s) => `<button class="btn ghost sm" onclick="smsTapS
 // and (for lime) what their soil test says. Texting uses the same tap-to-text as the call-ahead messages.
 const OFFER_TPL_VISIT = "Hey {name}. I'll be out {when} for your {service}. Want me to add {offer} while I'm there? Let me know.";
 const OFFER_TPL_PLAIN = 'Hey {name}. Would you like me to add {offer} to your service? Let me know.';
+// a lawn with bare spots marked (drought damage): explain that the lawn program doesn't include seed, then offer it
+const OFFER_TPL_BARE = "Hey {name}. The dry weather left some thin and bare spots in your lawn. Your lawn care program feeds the lawn and controls weeds, but it doesn't include seeding, so those spots won't fill back in on their own. Aeration and overseeding {seedtime} is the best way to fix them. Want me to put you on the list? Let me know.";
+// maintenance customers, before it gets dry: what the program covers and that seeding is separate
+const OFFER_TPL_NOTE = "Hey {name}. A quick note about your lawn program: it covers fertilizer, crabgrass prevention and weed control, but not seeding. If we get a dry spell this summer, thin or bare spots can show up, and those only fill back in with seed. Aeration and overseeding in early September is the fix, and it's a separate service. If you'd like to be on the list for it, let me know.";
 const OFFERS = {
   PEST: { label:'Pest control',      phrase:'perimeter pest control (monthly)',                 months:[3,4,5,6,7,8,9],     why:'Lawn customer with no pest service' },
   MOSQ: { label:'Mosquito',          phrase:'monthly mosquito treatment',                       months:[3,4,5,6,7],         why:'No mosquito service' },
@@ -4294,7 +4304,19 @@ const OFFERS = {
   GRUB: { label:'Grub control',      phrase:'grub control',                                     months:[2,3,4,5],           why:'On the no-grub round' },
   LIME: { label:'Lime',              phrase:"a lime treatment (your soil test says it needs it)", months:[3,4,5,9,10,11],  why:'Soil test pH is low' },
   ADES: { label:'Anti-desiccant',    phrase:'anti-desiccant for your evergreens',               months:[10,11],             why:'Tree & shrub customer without Round 8' },
+  NOTE: { label:'Seed note',         phrase:'aeration and seed in September',                   months:[5,6,7],             why:'Maintenance program: seeding not included' },
 };
+// bare spots marked on a lawn (drought damage), kept for a year
+function bareOf(cid) { const b = (getPlan(String(cid)) || {}).bare; return b && b.date && daysBetween(b.date, schedToday()) < 365 ? b : null; }
+const bareText = b => 'bare spots noted ' + fmtDate(b.date) + (b.note ? ' (' + b.note + ')' : '');
+function schedToggleBare(cid) {
+  cid = String(cid);
+  if (bareOf(cid)) { if (confirm('Clear the bare spots note?')) editPlan(cid, p => { delete p.bare; }); return; }
+  const note = prompt('Bare spots / drought damage. Where, or how bad? (optional)', '');
+  if (note === null) return;
+  editPlan(cid, p => { p.bare = { date:schedToday(), note:String(note).trim() }; });
+}
+function seedTimePhrase() { const t = schedToday(); return t <= t.slice(0, 4) + '-09-14' ? 'this September' : 'next September'; }
 let offerShowAll = false, offerFilter = 'PEST', offerSoil = null, offerSoilBusy = false, offerSoilErr = '', offerSoilTriedAt = 0;
 const OFFER_SOIL_KEY = 'fieldpro_soil';
 function offerSoilLoadCache() { try { const r = localStorage.getItem(OFFER_SOIL_KEY); if (r) offerSoil = JSON.parse(r); } catch(e) {} }
@@ -4328,13 +4350,16 @@ function offerCandidates(key, S, near) {
   S.rows.forEach(r => {
     const c = r.c, cid = r.cid, st = offerState(cid, key);
     if (!(r.sqLawn > 0 || r.track)) return;
-    if (st && (st.state === 'yes' || (st.state === 'no' && daysBetween(st.date, today) < 365))) return;
+    const bare = bareOf(cid);
+    // a 'no' to seeding is asked again once bare spots show up after it
+    if (st && (st.state === 'yes' || (st.state === 'no' && daysBetween(st.date, today) < 365 && !(key === 'SEED' && bare && bare.date > st.date)))) return;
     let tags = [], rank = 0, ok = false, needs = '';
     const has = k => r.svcInfo[k] && r.svcInfo[k].enrolled;
     if (key === 'PEST') { ok = !(r.sqPest > 0 && !r.pestOff) && !r.rounds.some(q => q.code === 'PEST'); if (r.sqPest <= 0) needs = 'needs a perimeter measurement'; }
     else if (key === 'MOSQ') ok = !has('MOSQ') && !has('BAIT');
     else if (key === 'TS') { ok = !has('TS'); const phc = (r.last && /^PHC\b/i.test(r.last.s)) || (TREATLOG && Object.values(TREATLOG.tabs).some(a => a.some(e => e.k === nameKey(c.Name) && /^PHC\b/i.test(e.s)))); if (phc) { tags.push('had tree & shrub work this year'); rank += 3; } }
-    else if (key === 'SEED') ok = !r.seed && r.sqLawn >= 5000;
+    else if (key === 'SEED') { ok = !r.seed && (r.sqLawn >= 5000 || !!bare); if (bare) { tags.push(bareText(bare)); rank += 10; } if (r.track === 'std') tags.push('maintenance: seed not included'); }
+    else if (key === 'NOTE') { ok = r.track === 'std' && !r.seed; if (bare) { tags.push(bareText(bare)); rank += 10; } }
     else if (key === 'GRUB') ok = !!r.track && r.grub === false;
     else if (key === 'LIME') { const s = soilFor(c); ok = !!s && (s.pH < 6.0 || s.lime >= 50); if (s) { tags.push('pH ' + s.pH + (s.lime > 0 ? ' · lab says ' + Math.round(s.lime) + ' lb/1000' : '')); rank += Math.max(0, 6.5 - s.pH) * 2; } }
     else if (key === 'ADES') ok = has('TS') && !has('ADES');
@@ -4346,7 +4371,7 @@ function offerCandidates(key, S, near) {
     const nxt = r.open.find(i => i.status === 'due' || i.status === 'late');
     if (!visit && nxt) tags.push('due now: ' + codeShort(nxt.code));
     if (near[cid] >= 8) { tags.push('dense area'); rank += 2; }
-    out.push({ r, c, cid, st, tags, rank, visit, needs });
+    out.push({ r, c, cid, st, tags, rank, visit, needs, bare });
   });
   return out.sort((a, b) => b.rank - a.rank || (a.c.Name || '').localeCompare(b.c.Name || ''));
 }
@@ -4357,8 +4382,9 @@ function offerNeighbours(S) {
 }
 function offerBody(cand, key) {
   const cfg = getPlanCfg(), c = cand.c;
-  const t = cand.visit ? (cfg.offerTplVisit || OFFER_TPL_VISIT) : (cfg.offerTplPlain || OFFER_TPL_PLAIN);
-  return t.replace(/\{name\}/g, smsName(c) || 'there').replace(/\{offer\}/g, OFFERS[key].phrase)
+  const t = key === 'NOTE' ? (cfg.offerTplNote || OFFER_TPL_NOTE) : key === 'SEED' && cand.bare ? (cfg.offerTplBare || OFFER_TPL_BARE)
+    : cand.visit ? (cfg.offerTplVisit || OFFER_TPL_VISIT) : (cfg.offerTplPlain || OFFER_TPL_PLAIN);
+  return t.replace(/\{seedtime\}/g, seedTimePhrase()).replace(/\{name\}/g, smsName(c) || 'there').replace(/\{offer\}/g, OFFERS[key].phrase)
     .replace(/\{when\}/g, cand.visit ? smsWhen(cand.visit.date) : '').replace(/\{service\}/g, cand.visit ? smsServicePhrase([cand.visit.code]) : '');
 }
 function offerSet(cid, key, state) {
@@ -4383,14 +4409,19 @@ function offerYes(cid, key) {
   editPlan(cid, p => {
     p.offers = p.offers || {}; p.offers[key] = { state:'yes', date:schedToday() };
     if (key === 'PEST') { delete p.noPest; }
-    else if (key === 'SEED') p.seed = 'sep';
+    else if (key === 'SEED' || key === 'NOTE') { p.seed = 'sep'; p.offers.SEED = { state:'yes', date:schedToday() }; }
     else if (key === 'GRUB') p.grub = true;
     else if (key === 'MOSQ' || key === 'TS' || key === 'ADES') { p.svc = p.svc || {}; p.svc[key] = true; }
   });
 }
 function offerSaveTemplates() {
-  const a = (document.getElementById('of-tpl-visit') || {}).value || '', b = (document.getElementById('of-tpl-plain') || {}).value || '';
-  savePlanCfg({ offerTplVisit:a.trim() || OFFER_TPL_VISIT, offerTplPlain:b.trim() || OFFER_TPL_PLAIN });
+  const v = id => { const el = document.getElementById(id); return el ? el.value.trim() : null; };
+  const patch = {}, a = v('of-tpl-visit'), b = v('of-tpl-plain'), bare = v('of-tpl-bare'), note = v('of-tpl-note');
+  if (a !== null) patch.offerTplVisit = a || OFFER_TPL_VISIT;
+  if (b !== null) patch.offerTplPlain = b || OFFER_TPL_PLAIN;
+  if (bare !== null) patch.offerTplBare = bare || OFFER_TPL_BARE;
+  if (note !== null) patch.offerTplNote = note || OFFER_TPL_NOTE;
+  savePlanCfg(patch);
   renderOffers();
 }
 function renderOffers() {
@@ -4425,16 +4456,21 @@ function renderOffers() {
     ${list.length > 25 && !offerShowAll ? `<div style="text-align:center;margin:8px 0"><button class="btn secondary sm" onclick="offerShowAll=true;renderOffers()">Show all ${list.length}</button></div>` : ''}
     ${list.length === 0 && !(offerFilter === 'LIME' && !offerSoil) ? '<div class="card"><p style="color:var(--text-dim)">Nobody to offer this to right now.</p></div>' : ''}
     <div class="section-label">Offer message</div>
+    ${offerFilter === 'NOTE' ? `<div class="card"><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Sent to maintenance customers so they know seeding isn't part of their program, best before it gets dry (May–July). Use {name}. Tap Yes if they want aeration &amp; seed.</div>
+      <textarea id="of-tpl-note" rows="5" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplNote || OFFER_TPL_NOTE)}</textarea>
+      <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save message</button></div></div>` : `
+    ${offerFilter === 'SEED' ? `<div class="card mb-8"><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">For lawns with bare spots marked: explains that their lawn care doesn't include seed. Use {name} and {seedtime} (this or next September).</div>
+      <textarea id="of-tpl-bare" rows="5" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplBare || OFFER_TPL_BARE)}</textarea></div>` : ''}
     <div class="card"><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Use {name}, {offer}, {when} and {service}. The first is used when you already have a visit planned for them.</div>
       <textarea id="of-tpl-visit" rows="2" style="width:100%;margin-bottom:6px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplVisit || OFFER_TPL_VISIT)}</textarea>
       <textarea id="of-tpl-plain" rows="2" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(cfg.offerTplPlain || OFFER_TPL_PLAIN)}</textarea>
-      <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save messages</button></div></div>`;
+      <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save messages</button></div></div>`}`;
 }
 
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-13-a';
+var APP_BUILD = '2026-10-13-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
