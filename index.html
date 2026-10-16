@@ -3747,7 +3747,10 @@ function roundWorkLeftHtml(S, today = schedToday()) {
   const buf = Math.max(0, Math.round(cfg.rainBuffer == null ? PLAN_DEFAULTS.rainBuffer : cfg.rainBuffer));
   const dayLen = Math.max(60, toMin(cfg.end) - toMin(cfg.start));
   const LEFT = ['late', 'due', 'consider', 'soon', 'later'];
-  const groups = {};
+  const groups = {}, rowOf = {}, logOf = {};
+  S.rows.forEach(r => { rowOf[r.cid] = r; });
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (String(e.d).startsWith(Y)) (logOf[e.k] = logOf[e.k] || []).push(e); }));
+  const missedRow = i => missedRowHtml(i, rowOf[i.cid], logOf[nameKey(rowOf[i.cid] && rowOf[i.cid].c ? rowOf[i.cid].c.Name || rowOf[i.cid].c.name : i.name)] || []);
   S.rows.forEach(r => (r.rounds || []).forEach(i => {
     if (i.pest || i.svcKey === 'MOSQ' || i.svcKey === 'BAIT' || !String(i.period).startsWith(Y)) return;
     const key = i.code === '2A' || i.code === '2B' ? '2' : i.code;
@@ -3811,14 +3814,41 @@ function roundWorkLeftHtml(S, today = schedToday()) {
         ${split ? `<div style="font-size:11px;color:var(--text-muted)">${split}</div>` : ''}
         ${tight ? `<div style="font-size:11px;color:var(--overdue);margin-top:2px">Tight: about ${needDays} days of stops (before driving) and ${wdays > buf ? (wdays - buf) + ' workdays before the rain days' : 'only ' + wdays + ' workday' + (wdays === 1 ? '' : 's') + ' left'}</div>` : ''}
       </summary>
-      ${who.length ? `<div style="margin-top:6px">${who.map(i => `<div class="flex-between" style="font-size:12px;padding:3px 0;gap:8px"><a href="#" onclick="detailCustomerId='${i.cid}';navigateTo('customers');detailCustomerId='${i.cid}';renderCustomers();return false" style="color:var(--text)">${escHtml(i.name)}</a><span style="white-space:nowrap">${codeUsesSqft(i.code) ? `<span style="color:${i.sqft ? 'var(--text-muted)' : 'var(--warn)'}">${i.sqft ? fmtSqft(i.sqft) : 'no sq ft'}</span> ` : ''}${schedBadge(i.status)}</span></div>`).join('')}</div>` : ''}
+      ${who.length ? `<div style="margin-top:6px">${who.map(i => `<div class="flex-between" style="font-size:12px;padding:3px 0;gap:8px"><a href="#" onclick="detailCustomerId='${i.cid}';navigateTo('customers');detailCustomerId='${i.cid}';renderCustomers();return false" style="color:var(--text)">${escHtml(i.name)}</a><span style="white-space:nowrap">${codeUsesSqft(i.code) ? `<span style="color:${i.sqft ? 'var(--text-muted)' : 'var(--warn)'}">${i.sqft ? fmtSqft(i.sqft) : 'no sq ft'}</span> ` : ''}${schedBadge(i.status)}</span></div>${i.status === 'missed' ? missedRow(i) : ''}`).join('')}</div>` : ''}
     </details>`);
   });
   return `<div class="card mb-8"><div class="section-label" style="margin-top:0">Work left by round</div>
     ${rows.join('') || '<div style="font-size:12px;color:var(--text-dim)">Every round so far this year is finished.</div>'}
     ${finished.length ? `<div style="font-size:11px;color:var(--text-muted);padding-top:8px;border-top:1px solid var(--border)">✅ Finished: ${finished.map(g => escHtml(codeShort(g.key)) + ' (' + g.done + ' done' + (g.missed ? ', ' + g.missed + ' missed' : '') + ')').join(', ')}</div>` : ''}
+    ${finished.some(g => g.missed) ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Finished rounds with missed customers — tap one to see who and why:</div>
+      ${finished.filter(g => g.missed).map(g => `<details style="padding:6px 0;border-top:1px solid var(--border)" ${schedRoundOpen['fin:' + g.key] ? 'open' : ''} ontoggle="schedRoundOpen['fin:${g.key}']=this.open">
+        <summary style="cursor:pointer;font-size:13px">${nameHtml(g)} <span style="font-size:12px;color:var(--text-dim)">· ${g.done} done · <span style="color:var(--overdue)">${g.missed} missed</span></span></summary>
+        <div style="margin-top:4px">${g.items.filter(i => i.status === 'missed').sort((a, b) => a.name.localeCompare(b.name)).map(i => `<div style="font-size:12px;padding:3px 0"><a href="#" onclick="detailCustomerId='${i.cid}';navigateTo('customers');detailCustomerId='${i.cid}';renderCustomers();return false" style="color:var(--text)">${escHtml(i.name)}</a></div>${missedRow(i)}`).join('')}</div>
+      </details>`).join('')}` : ''}
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Tap a round to see who's left. Times use the planner's stop times; lawns with no sq ft are counted as 8,000.</div>
   </div>`;
+}
+// Why a round shows as missed, read from the customer's LPP Log entries this year, and the quick fixes.
+// Missed = on their program, the window closed over LATE_GRACE_DAYS ago, nothing logged counts as that round.
+function missedHint(i, row, log) {
+  const lawn = log.filter(e => { const k = svcCode(e.s); return k && k !== 'PEST'; }).sort((a, b) => a.d.localeCompare(b.d));
+  const guessed = row && row.trackSource === 'history' && !i.svcKey ? ' (Program guessed from the log: set it on their card if that is wrong.)' : '';
+  if (i.manual) return 'Not marked done in FieldPro' + (i.svcKey === 'TS' || i.svcKey === 'ADES' ? ' (oil and fertilizer rounds are never in the LPP Log, so they have to be marked done here).' : ', and nothing in the LPP Log matched its window.');
+  if (!log.length) return 'Nothing in the LPP Log this year — not a customer this year?' + guessed;
+  if (!lawn.length) return 'Only ' + [...new Set(log.map(e => shortSvc(e.s)))].slice(0, 2).join(', ') + ' logged this year, no lawn rounds.' + guessed;
+  // logged around the window under a name that isn't read as a lawn round
+  const odd = log.filter(e => e.d >= i.start && e.d <= addDays(i.end, LATE_GRACE_DAYS) && !svcCode(e.s) && !Object.values(SERVICES).some(d => d.log && d.log.test(e.s)));
+  if (odd.length) return 'Logged “' + shortSvc(odd[0].s) + '” on ' + fmtDate(odd[0].d) + ', which isn\'t read as ' + codeShort(i.code) + ' — done under another name?';
+  if (lawn[0].d > i.end) return 'First lawn visit logged ' + fmtDate(lawn[0].d) + ' — started after this round.' + guessed;
+  if (lawn[lawn.length - 1].d < i.start) return 'Last lawn visit logged ' + fmtDate(lawn[lawn.length - 1].d) + ' — stopped before this round.';
+  const later = [...new Set(lawn.filter(e => e.d > i.end).map(e => codeShort(svcCode(e.s))))];
+  if (later.length) return 'Later rounds logged (' + later.join(', ') + ') — skipped this one, or done and not logged?';
+  return 'Lawn visits logged before it, none for this round.';
+}
+function missedRowHtml(i, row, log) {
+  const key = i.period + ':' + i.code;
+  return `<div style="font-size:11px;color:var(--text-dim);margin:0 0 6px 10px;padding-left:8px;border-left:2px solid var(--border)">${escHtml(missedHint(i, row, log))}
+    <span class="flex-row gap-6" style="display:inline-flex;margin-left:4px">${i.manual ? `<button class="btn success sm" style="padding:1px 8px;font-size:11px" onclick="schedMarkDone('${i.cid}','${key}')" title="It was done">Mark done</button>` : ''}<button class="btn ghost sm" style="padding:1px 8px;font-size:11px" onclick="schedToggleSkip('${i.cid}','${key}')" title="Wasn't part of their year: stops counting as missed">Skip</button>${!log.length && !i.manual ? `<button class="btn ghost sm" style="padding:1px 8px;font-size:11px;color:var(--warn)" onclick="schedSetActive('${i.cid}',false)" title="No longer a customer: off the Schedule, planner and routes (history kept)">Mark inactive</button>` : ''}</span></div>`;
 }
 function renderSchedule() {
   const el = document.getElementById('page-schedule');
@@ -4470,7 +4500,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-13-b';
+var APP_BUILD = '2026-10-15-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
