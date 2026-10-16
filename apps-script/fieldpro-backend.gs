@@ -20,11 +20,90 @@ const SHEET_ID = '1ZLuqBz61IXa5CEQieNQbhTLxH6EJYGmxJiXjeyaswa0';
 // This web app is reachable by anyone who has its URL, and the URL is in the apps' public code.
 // So every request must carry the app password, kept in Project Settings → Script properties as
 // APP_KEY (never in this code). If APP_KEY is missing, everything is refused (fails closed).
-function appKeyOk_(key) {
-  var want = PropertiesService.getScriptProperties().getProperty('APP_KEY');
+//
+// Wrong-password limit: without one, anyone with the URL could try passwords forever. Apps Script
+// does not reveal the caller's IP, so the main limit is shared by every caller: after PW_MAX_FAILS
+// wrong passwords within PW_WINDOW_SEC, password checks stop for PW_LOCK_SEC and each request gets
+// "too_many_attempts" without its password being looked at, so guessing during the pause learns
+// nothing. The apps also send a random device id kept in the browser. A device that has unlocked
+// with the current password is remembered (KNOWN_DEVICES in Script properties, hashed together with
+// APP_KEY, so changing the password forgets them all) and keeps working through a pause, so a
+// stranger's guessing can't lock the real phones out. One device gets PW_DEVICE_FAILS wrong tries
+// per window before it alone is paused. A request with no password at all is refused but not counted.
+var PW_MAX_FAILS = 50;
+var PW_DEVICE_FAILS = 10;
+var PW_WINDOW_SEC = 3600;
+var PW_LOCK_SEC = 3600;
+var KNOWN_DEVICES_MAX = 40;
+
+// null when the request may go ahead; otherwise { message:'unauthorized' }
+// or { message:'too_many_attempts', retryAfter:<seconds> }.
+function appKeyRefusal_(key, device) {
+  var props = PropertiesService.getScriptProperties();
+  var all = props.getProperties();
   // Trimmed on both sides: a space or line break pasted into the property must not lock the apps out.
-  want = want ? String(want).trim() : '';
-  return !!want && typeof key === 'string' && key.trim() === want;
+  var want = all.APP_KEY ? String(all.APP_KEY).trim() : '';
+  if (!want) return { message:'unauthorized' };
+  key = typeof key === 'string' ? key.trim() : '';
+  device = (typeof device === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(device)) ? device : '';
+
+  var cache = CacheService.getScriptCache();
+  var now = Date.now();
+  var tag = device ? sha256Hex_(want + '|' + device).slice(0, 32) : '';
+  var known = all.KNOWN_DEVICES ? String(all.KNOWN_DEVICES).split(',') : [];
+  var isKnown = !!tag && known.indexOf(tag) >= 0;
+
+  var until = tag ? Number(cache.get('pw_dlock_' + tag)) || 0 : 0;
+  if (until <= now && !isKnown) until = Number(cache.get('pw_lock')) || 0;
+  if (until > now) return { message:'too_many_attempts', retryAfter:Math.ceil((until - now) / 1000) };
+
+  if (!key) return { message:'unauthorized' };
+  if (sameText_(key, want)) {
+    if (tag && !isKnown) {
+      known.push(tag);
+      props.setProperty('KNOWN_DEVICES', known.slice(-KNOWN_DEVICES_MAX).join(','));
+    }
+    return null;
+  }
+
+  // Wrong password. The lock keeps simultaneous guesses from overwriting each other's count.
+  var lock = LockService.getScriptLock();
+  var locked = lock.tryLock(5000);
+  try {
+    countFailure_(cache, now, 'pw_fails', 'pw_lock', PW_MAX_FAILS);
+    if (tag) countFailure_(cache, now, 'pw_dfails_' + tag, 'pw_dlock_' + tag, PW_DEVICE_FAILS);
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+  return { message:'unauthorized' };
+}
+
+function countFailure_(cache, now, countKey, lockKey, max) {
+  var c = null;
+  try { c = JSON.parse(cache.get(countKey) || 'null'); } catch (e) {}
+  if (!c || now - c.t0 >= PW_WINDOW_SEC * 1000) c = { n:0, t0:now };
+  c.n++;
+  if (c.n >= max) {
+    cache.put(lockKey, String(now + PW_LOCK_SEC * 1000), PW_LOCK_SEC);
+    cache.remove(countKey);
+  } else {
+    var left = Math.ceil((c.t0 + PW_WINDOW_SEC * 1000 - now) / 1000);
+    cache.put(countKey, JSON.stringify(c), Math.max(1, left));
+  }
+}
+
+// Compares hashes, so the time taken says nothing about how much of a guess was right.
+function sameText_(a, b) {
+  var x = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, a, Utilities.Charset.UTF_8);
+  var y = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, b, Utilities.Charset.UTF_8);
+  var diff = 0;
+  for (var i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+function sha256Hex_(s) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8)
+    .map(function(b){ return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
 }
 
 // ═══════════════════════════════════════════
@@ -34,9 +113,10 @@ function appKeyOk_(key) {
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    if (!appKeyOk_(data.key)) {
+    var refused = appKeyRefusal_(data.key, data.device);
+    if (refused) {
       return ContentService
-        .createTextOutput(JSON.stringify({ status: 'error', message: 'unauthorized' }))
+        .createTextOutput(JSON.stringify({ status: 'error', message: refused.message, retryAfter: refused.retryAfter }))
         .setMimeType(ContentService.MimeType.JSON);
     }
     var action = data.action;

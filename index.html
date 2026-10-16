@@ -495,21 +495,47 @@ a.btn{text-decoration:none}
     var f=ov.querySelector('form'), i=ov.querySelector('input'); setTimeout(function(){ i.focus(); },50);
     f.onsubmit=function(e){ e.preventDefault(); var v=i.value.trim(); if(!v) return; try{ localStorage.setItem(KEY,v); }catch(_){} location.reload(); };
   }
+  // Shown when the backend has paused password checks after too many wrong tries.
+  function paused(sec){
+    var min=Math.max(1,Math.ceil((Number(sec)||0)/60));
+    var msg='Too many wrong passwords were tried, so sign-in is paused for safety. Try again in about '+min+' minute'+(min===1?'':'s')+'.';
+    var old=document.getElementById('appkey-pause-msg'); if(old){ old.textContent=msg; return; }
+    var ov=document.createElement('div'); ov.id='appkey-pause';
+    ov.style.cssText='position:fixed;inset:0;z-index:2147483001;background:rgba(10,14,12,.96);display:flex;align-items:flex-start;justify-content:center;padding-top:16vh;font-family:-apple-system,Segoe UI,Roboto,sans-serif';
+    ov.innerHTML='<div style="width:300px;max-width:88vw;text-align:center;color:#eee">'+
+      '<div style="font-size:20px;font-weight:700;margin-bottom:6px">Please wait</div>'+
+      '<div id="appkey-pause-msg" style="font-size:14px;opacity:.85;margin-bottom:18px"></div>'+
+      '<button style="width:100%;padding:14px;font-size:16px;font-weight:700;border:0;border-radius:10px;background:#3fa34d;color:#fff">OK</button></div>';
+    ov.querySelector('#appkey-pause-msg').textContent=msg;
+    ov.querySelector('button').onclick=function(){ ov.remove(); };
+    (document.body||document.documentElement).appendChild(ov);
+  }
+  // A random id for this browser. A device that has unlocked once keeps working while the backend
+  // has paused password checks because of somebody else's guessing.
+  function deviceId(){
+    try{
+      var d=localStorage.getItem('lpp_device_id');
+      if(!d){ var a=new Uint8Array(16); crypto.getRandomValues(a); d=Array.prototype.map.call(a,function(x){ return ('0'+x.toString(16)).slice(-2); }).join(''); localStorage.setItem('lpp_device_id',d); }
+      return d;
+    }catch(e){ return ''; }
+  }
   window.appKey=getKey; window.appKeyAsk=ask;
   var GAS=/^https:\/\/script\.google\.com\/macros\//;
   var realFetch=window.fetch.bind(window);
   window.fetch=function(input,init){
     var url=typeof input==='string'?input:(input&&input.url)||'';
     if(!GAS.test(url)) return realFetch(input,init);
-    var k=getKey();
+    var k=getKey(), dev=deviceId();
     if(init&&typeof init.body==='string'){
-      try{ var b=JSON.parse(init.body); if(b&&typeof b==='object'&&!Array.isArray(b)){ b.key=k; init=Object.assign({},init,{body:JSON.stringify(b)}); } }catch(e){}
+      try{ var b=JSON.parse(init.body); if(b&&typeof b==='object'&&!Array.isArray(b)){ b.key=k; b.device=dev; init=Object.assign({},init,{body:JSON.stringify(b)}); } }catch(e){}
     } else if(!init||!init.method||String(init.method).toUpperCase()==='GET'){
-      input=url+(url.indexOf('?')<0?'?':'&')+'key='+encodeURIComponent(k);
+      input=url+(url.indexOf('?')<0?'?':'&')+'key='+encodeURIComponent(k)+'&device='+encodeURIComponent(dev);
     }
     return realFetch(input,init).then(function(res){
       res.clone().text().then(function(t){
-        if(/"unauthorized"/.test(t)){ try{ localStorage.removeItem(KEY); }catch(e){} ask('That password didn’t work. Enter it again.'); }
+        if(t.length>300) return; // refusals are short; real data can't trip these
+        if(/"too_many_attempts"/.test(t)){ var s=0; try{ s=JSON.parse(t).retryAfter; }catch(e){} paused(s); }
+        else if(/"unauthorized"/.test(t)){ try{ localStorage.removeItem(KEY); }catch(e){} ask('That password didn’t work. Enter it again.'); }
       }).catch(function(){});
       return res;
     });
@@ -4500,7 +4526,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-15-a';
+var APP_BUILD = '2026-10-15-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
