@@ -1656,19 +1656,23 @@ const MIX_RATES = [
  {ty:'adj',n:'Cutrine Ultra Algaecide',ai:'Copper Ethanolamine (chelated)',epa:'67690-98',t:'Algae / aquatic weeds',s:'0.6–1.2 gal / surface acre',sl:'aquatic',notes:'Enhanced chelated formula. No use restrictions after treatment.'},
 ];
 const MIX_RIGS = [
-  { key:'z',   label:'🚜 Z-Spray',  note:'Liquid rates per 1,000 sqft (or spray output). Tag shows the backpack rate for the same product.' },
-  { key:'b',   label:'🎒 Backpack', note:'Per 4-gallon tank unless the rate reads “/gal”. Tag shows the Z-Spray rate for the same product.' },
+  { key:'zb',  label:'🚜🎒 Z-Spray + Backpack', note:'Every liquid product, with its Z-Spray rate and its backpack rate on separate lines. Z-Spray is per 1,000 sqft (or spray output); backpack is per 4-gallon tank unless it reads “/gal”.' },
+  { key:'z',   label:'🚜 Z-Spray',  note:'Liquid rates per 1,000 sqft (or spray output). The backpack rate for the same product is on the line below.' },
+  { key:'b',   label:'🎒 Backpack', note:'Per 4-gallon tank unless the rate reads “/gal”. The Z-Spray rate for the same product is on the line below.' },
   { key:'g',   label:'🌾 Granular', note:'Spreader rates — most lawn fertilizers run 4 lbs / 1,000 sqft.' },
   { key:'s',   label:'🐝 Specialty',note:'Dusts, miticide tank mixes, tree injections, and pond treatments.' },
   { key:'all', label:'📋 All',      note:'Every product, showing whichever rig(s) it runs through.' },
 ];
 const MIX_TYNAME = { herb:'Herbicides', fung:'Fungicides', insect:'Insecticides · Mites · Pest', fert:'Fertilizer & Granular', adj:'Adjuvants · Lime · Pond' };
 const MIX_RIGLABEL = { z:'Z-Spray', b:'Backpack', g:'Granular', s:'' };
-let mixRig = 'z';
+const MIX_RIGICON = { z:'🚜', b:'🎒', g:'🌾', s:'🐝' };
+// the last rig tab used is remembered on this phone
+let mixRig = (() => { try { const v = localStorage.getItem('fp_mixrig'); return MIX_RIGS.some(r => r.key === v) ? v : 'zb'; } catch (e) { return 'zb'; } })();
+function setMixRig(k) { mixRig = k; try { localStorage.setItem('fp_mixrig', k); } catch (e) {} renderMixRates(); }
 
 function renderMixRates() {
   const rig = mixRig;
-  const hasRig = (d) => rig === 'all' ? true : !!d[rig];
+  const hasRig = (d) => rig === 'all' ? true : rig === 'zb' ? !!(d.z || d.b) : !!d[rig];
   let items = MIX_RATES.filter(hasRig);
   if (searchTerm) {
     const s = searchTerm.toLowerCase();
@@ -1685,32 +1689,28 @@ function renderMixRates() {
       lastTy = d.ty;
       body += `<div class="section-label" style="color:var(--accent)">${MIX_TYNAME[d.ty] || ''}</div>`;
     }
-    // primary rate = current rig (or first available on the "All" tab)
-    const pk = rig !== 'all' ? rig : (d.z ? 'z' : d.b ? 'b' : d.g ? 'g' : 's');
-    const primary = pk === 's' ? d.s : d[pk];
-    const punit = pk === 's' ? (d.sl || 'rate') : MIX_RIGLABEL[pk];
-    // alternate rates for the same product on other rigs
-    let alts = '';
-    [['z','Z-Spray'],['b','Backpack'],['g','Granular']].forEach(([k,lbl]) => {
-      if (k !== pk && d[k]) alts += `<span class="badge" style="background:var(--bg-input);color:var(--text-dim);text-transform:none;letter-spacing:0">${lbl}: ${escHtml(d[k])}</span>`;
-    });
-    if (pk !== 's' && d.s) alts += `<span class="badge" style="background:var(--bg-input);color:var(--text-dim);text-transform:none;letter-spacing:0">${escHtml(d.sl||'rate')}: ${escHtml(d.s)}</span>`;
+    // one line per rig the product runs through. Z-Spray and backpack always both show for a liquid product
+    // (a dash when there is no rate for that rig), the tab's own rig first and highlighted.
+    const liquid = !!(d.z || d.b);
+    const keys = ['z', 'b', 'g', 's'].filter(k => d[k] || (liquid && (k === 'z' || k === 'b')));
+    if (rig === 'b') keys.sort((x, y) => (y === 'b') - (x === 'b'));
+    const lines = keys.map(k => {
+      const on = !!d[k] && (rig === k || (rig === 'zb' && (k === 'z' || k === 'b')) || keys.length === 1);
+      const lbl = k === 's' ? (d.sl ? d.sl.charAt(0).toUpperCase() + d.sl.slice(1) : 'Rate') : MIX_RIGLABEL[k];
+      return `<div class="flex-row" style="gap:10px;align-items:baseline;padding:6px 10px;border-radius:7px;${on ? 'background:var(--accent-dim);' : 'background:var(--bg-input);'}margin-top:4px">
+        <span style="flex:0 0 112px;font-size:12px;font-weight:700;color:${on ? 'var(--accent)' : 'var(--text-dim)'}">${MIX_RIGICON[k]} ${escHtml(lbl)}</span>
+        <span style="flex:1;min-width:0;font-size:${on ? '15px' : '13px'};font-weight:${d[k] ? 800 : 400};color:${d[k] ? (on ? 'var(--accent)' : 'var(--text)') : 'var(--text-muted)'}">${d[k] ? escHtml(d[k]) : '— no rate for this rig'}</span>
+      </div>`;
+    }).join('');
 
     body += `
       <div class="card" style="margin-bottom:8px">
-        <div class="flex-row gap-10" style="align-items:flex-start">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:14px">${escHtml(d.n)}</div>
-            <div style="font-size:12px;color:var(--text-dim)">${escHtml(d.ai)}</div>
-          </div>
-          <div style="flex-shrink:0;text-align:center;background:var(--accent-dim);color:var(--accent);font-weight:800;font-size:14px;padding:7px 11px;border-radius:8px;min-width:104px">
-            ${escHtml(primary)}<div style="font-weight:600;font-size:9px;opacity:.85;margin-top:1px;text-transform:uppercase;letter-spacing:.5px">${escHtml(punit)}</div>
-          </div>
-        </div>
+        <div style="font-weight:700;font-size:14px">${escHtml(d.n)}</div>
+        <div style="font-size:12px;color:var(--text-dim)">${escHtml(d.ai)}</div>
+        <div style="margin-top:6px">${lines}</div>
         <div class="flex-row gap-6" style="flex-wrap:wrap;margin-top:8px;align-items:center">
           <span class="badge" style="background:var(--bg-input);color:var(--text)">🎯 ${escHtml(d.t)}</span>
           <span class="badge" style="background:var(--bg-input);color:var(--text-muted)">EPA ${escHtml(d.epa)}</span>
-          ${alts}
         </div>
         <div style="font-size:11px;margin-top:7px;color:${d.warn ? '#fbbf24' : 'var(--text-muted)'}">${d.warn ? '⚠️ ' : ''}${escHtml(d.notes)}</div>
       </div>`;
@@ -1718,9 +1718,9 @@ function renderMixRates() {
 
   document.getElementById('page-mixrates').innerHTML = `
     <h1 style="margin:0 0 4px">Mix Rates</h1>
-    <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px">Pick your rig — every product that runs through it shows its dose.</p>
+    <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px">Pick your rig — every product that runs through it shows its dose, one line per rig.</p>
     <div class="filter-pills">
-      ${MIX_RIGS.map(r => `<button class="${mixRig===r.key?'active':''}" onclick="mixRig='${r.key}';renderMixRates()">${r.label}</button>`).join('')}
+      ${MIX_RIGS.map(r => `<button class="${mixRig===r.key?'active':''}" onclick="setMixRig('${r.key}')">${r.label}</button>`).join('')}
     </div>
     <div class="search-bar"><input placeholder="Search product, pest, or ingredient..." value="${escHtml(searchTerm)}" oninput="searchTerm=this.value;renderMixRates()"></div>
     <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">${escHtml(rigNote)}</p>
@@ -4526,7 +4526,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-15-b';
+var APP_BUILD = '2026-10-19-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
