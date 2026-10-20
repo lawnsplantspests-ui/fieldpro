@@ -1597,7 +1597,8 @@ const MIX_RATES = [
  {ty:'herb',n:'2D / Confront',ai:'Clopyralid 8.66% + Triclopyr 21.3%',epa:'62719-176',t:'Broadleaf / clover / ground ivy',z:'0.34 gal output / 1000',b:'2 oz / 4 gal',notes:'No rain 24 hrs. Do not use clippings as mulch.'},
  {ty:'herb',n:'Turflon Ester / Triclopyr 4EC',ai:'Triclopyr 61.6%',epa:'62719-566',t:'Broadleaf / wild violet',z:'0.5 oz / 1000',b:'6 oz / 4 gal',notes:'Code H14. Avoid temps above 85°F. Keep off desirable broadleaf plants.',warn:1},
  {ty:'herb',n:'Triclopyr 4E (amine)',ai:'Triclopyr 61.6% amine salt',epa:'42750-126',t:'Broadleaf / wild violet / brush',z:'0.1 oz / 1000',notes:'Code H20. Less volatile amine salt.'},
- {ty:'herb',n:'Tenacity',ai:'Mesotrione 40%',epa:'100-1267',t:'Crabgrass / nimblewill',z:'1 fl oz / 1000',b:'2 tsp / 4 gal (0.33 oz)',notes:'Add NIS. Bleaching is normal. Max 2 apps/yr.'},
+ {ty:'herb',n:'Tenacity',ai:'Mesotrione 40%',epa:'100-1267',t:'Crabgrass / nimblewill',z:'0.092–0.18 fl oz / 1000',b:'2 tsp / 4 gal (0.33 oz)',notes:'Add NIS. Bleaching is normal. Max 2 apps/yr.'},
+ {ty:'herb',n:'Meso 4 SC Select',ai:'Mesotrione 40%',epa:'89442-33',t:'Broadleaf / crabgrass / nimblewill / bentgrass',z:'0.092–0.18 fl oz / 1000',b:'1 tsp + 3 tsp NIS / 2 gal (spot)',notes:'Label: 4–8 fl oz/acre in 30+ gal water/acre (KY blue, tall fescue 5–8; perennial rye & fine fescue max 5; St. Aug sod max 4). Residential lawns: broadcast only when reseeding/renovating — otherwise spot treat at 1 gal/1,000. Add NIS post-emergence. Max 16 fl oz/acre/yr. Not on bentgrass, Poa, zoysia, bermuda. Whitening is normal.',warn:1},
  {ty:'herb',n:'Quinclorac 1.5L',ai:'Quinclorac 18.92%',epa:'111312-1',t:'Crabgrass / broadleaf',z:'1.45 oz / 1000',b:'6 oz / 4 gal (12 Tbsp)',notes:'Code H19. Add MSO for best control.'},
  {ty:'herb',n:'Sedgehammer',ai:'Halosulfuron-methyl 75%',epa:'62719-542',t:'Nutsedge',z:'1.33 oz / 1000',b:'1.8 g / 4 gal',notes:'Add NIS. Reapply 6–10 weeks if regrowth.'},
  {ty:'herb',n:'Prosedge',ai:'Halosulfuron-methyl 75%',epa:'228-711',t:'Nutsedge',z:'0.9 g / 1000',notes:'Code H13. Add NIS.'},
@@ -4641,7 +4642,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-19-e';
+var APP_BUILD = '2026-10-19-f';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
