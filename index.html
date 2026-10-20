@@ -1682,16 +1682,37 @@ let mixCalc = (() => {
 function mixCalcSave() { try { localStorage.setItem(MIXCALC_KEY, JSON.stringify(mixCalc)); } catch (e) {} }
 const mcNum = v => { const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) && n > 0 ? n : null; };
 const mcFmt = (n, d = 1) => (Math.round(n * Math.pow(10, d)) / Math.pow(10, d)).toLocaleString();
-// a single "N oz / 1000" style rate from FieldPro's Z-Spray line, or null for a range, an output figure or no rate
+// the rate per 1,000 on FieldPro's Z-Spray line: "1.5 oz / 1000" or a range "1–4 fl oz / 1000" -> { lo, hi, unit };
+// null for a nozzle-output figure ("0.34 gal output / 1000") or no Z-Spray rate
 function mixRateFrom(text) {
-  const m = /^\s*([\d.]+)\s*(fl oz|oz|g|mL)\s*\/\s*1000\b/i.exec(text || '');
-  return m ? { rate:m[1], unit:m[2].toLowerCase() === 'ml' ? 'mL' : m[2].toLowerCase() } : null;
+  const m = /^\s*([\d.]+)\s*(?:[–-]\s*([\d.]+))?\s*(fl oz|oz|g|mL)\s*\/\s*1000\b/i.exec(text || '');
+  if (!m) return null;
+  const lo = parseFloat(m[1]), hi = m[2] ? parseFloat(m[2]) : lo;
+  return { lo, hi, unit:m[3].toLowerCase() === 'ml' ? 'mL' : m[3].toLowerCase() };
 }
+// the backpack line as a strength per gallon: "6 oz / 4 gal" -> 1.5 oz per gal, "2–3 fl oz / gal", "2 mL / 4 gal"
+function mixPerGalFrom(text) {
+  const m = /^\s*~?\s*([\d.]+)\s*(?:[–-]\s*([\d.]+))?\s*(fl oz|oz|g|mL)\s*\/\s*([\d.]+)?\s*gal\b/i.exec(text || '');
+  if (!m) return null;
+  const g = parseFloat(m[4]) || 1, lo = parseFloat(m[1]) / g, hi = (m[2] ? parseFloat(m[2]) : parseFloat(m[1])) / g;
+  return { lo, hi, unit:m[3].toLowerCase() === 'ml' ? 'mL' : m[3].toLowerCase() };
+}
+// a product's rate per 1,000 for the calculator: the Z-Spray line when it has one, else the backpack strength sprayed
+// at 1 gal per 1,000 sq ft (Devon, Oct 19 2026: 6 oz / 4 gal = 1.5 oz/gal = his 1.5 oz per 1,000 for the 3-way).
+// conc = mixed by strength, not by area (MSO at 0.25% v/v): the tank gets the backpack strength.
+function mixRateOf(d) {
+  if (!d) return null;
+  const z = mixRateFrom(d.z);
+  if (z) return Object.assign(z, { src:'z' });
+  const b = mixPerGalFrom(d.b);
+  return b ? Object.assign(b, { src:'b', conc:d.ty === 'adj' || /v\/v/i.test(d.b) }) : null;
+}
+// picking a product fills in its rate (the low end of a range; the whole range is shown with the answer)
 function mixCalcPick(name) {
   mixCalc.prod = name;
-  const d = MIX_RATES.find(x => x.n === name), r = d && mixRateFrom(d.z);
-  if (r) { mixCalc.rate = r.rate; mixCalc.unit = r.unit; }
-  else if (d) mixCalc.rate = '';   // a range or no single rate: the right figure is the applicator's call from the label
+  const d = MIX_RATES.find(x => x.n === name), r = mixRateOf(d);
+  if (r && !r.conc) { mixCalc.rate = String(Math.round(r.lo * 1000) / 1000); mixCalc.unit = r.unit; }
+  else if (d) { mixCalc.rate = ''; if (r) mixCalc.unit = r.unit; }
   mixCalcSave(); renderMixRates();
 }
 function mixCalcSet(k, v) { mixCalc[k] = v; mixCalcSave(); mixCalcUpdate(); }
@@ -1705,7 +1726,7 @@ function mixCalcHtml() {
     <div style="font-size:12px;color:var(--text-dim);margin:6px 0 10px">How much product goes in the tank for a rate per 1,000 sq ft. The label is the law: use a rate the label allows for the site and target.</div>
     <div class="input-group" style="margin:0 0 8px"><label>Product (optional)</label>
       <select onchange="mixCalcPick(this.value)" style="width:100%"><option value="">— pick one, or just type a rate —</option>${liquids.map(x => `<option value="${escHtml(x.n)}" ${x.n === c.prod ? 'selected' : ''}>${escHtml(x.n)}</option>`).join('')}</select></div>
-    ${d ? `<div style="font-size:11px;color:var(--text-muted);margin:-2px 0 8px">FieldPro's lines for it: 🚜 ${escHtml(d.z || 'no Z-Spray rate')} · 🎒 ${escHtml(d.b || 'no backpack rate')}${mixRateFrom(d.z) ? '' : ' — enter the label rate per 1,000 below'}</div>` : ''}
+    ${d ? `<div style="font-size:11px;color:var(--text-muted);margin:-2px 0 8px">FieldPro's lines for it: 🚜 ${escHtml(d.z || 'no Z-Spray rate')} · 🎒 ${escHtml(d.b || 'no backpack rate')}${mixRateOf(d) ? '' : ` — <span style="color:var(--warn)">no rate on file to work from; enter the label rate below</span>`}</div>` : ''}
     <div class="flex-row gap-10" style="flex-wrap:wrap;margin-bottom:8px">
       ${inp('rate', 'Rate per 1,000 sq ft', 'e.g. 1.5')}
       <div class="input-group" style="margin:0;flex:0 0 96px"><label>Unit</label><select onchange="mixCalcSet('unit',this.value)">${['fl oz', 'oz', 'g', 'mL'].map(u => `<option ${u === c.unit ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
@@ -1720,6 +1741,14 @@ function mixCalcUpdate() {
   const c = mixCalc, res = document.getElementById('mc-res'); if (!res) return;
   const rate = mcNum(c.rate), out = mcNum(c.out), tank = mcNum(c.tank) || getPlanCfg().tankGal || 18, fill = mcNum(c.fill) || tank, u = c.unit;
   const box = (big, small) => `<div style="flex:1;min-width:130px;background:var(--accent-dim);border-radius:8px;padding:8px 10px"><div style="font-size:18px;font-weight:800;color:var(--accent)">${big}</div><div style="font-size:11px;color:var(--text-dim)">${small}</div></div>`;
+  const pr = mixRateOf(MIX_RATES.find(x => x.n === c.prod));
+  if (pr && pr.conc) {
+    // mixed by strength: the tank gets the backpack strength, whatever the output
+    const r2 = x => mcFmt(x * fill) + ' ' + escHtml(pr.unit);
+    res.innerHTML = `<div class="flex-row gap-8" style="flex-wrap:wrap">${box(r2(pr.lo) + (pr.hi > pr.lo ? '–' + r2(pr.hi) : ''), 'in ' + mcFmt(fill, 2) + ' gal' + (fill === tank ? ' (full tank)' : ''))}${box(mcFmt(pr.lo, 2) + (pr.hi > pr.lo ? '–' + mcFmt(pr.hi, 2) : '') + ' ' + escHtml(pr.unit) + '/gal', 'mix strength, same as the backpack')}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px">${escHtml(c.prod)} is mixed by strength, not by area: ${mcFmt(pr.lo, 3)} ${escHtml(pr.unit)} per gallon × ${mcFmt(fill, 2)} gal. The spray output doesn't change it.</div>`;
+    return;
+  }
   if (!rate || !out) res.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">Enter a rate per 1,000 sq ft and the spray output to see the mix.</div>';
   else {
     const perGal = rate / out, inTank = perGal * fill, area = fill / out * 1000;
@@ -1729,8 +1758,30 @@ function mixCalcUpdate() {
       ${box(mcFmt(perGal, 2) + ' ' + escHtml(u) + '/gal', 'mix strength')}
       ${box(Math.round(area).toLocaleString() + ' sq ft', 'covered by ' + mcFmt(fill, 2) + ' gal')}
     </div>
+    ${mixCalcRangeHtml(rate, out, fill, u)}
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px">${mcFmt(rate, 3)} ${escHtml(u)} per 1,000 ÷ ${mcFmt(out, 3)} gal per 1,000 = ${mcFmt(perGal, 3)} ${escHtml(u)} per gallon × ${mcFmt(fill, 2)} gal. Quick check: × ${mcFmt(1 / out, 2)} (not × 3) turns a rate per 1,000 into a rate per gallon at this output.</div>`;
   }
+}
+// the picked product's rate on file: a range shows what its low and high ends come to in this fill, and a rate
+// typed outside what is on file is flagged
+function mixCalcRangeHtml(rate, out, fill, u) {
+  const d = MIX_RATES.find(x => x.n === mixCalc.prod), r = mixRateOf(d);
+  if (!r || r.unit !== u) return '';
+  const per = x => mcFmt(x / out * fill) + ' ' + escHtml(u), eps = 1e-6;
+  const span = (a, b) => mcFmt(a, 3) + (b > a ? '–' + mcFmt(b, 3) : '');
+  const fromB = r.src === 'b'
+    ? `<div style="font-size:12px;margin-top:8px;padding:7px 10px;border-radius:7px;background:var(--bg-input)">From the backpack rate (${escHtml(d.b)} = <strong>${span(r.lo, r.hi)} ${escHtml(u)} per gallon</strong>), sprayed at 1 gal per 1,000 sq ft = ${span(r.lo, r.hi)} ${escHtml(u)} per 1,000.
+        <div style="margin-top:4px">Spot gun or perimeter instead (same strength as the backpack): <strong>${mcFmt(r.lo * fill)}${r.hi > r.lo ? '–' + mcFmt(r.hi * fill) : ''} ${escHtml(u)}</strong> in ${mcFmt(fill, 2)} gal.</div></div>`
+    : '';
+  const range = r.hi > r.lo
+    ? `<div style="font-size:12px;margin-top:8px;padding:7px 10px;border-radius:7px;background:var(--bg-input)">Rate on file for ${escHtml(d.n)}: <strong>${mcFmt(r.lo, 3)}–${mcFmt(r.hi, 3)} ${escHtml(u)} per 1,000</strong> → <strong>${per(r.lo)} to ${per(r.hi)}</strong> in ${mcFmt(fill, 2)} gal (${mcFmt(r.lo / out, 2)}–${mcFmt(r.hi / out, 2)} ${escHtml(u)}/gal). Where in the range is your call from the label, the target and conditions.</div>`
+    : '';
+  const warn = rate > r.hi + eps
+    ? `<div style="font-size:12px;margin-top:6px;color:var(--overdue)">⚠️ ${mcFmt(rate, 3)} ${escHtml(u)} per 1,000 is above the ${r.hi > r.lo ? 'top of the range' : 'rate'} on file (${mcFmt(r.hi, 3)}). Check the label before mixing.</div>`
+    : rate < r.lo - eps
+      ? `<div style="font-size:12px;margin-top:6px;color:var(--warn)">${mcFmt(rate, 3)} ${escHtml(u)} per 1,000 is below the ${r.hi > r.lo ? 'bottom of the range' : 'rate'} on file (${mcFmt(r.lo, 3)}).</div>`
+      : '';
+  return fromB + range + warn;
 }
 function renderMixRates() {
   const rig = mixRig;
@@ -4590,7 +4641,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-19-c';
+var APP_BUILD = '2026-10-19-e';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
