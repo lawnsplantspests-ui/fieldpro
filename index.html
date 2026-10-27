@@ -721,6 +721,7 @@ function loadFromCache() {
 function loadAll() {
   // Load from cache first for instant UI
   loadFromCache();
+  eqLogLoadCache();
   applyGeoToCustomers();
   loadSyncBase();
   loadTreatLogCache();
@@ -730,6 +731,7 @@ function loadAll() {
   renderCurrentPage();
 
   // Then try API
+  eqLogFetch();
   api({ action: 'fpGetAll' },
     function(d) {
       // Merge customers from shared Customers tab
@@ -1162,6 +1164,7 @@ function renderWorkboard() {
       </div>`;
     }).join('')
       : `<div class="card"><p style="margin:0 0 8px;color:var(--text-dim)">No route for today.</p><button class="btn secondary sm" onclick="navigateTo('schedule')">Plan days of work</button></div>`;
+    body += eqTodayHtml();
     const lateAll = S.items.filter(i => i.status === 'late' && match(i)).sort(ord);
     if (lateAll.length) body += `<div class="section-label" style="color:var(--overdue)">⚠ Late anywhere (${lateAll.length})</div>${lateAll.slice(0, 10).map(row).join('')}${lateAll.length > 10 ? `<div style="font-size:12px;color:var(--text-dim)">…and ${lateAll.length - 10} more on the Late tab.</div>` : ''}`;
   } else if (tab.key === 'ponds') {
@@ -2511,6 +2514,352 @@ const EQ_PART_INDEX = (function() {
   return rows;
 })();
 
+// ══════════ EQUIPMENT LOG (repair & maintenance book) ══════════
+// Entries live in their own readable 'Equipment Log' tab — one row each, saved one at a time
+// (eqLogSave / eqLogDelete), not in the FP_ JSON tabs. Saves wait in a queue on this device
+// until the sheet takes them, so logging works with no signal.
+//
+// Schedules are the factory ones: h = every N hours, d = every N days, whichever comes first.
+// Daily checks are left out (they would always read overdue). Anything shorter than a year
+// only counts in season, March through November, so nothing nags while the machines sit.
+const EQ_SEASON_MONTHS = [3, 11];
+const EQ_M_ZCHASSIS = [
+  {k:'tires',     t:'Tire pressure — front 22 psi, rear 18 psi', d:7},
+  {k:'hardware',  t:'Check all hardware — bolts, nuts, pins', d:7},
+  {k:'hydrofit',  t:'Hydraulic fittings — check for leaks', d:7},
+  {k:'casters',   t:'Grease front caster wheels + yokes', d:14},
+  {k:'belt',      t:'Drive belt — tension (1/2" at 15 lb) + wear', d:14},
+  {k:'airchk',    t:'Air filter check', d:14},
+  {k:'rimnut',    t:'Rear rim nut torque (75 lb) + hub castle nut cotter pin', d:30},
+  {k:'idler',     t:'Grease idler pulley arm', d:30},
+  {k:'fuelchk',   t:'Fuel filter check', d:30},
+  {k:'prefilter', t:'Air pre-filter check', h:25},
+  {k:'wheelbrg',  t:'Inspect wheel + caster bearings', h:25},
+  {k:'idlerbush', t:'Inspect idler arm bushing', h:50},
+  {k:'plugs',     t:'Spark plugs', h:100},
+  {k:'hydro',     t:'Hydraulic oil + filter change (5W-40, 25 micron)', h:500},
+  {k:'airrep',    t:'Air filter replace', d:365},
+  {k:'fuelrep',   t:'Fuel filter replace', d:365},
+];
+const EQ_M_ZHOPPER = [
+  {k:'cables',     t:'Lube hopper, Accuway + deflector cables (silicone spray)', d:7},
+  {k:'hoppertub',  t:'Wire-brush hopper tub bottom; check impeller', d:14},
+  {k:'hopperbush', t:'Check hopper bottom bushing', d:30},
+  {k:'hopperrep',  t:'Replace hopper bottom bushing', d:365},
+];
+const EQ_M_ZSPRAY = [
+  {k:'oil',     t:'Engine oil change', h:50},
+  {k:'spray7',  t:'Spray: tip screens, hoses, in-line filter + gasket', d:7},
+  {k:'spray14', t:'Spray: nozzle tips + gaskets, spot gun + tip', d:14},
+  {k:'directo', t:'Directo valves check', d:30},
+].concat(EQ_M_ZCHASSIS, EQ_M_ZHOPPER);
+const EQ_MAINT = {
+  'zi-2011': { src:'Z-Spray manual maintenance chart (p.30) and §3.2–3.3', tasks:EQ_M_ZSPRAY },
+  'zi-2014': { src:'Z-Spray manual maintenance chart (p.30) and §3.2–3.3', tasks:EQ_M_ZSPRAY },
+  'zp-2010': { src:'Z-Plug manual maintenance chart (p.27) and §3', tasks:[
+    {k:'oil',     t:'Engine oil + oil filter change', h:50},
+    {k:'pillow',  t:'Grease pillow block bearings + drive chain', d:7, note:'manual text says weekly, the chart every 2 weeks'},
+    {k:'handle',  t:'Lube adjustment handle', d:7},
+    {k:'tinehw',  t:'Aerator tine hardware (nut + bolt)', d:14},
+    {k:'swivel',  t:'Ball swivel inspection', d:30},
+  ].concat(EQ_M_ZCHASSIS, EQ_M_ZHOPPER) },
+  'classen': { src:'Classen TR-20K manual, maintenance & storage (p.16). Engine intervals are in the Kohler CH245 manual, which is not on file.', tasks:[
+    {k:'season',  t:'Start of season: lube all fittings, tighten parts, check blades, oil, fuel leaks, lever stops the rake', d:365},
+    {k:'storage', t:'Before storage (30+ days): engine storage steps + lube all fittings', d:365},
+    {k:'oil',     t:'Engine oil change'},
+  ] },
+  'ryan': { src:'Ryan 544908A manual (reference only — your frame model is not confirmed). Engine intervals are in the Briggs manual, not on file.', tasks:[
+    {k:'season',  t:'Start of season: lube clutch pivot, tighten parts, check tines', d:365},
+    {k:'storage', t:'Before storage: drain fuel, change oil, oil in the cylinder, drain the water drum', d:365},
+    {k:'chain',   t:'Roller chain — clean, lube (Lubriplate 523248), 1/8–1/4" deflection'},
+    {k:'oil',     t:'Engine oil change'},
+  ] },
+  'bluebird': { src:'The Bluebird manual on file is scanned pages with no schedule to read, so nothing is tracked yet.', tasks:[
+    {k:'oil',     t:'Engine oil change'},
+    {k:'belts',   t:'Belts — check / replace'},
+  ] },
+  'exmark-sar': { src:'Operator manual 3392-502, recommended maintenance schedule (pp. 26–27)', tasks:[
+    {k:'grease25', t:'Grease jackshaft, wheel + tine shaft bearings, tine idlers', h:25},
+    {k:'pivots',   t:'Grease control pivots', h:50},
+    {k:'check50',  t:'Tire pressure (12–14 psi), belts, spark arrester', h:50},
+    {k:'hydlevel', t:'Check aux hydraulic (AW-32) + transmission oil levels', h:50},
+    {k:'fins',     t:'Clean engine cooling fins (shrouds off)', h:80},
+    {k:'plugs',    t:'Check, clean + gap spark plug; check battery', h:100},
+    {k:'oil',      t:'Engine oil + oil filter change', h:200},
+    {k:'airchk',   t:'Check paper air element', h:200},
+    {k:'air250',   t:'Replace primary air element, clean foam, check secondary', h:250},
+    {k:'hyd250',   t:'Aux hydraulic filter + fluid; transmission filters + oil', h:250},
+    {k:'air500',   t:'Replace secondary + paper air elements', h:500},
+    {k:'fuel',     t:'Replace fuel filter', h:800},
+    {k:'yearly',   t:'Grease caster pivots, hubs + idler pivot; torque hub, lug + output shaft nuts (210–260 ft-lb)', d:365},
+  ] },
+  'toro-mx5075': { src:'Operator manual 3425-432, recommended maintenance schedule (p.35)', tasks:[
+    {k:'foam',    t:'Clean foam air element + check tire pressure (13 psi rear)', h:25, d:30},
+    {k:'oil',     t:'Engine oil + filter (2.4 L 10W-30)', h:100, d:365},
+    {k:'foamrep', t:'Replace foam element; tap-clean paper element', h:100, d:365},
+    {k:'check100',t:'Check spark plugs + in-line fuel filter', h:100, d:365},
+    {k:'rep200',  t:'Replace spark plugs, fuel filter + paper element', h:200, d:730},
+    {k:'storage', t:'Before storage: charge + disconnect battery, touch up paint', d:365},
+  ] },
+};
+const eqTasks = id => (EQ_MAINT[id] || { tasks:[] }).tasks;
+function eqEvery(t) {
+  const d = t.d === 7 ? 'week' : t.d === 14 ? '2 weeks' : t.d === 30 ? 'month' : t.d === 365 ? 'year' : t.d === 730 ? '2 years' : t.d ? t.d + ' days' : '';
+  return t.h && d ? `${t.h} h or ${d === 'year' ? 'yearly' : 'every ' + d}` : t.h ? `every ${t.h} h` : d ? (d === 'year' ? 'yearly' : 'every ' + d) : 'no interval on file';
+}
+
+const EQLOG_KEY = 'fieldpro_eqlog';
+let EQLOG = { entries:[], pending:[], loaded:false, err:'' };
+function eqLogCache() { try { localStorage.setItem(EQLOG_KEY, JSON.stringify({ entries:EQLOG.entries, pending:EQLOG.pending })); } catch(e) {} }
+function eqLogLoadCache() {
+  try { const c = JSON.parse(localStorage.getItem(EQLOG_KEY) || 'null'); if (c) { EQLOG.entries = c.entries || []; EQLOG.pending = c.pending || []; } } catch(e) {}
+}
+// what the sheet has, with anything still waiting on this device laid over it
+function eqLogApplyPending(list) {
+  const by = {}; list.forEach(e => { by[e.id] = e; });
+  EQLOG.pending.forEach(p => {
+    if (p.op === 'save') by[p.entry.id] = Object.assign({}, by[p.entry.id] || {}, p.entry, { deleted:(by[p.entry.id] || {}).deleted || '' });
+    else if (p.op === 'del' && by[p.id]) by[p.id] = Object.assign({}, by[p.id], { deleted:by[p.id].deleted || new Date().toISOString() });
+  });
+  return Object.values(by);
+}
+function eqLogFetch() {
+  return apiP({ action:'eqLogGet' }).then(d => {
+    EQLOG.entries = eqLogApplyPending(d.entries || []); EQLOG.loaded = true; EQLOG.err = '';
+    eqLogCache(); eqLogFlush();
+    if (currentPage === 'equipment' || currentPage === 'workboard') renderCurrentPage();
+  }).catch(err => { EQLOG.err = String(err || ''); });
+}
+let eqFlushing = false;
+function eqLogFlush() {
+  if (eqFlushing || !EQLOG.pending.length) return Promise.resolve();
+  eqFlushing = true;
+  const p = EQLOG.pending[0];
+  return apiP(p.op === 'save' ? { action:'eqLogSave', entry:p.entry } : { action:'eqLogDelete', id:p.id })
+    .then(() => { EQLOG.pending.shift(); EQLOG.err = ''; eqLogCache(); eqFlushing = false; return eqLogFlush(); })
+    .catch(err => { EQLOG.err = String(err || ''); eqFlushing = false; setTimeout(eqLogFlush, 60000);
+      if (currentPage === 'equipment') renderCurrentPage(); });
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') eqLogFlush(); });
+
+const eqLive = id => EQLOG.entries.filter(e => e.machineId === id && !e.deleted);
+const eqNum = v => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
+function eqHours(id) {
+  let best = null;
+  eqLive(id).forEach(e => { const h = eqNum(e.hours); if (h != null && (best == null || h > best)) best = h; });
+  return best;
+}
+const eqNewest = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.logged || '').localeCompare(a.logged || '');
+// status of one scheduled task: over | soon | ok | none (never logged) | nohours | off (out of season) | untracked
+function eqStatus(id, t) {
+  const last = eqLive(id).filter(e => (e.tasks || '').split(',').includes(t.k)).sort(eqNewest)[0];
+  if (!t.h && !t.d) return { st:'untracked', last };
+  if (!last) return { st:'none' };
+  const today = schedToday(), cur = eqHours(id), lastH = eqNum(last.hours);
+  let st = 'ok', bits = [];
+  const worse = s => { if (s === 'over' || (s === 'soon' && st === 'ok')) st = s; };
+  if (t.h && cur != null && lastH != null) {
+    const left = t.h - (cur - lastH);
+    bits.push(left <= 0 ? `${-left} h over` : `${left} h left`);
+    worse(left <= 0 ? 'over' : left <= Math.max(2, t.h * 0.1) ? 'soon' : 'ok');
+  }
+  if (t.d) {
+    const m = Number(today.slice(5, 7)), inSeason = m >= EQ_SEASON_MONTHS[0] && m <= EQ_SEASON_MONTHS[1];
+    const left = t.d - daysBetween(last.date, today);
+    if (t.d >= 365 || inSeason) {
+      bits.push(left < 0 ? `${-left} day${left === -1 ? '' : 's'} over` : left === 0 ? 'due today' : `${left} day${left === 1 ? '' : 's'} left`);
+      worse(left <= 0 ? 'over' : left <= Math.max(1, Math.round(t.d * 0.15)) ? 'soon' : 'ok');
+    } else if (st === 'ok' && !(t.h && lastH != null && cur != null)) st = 'off';
+  }
+  if (t.h && !t.d && (lastH == null || cur == null)) st = 'nohours';
+  return { st, last, bits };
+}
+function eqMachineDue(id) {
+  const out = { over:[], soon:[] };
+  eqTasks(id).forEach(t => { const s = eqStatus(id, t); if (s.st === 'over') out.over.push(t); else if (s.st === 'soon') out.soon.push(t); });
+  return out;
+}
+
+const EQ_STATUS_UI = {
+  over:      ['Overdue',       'var(--overdue)'],
+  soon:      ['Due soon',      'var(--warn)'],
+  ok:        ['OK',            'var(--accent)'],
+  off:       ['Off season',    'var(--text-muted)'],
+  none:      ['No record yet', 'var(--text-muted)'],
+  nohours:   ['Log hours',     'var(--text-muted)'],
+  untracked: ['',              'var(--text-muted)'],
+};
+const EQ_TYPE_UI = { Maintenance:['🔧','var(--accent)'], Repair:['🛠️','var(--overdue)'], Hours:['⏱️','var(--text-muted)'] };
+const eqMoney = v => { const n = eqNum(v); return n == null ? '' : '$' + n.toFixed(2).replace(/\.00$/, ''); };
+
+function eqBookHtml(m) {
+  const id = m.id, cur = eqHours(id), tasks = eqTasks(id), plan = EQ_MAINT[id];
+  const rank = { over:0, soon:1, nohours:2, none:3, ok:4, off:5, untracked:6 };
+  const rows = tasks.map(t => ({ t, s:eqStatus(id, t) })).sort((a, b) => rank[a.s.st] - rank[b.s.st]);
+  const flagged = rows.filter(r => r.s.st === 'over' || r.s.st === 'soon');
+  const hist = eqLive(id).sort(eqNewest);
+  const yr = schedToday().slice(0, 4);
+  const spent = { Repair:0, Maintenance:0 };
+  hist.filter(e => (e.date || '').startsWith(yr)).forEach(e => { const n = eqNum(e.cost); if (n != null && spent[e.type] != null) spent[e.type] += n; });
+  const taskRow = ({ t, s }) => {
+    const [lab, col] = EQ_STATUS_UI[s.st];
+    const lastTxt = s.last ? `last ${fmtDateFull(s.last.date)}${eqNum(s.last.hours) != null ? ' at ' + eqNum(s.last.hours) + ' h' : ''}` : '';
+    return `<div class="eq-split" style="cursor:pointer" onclick="eqLogForm('${id}',null,'${t.k}')">
+      <div class="eq-split-k">${escHtml(t.t)}<div class="eq-oem">${escHtml(eqEvery(t))}${t.note ? ' · ' + escHtml(t.note) : ''}</div></div>
+      <div class="eq-split-v">${lab ? `<span style="color:${col};font-weight:700">${lab}</span>` : ''}${s.bits && s.bits.length ? ' · ' + escHtml(s.bits.join(' · ')) : ''}${lastTxt ? `<div class="eq-oem">${escHtml(lastTxt)}</div>` : ''}</div>
+    </div>`;
+  };
+  const histRow = e => {
+    const [ic, col] = EQ_TYPE_UI[e.type] || ['📝', 'var(--text-dim)'];
+    const what = e.work || (e.type === 'Hours' ? 'Hour meter reading' : '');
+    const meta = [eqNum(e.hours) != null ? eqNum(e.hours) + ' h' : '', eqMoney(e.cost), e.doneBy].filter(Boolean).join(' · ');
+    const waiting = EQLOG.pending.some(p => (p.entry && p.entry.id === e.id) || p.id === e.id);
+    return `<div class="eq-split" style="cursor:pointer;border-left:3px solid ${col};padding-left:8px" onclick="eqLogForm('${id}','${e.id}')">
+      <div class="eq-split-k">${ic} ${fmtDateFull(e.date)}<div class="eq-oem">${escHtml(e.type || '')}${waiting ? ' · <span style="color:var(--warn)">not sent yet</span>' : ''}</div></div>
+      <div class="eq-split-v">${escHtml(what)}${e.parts ? `<div class="eq-oem">Parts: ${escHtml(e.parts)}</div>` : ''}${meta ? `<div class="eq-oem">${escHtml(meta)}</div>` : ''}${e.notes ? `<div class="eq-oem">${escHtml(e.notes)}</div>` : ''}</div>
+    </div>`;
+  };
+  const showAll = eqShowAll[id];
+  return `
+    <div class="section-label" style="color:var(--accent)">Maintenance & repair book</div>
+    <div class="card">
+      <div class="flex-between" style="flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:12px;color:var(--text-dim)">Hour meter</div>
+          <div style="font-size:18px;font-weight:700">${cur != null ? cur + ' h' : '<span style="color:var(--text-muted);font-size:13px">no reading logged</span>'}</div>
+        </div>
+        <div class="flex-row gap-6" style="flex-wrap:wrap">
+          <button class="btn secondary sm" onclick="eqHoursForm('${id}')">⏱️ Hours</button>
+          <button class="btn primary sm" onclick="eqLogForm('${id}')">+ Log work</button>
+        </div>
+      </div>
+      ${spent.Repair || spent.Maintenance ? `<div style="font-size:12px;color:var(--text-dim);margin-top:8px">${yr}: ${eqMoney(spent.Maintenance) || '$0'} maintenance · ${eqMoney(spent.Repair) || '$0'} repairs</div>` : ''}
+      ${EQLOG.pending.length ? `<div style="font-size:12px;color:var(--warn);margin-top:8px">${EQLOG.pending.length} change${EQLOG.pending.length === 1 ? '' : 's'} waiting to reach the sheet — will keep trying.${EQLOG.err ? ' (' + escHtml(EQLOG.err) + ')' : ''}</div>` : ''}
+    </div>
+    ${tasks.some(t => t.h || t.d) ? `
+      <div class="section-label" style="color:${flagged.some(r => r.s.st === 'over') ? 'var(--overdue)' : 'var(--accent)'}">Schedule${flagged.length ? ` — ${flagged.length} need${flagged.length === 1 ? 's' : ''} attention` : ''}</div>
+      <div class="card" style="padding:4px 12px">
+        ${(showAll ? rows : rows.filter(r => r.s.st !== 'off' && r.s.st !== 'ok' && r.s.st !== 'untracked').slice(0, 8)).map(taskRow).join('') || '<div style="font-size:12.5px;color:var(--text-dim);padding:10px 2px">Everything logged is up to date.</div>'}
+        <div style="padding:8px 2px"><button class="btn ghost sm" onclick="eqShowAll['${id}']=!eqShowAll['${id}'];renderEquipment()">${showAll ? 'Show only what needs attention' : `Show all ${rows.length} items`}</button></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin:-4px 0 10px">From the ${escHtml(plan.src)} Weekly and monthly items count March–November only. Tap an item to log it.</div>` : plan ? `<div style="font-size:11px;color:var(--text-muted);margin:0 0 10px">${escHtml(plan.src)}</div>` : ''}
+    <div class="section-label" style="color:var(--accent)">History${hist.length ? ` (${hist.length})` : ''}</div>
+    <div class="card" style="padding:4px 12px">
+      ${hist.length ? hist.slice(0, showAll ? hist.length : 10).map(histRow).join('') : '<div style="font-size:12.5px;color:var(--text-dim);padding:10px 2px">Nothing logged yet.</div>'}
+      ${hist.length > 10 && !showAll ? `<div style="padding:8px 2px"><button class="btn ghost sm" onclick="eqShowAll['${id}']=true;renderEquipment()">Show all ${hist.length}</button></div>` : ''}
+    </div>`;
+}
+const eqShowAll = {};
+const eqTaskNames = (id, keys) => (keys || '').split(',').filter(Boolean).map(k => (eqTasks(id).find(t => t.k === k) || { t:k }).t).join('; ');
+// the typed part of Work done, without the ticked items' names that saving puts in front
+function eqFreeWork(id, e) {
+  const names = eqTaskNames(id, e.tasks), w = e.work || '';
+  if (!names) return w;
+  return w === names ? '' : w.startsWith(names + ' — ') ? w.slice(names.length + 3) : w;
+}
+
+function eqLogForm(id, entryId, preTask) {
+  const m = EQUIPMENT.find(x => x.id === id); if (!m) return;
+  const e = entryId ? EQLOG.entries.find(x => x.id === entryId) : null;
+  if (e && e.type === 'Hours') { eqHoursForm(id, entryId); return; }
+  const tasks = eqTasks(id), ticked = new Set(e ? (e.tasks || '').split(',') : preTask ? [preTask] : []);
+  const cur = eqHours(id);
+  const groups = [['By hours', t => t.h && !t.d], ['Every week', t => t.d === 7], ['Every 2 weeks', t => t.d === 14], ['Monthly', t => t.d === 30],
+    ['Hours or date, whichever first', t => t.h && t.d && t.d !== 7 && t.d !== 14 && t.d !== 30], ['Yearly / seasonal', t => !t.h && t.d >= 365], ['No interval on file', t => !t.h && !t.d]];
+  const seen = new Set();
+  const taskHtml = groups.map(([lab, f], gi) => {
+    const list = tasks.filter(t => !seen.has(t.k) && f(t)); list.forEach(t => seen.add(t.k));
+    if (!list.length) return '';
+    return `<div style="margin:8px 0 4px;font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px">${lab}
+        ${list.length > 1 ? `<a style="float:right;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:0" onclick="document.querySelectorAll('.eqf-g${gi}').forEach(c=>c.checked=true)">tick all</a>` : ''}</div>
+      ${list.map(t => `<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;margin:0;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;color:var(--text)">
+        <input type="checkbox" class="eqf-task eqf-g${gi}" value="${t.k}" ${ticked.has(t.k) ? 'checked' : ''} style="margin-top:3px;width:18px;height:18px;flex-shrink:0">
+        <span>${escHtml(t.t)}</span></label>`).join('')}`;
+  }).join('');
+  const parts = []; (m.groups || []).forEach(g => (g.parts || []).forEach(p => { if (p.pn && p.pn !== '—') parts.push(p.pn + ' — ' + p.d); }));
+  const shops = [...new Set(EQLOG.entries.map(x => x.doneBy).filter(Boolean))];
+  showModal(`${e ? 'Edit entry' : 'Log work'} — ${escHtml(m.name)}`, `
+    <div class="grid-2">
+      <div class="input-group"><label>Type</label>
+        <select id="eqf-type">${['Maintenance', 'Repair'].map(x => `<option ${(e ? e.type : 'Maintenance') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      <div class="input-group"><label>Date</label><input type="date" id="eqf-date" value="${e ? e.date : schedToday()}"></div>
+      <div class="input-group"><label>Hour meter</label><input type="number" inputmode="decimal" step="0.1" id="eqf-hours" value="${e && eqNum(e.hours) != null ? eqNum(e.hours) : ''}" placeholder="${cur != null ? 'last ' + cur : 'blank if no meter'}"></div>
+      <div class="input-group"><label>Cost ($)</label><input type="number" inputmode="decimal" step="0.01" id="eqf-cost" value="${e && eqNum(e.cost) != null ? eqNum(e.cost) : ''}" placeholder="parts + labor"></div>
+    </div>
+    ${tasks.length ? `<div class="input-group"><label>What was done (from the schedule)</label><div style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:2px 10px">${taskHtml}</div></div>` : ''}
+    <div class="input-group"><label>Work done / what was wrong</label><textarea id="eqf-work" placeholder="${tasks.length ? 'Anything not ticked above' : 'What was done'}">${escHtml(e ? eqFreeWork(id, e) : '')}</textarea></div>
+    <div class="input-group"><label>Parts used</label><input id="eqf-parts" list="eqf-partlist" value="${escHtml(e ? e.parts : '')}" placeholder="Part numbers, filters, oil…">
+      <datalist id="eqf-partlist">${parts.map(p => `<option value="${escHtml(p)}">`).join('')}</datalist></div>
+    <div class="input-group"><label>Done by</label><input id="eqf-by" list="eqf-shoplist" value="${escHtml(e ? e.doneBy : '')}" placeholder="Me, or the shop's name">
+      <datalist id="eqf-shoplist">${['Me'].concat(shops.filter(s => s !== 'Me')).map(s => `<option value="${escHtml(s)}">`).join('')}</datalist></div>
+    <div class="input-group"><label>Notes</label><textarea id="eqf-notes">${escHtml(e ? e.notes : '')}</textarea></div>
+    <div class="flex-row gap-6" style="justify-content:flex-end;flex-wrap:wrap">
+      ${e ? `<button class="btn danger" style="margin-right:auto" onclick="eqLogDelete('${id}','${e.id}')">Delete</button>` : ''}
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="eqLogSave('${id}','${e ? e.id : ''}')">Save</button>
+    </div>`, true);
+}
+
+function eqHoursForm(id, entryId) {
+  const m = EQUIPMENT.find(x => x.id === id); if (!m) return;
+  const e = entryId ? EQLOG.entries.find(x => x.id === entryId) : null, cur = eqHours(id);
+  showModal(`Hour meter — ${escHtml(m.name)}`, `
+    <div class="grid-2">
+      <div class="input-group"><label>Reading (h)</label><input type="number" inputmode="decimal" step="0.1" id="eqf-hours" value="${e ? eqNum(e.hours) : ''}" placeholder="${cur != null ? 'last ' + cur : ''}"></div>
+      <div class="input-group"><label>Date</label><input type="date" id="eqf-date" value="${e ? e.date : schedToday()}"></div>
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin:-4px 0 12px">Just the meter, so the hour-based items know where they stand. A new meter that starts at 0? Log the oil change and filters at the same time so the clocks start together.</div>
+    <div class="flex-row gap-6" style="justify-content:flex-end">
+      ${e ? `<button class="btn danger" style="margin-right:auto" onclick="eqLogDelete('${id}','${e.id}')">Delete</button>` : ''}
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="eqLogSave('${id}','${e ? e.id : ''}',true)">Save</button>
+    </div>`);
+}
+
+function eqLogSave(id, entryId, hoursOnly) {
+  const m = EQUIPMENT.find(x => x.id === id); if (!m) return;
+  const v = k => { const el = document.getElementById(k); return el ? String(el.value).trim() : ''; };
+  const old = entryId ? EQLOG.entries.find(x => x.id === entryId) : null;
+  const tasks = [...document.querySelectorAll('.eqf-task:checked')].map(c => c.value);
+  const entry = {
+    id: old ? old.id : uid(), machineId:id, machine:m.name + ' · ' + m.serial,
+    date: v('eqf-date') || schedToday(), type: hoursOnly ? 'Hours' : v('eqf-type') || 'Maintenance',
+    tasks: hoursOnly ? '' : tasks.join(','), hours: v('eqf-hours'),
+    work: hoursOnly ? '' : v('eqf-work'), parts: hoursOnly ? '' : v('eqf-parts'), cost: hoursOnly ? '' : v('eqf-cost'),
+    doneBy: hoursOnly ? '' : v('eqf-by'), notes: hoursOnly ? '' : v('eqf-notes'), logged: old ? old.logged : '',
+  };
+  if (hoursOnly && eqNum(entry.hours) == null) { alert('Enter the hour meter reading.'); return; }
+  if (!hoursOnly && !tasks.length && !entry.work) { alert('Tick what was done, or describe the work.'); return; }
+  const cur = eqHours(id), h = eqNum(entry.hours);
+  if (h != null && cur != null && h < cur && !old && !confirm(`That reading (${h} h) is lower than the last one logged (${cur} h). Save it anyway? (New meter, or a typo?)`)) return;
+  // Names of the ticked items go into the readable Work done column too, so the sheet reads on its own
+  entry.work = [eqTaskNames(id, entry.tasks), entry.work].filter(Boolean).join(' — ');
+  const i = EQLOG.entries.findIndex(x => x.id === entry.id);
+  if (i >= 0) EQLOG.entries[i] = Object.assign({}, EQLOG.entries[i], entry); else EQLOG.entries.push(entry);
+  EQLOG.pending = EQLOG.pending.filter(p => !(p.op === 'save' && p.entry.id === entry.id));
+  EQLOG.pending.push({ op:'save', entry });
+  eqLogCache(); closeModal(); renderEquipment(); eqLogFlush();
+}
+
+function eqLogDelete(id, entryId) {
+  if (!confirm('Delete this entry? It is hidden here; the row stays in the sheet marked Deleted.')) return;
+  const e = EQLOG.entries.find(x => x.id === entryId); if (!e) return;
+  e.deleted = new Date().toISOString();
+  EQLOG.pending.push({ op:'del', id:entryId });
+  eqLogCache(); closeModal(); renderEquipment(); eqLogFlush();
+}
+
+// Today screen: one line per machine with anything overdue
+function eqTodayHtml() {
+  const rows = EQUIPMENT.map(m => ({ m, d:eqMachineDue(m.id) })).filter(r => r.d.over.length);
+  if (!rows.length) return '';
+  return `<div class="section-label" style="color:var(--overdue)">🔧 Equipment overdue (${rows.reduce((n, r) => n + r.d.over.length, 0)})</div>
+    ${rows.map(({ m, d }) => `<div class="card clickable" style="padding:10px 12px;border-left:3px solid var(--overdue)" onclick="equipDetailId='${m.id}';equipSearch='';navigateTo('equipment')">
+      <div style="font-weight:700;font-size:14px">${m.emoji} ${escHtml(m.name)} <span style="font-weight:400;color:var(--text-dim);font-size:12px">· ${escHtml(m.serial)}</span></div>
+      <div style="font-size:12px;color:var(--text-dim)">${d.over.slice(0, 3).map(t => escHtml(t.t)).join(' · ')}${d.over.length > 3 ? ` · and ${d.over.length - 3} more` : ''}</div>
+    </div>`).join('')}`;
+}
+
 function eqPartRow(p, showX) {
   const flagColor = /not yours|NOT yours|discontinued|not used|2010 and past|up to 2010/.test(p.flag || '') ? 'var(--danger)' : 'var(--warn)';
   return `
@@ -2609,7 +2958,9 @@ function renderEquipment() {
             <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${escHtml(m.spec)}</div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(m.engine)}</div>
           </div>
-          ${m.warn ? '<span class="badge" style="background:var(--warn-bg);color:var(--warn)">Check first</span>' : ''}
+          ${(() => { const d = eqMachineDue(m.id); return d.over.length ? `<span class="badge" style="background:var(--danger-bg);color:var(--overdue)">${d.over.length} overdue</span>`
+            : d.soon.length ? `<span class="badge" style="background:var(--warn-bg);color:var(--warn)">${d.soon.length} due soon</span>`
+            : m.warn ? '<span class="badge" style="background:var(--warn-bg);color:var(--warn)">Check first</span>' : ''; })()}
         </div>
       </div>
     `).join('')}
@@ -2640,6 +2991,8 @@ function renderEquipmentDetail(el) {
         <p>${escHtml(callout.body)}</p>
         ${(callout.items || []).length ? `<ul>${callout.items.map(i => `<li>${escHtml(i)}</li>`).join('')}</ul>` : ''}
       </div>` : ''}
+
+    ${eqBookHtml(m)}
 
     ${m.sameAs ? `
       <div class="card" style="border-color:var(--accent-dim)">
@@ -4756,7 +5109,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-26-b';
+var APP_BUILD = '2026-10-26-c';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {

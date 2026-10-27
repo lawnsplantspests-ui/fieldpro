@@ -138,6 +138,15 @@ function doPost(e) {
       case 'fpAddProduct':
         result = fpAddProduct(data.product);
         break;
+      case 'eqLogGet':
+        result = eqLogGet();
+        break;
+      case 'eqLogSave':
+        result = eqLogSave(data.entry);
+        break;
+      case 'eqLogDelete':
+        result = eqLogDelete(data.id);
+        break;
       default:
         result = { status: 'error', message: 'Unknown action: ' + action };
     }
@@ -490,4 +499,94 @@ function fpAddProduct(product) {
   setServicesText_(ss, JSON.stringify(services));
 
   return { status: 'ok' };
+}
+
+// ═══════════════════════════════════════════
+// Equipment Log — the repair & maintenance book
+// Unlike the FP_ tabs this is one readable row per entry, so it can be
+// filtered, printed or corrected right in the sheet. Each save touches only
+// its own row (found by ID). Deleting only stamps the Deleted column — the
+// row stays, and the app hides it.
+// ═══════════════════════════════════════════
+var EQ_LOG_TAB = 'Equipment Log';
+var EQ_LOG_COLS = ['ID', 'Date', 'Machine', 'Machine ID', 'Type', 'Work done', 'Task keys',
+                   'Hours', 'Parts', 'Cost', 'Done by', 'Notes', 'Logged', 'Deleted'];
+var EQ_LOG_FIELDS = ['id', 'date', 'machine', 'machineId', 'type', 'work', 'tasks',
+                     'hours', 'parts', 'cost', 'doneBy', 'notes', 'logged', 'deleted'];
+
+function eqLogSheet_() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = ss.getSheetByName(EQ_LOG_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(EQ_LOG_TAB);
+    sheet.getRange(1, 1, 1, EQ_LOG_COLS.length).setValues([EQ_LOG_COLS]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    // Plain text, so Sheets never turns a date or a part number into something else
+    sheet.getRange(2, 1, sheet.getMaxRows() - 1, EQ_LOG_COLS.length).setNumberFormat('@');
+  }
+  return sheet;
+}
+
+function eqLogCell_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return v === null || v === undefined ? '' : String(v);
+}
+
+function eqLogGet() {
+  var sheet = eqLogSheet_();
+  var last = sheet.getLastRow();
+  var entries = [];
+  if (last >= 2) {
+    sheet.getRange(2, 1, last - 1, EQ_LOG_COLS.length).getValues().forEach(function(r) {
+      if (!r[0]) return;
+      var e = {};
+      EQ_LOG_FIELDS.forEach(function(f, i) { e[f] = eqLogCell_(r[i]); });
+      entries.push(e);
+    });
+  }
+  return { status: 'ok', entries: entries };
+}
+
+function eqLogSave(entry) {
+  if (!entry || !entry.id || !entry.machineId || !entry.date) return { status: 'error', message: 'Entry needs an id, machine and date' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = eqLogSheet_();
+    var row = eqLogFindRow_(sheet, entry.id);
+    if (!entry.logged) entry.logged = new Date().toISOString();
+    var values = [EQ_LOG_FIELDS.map(function(f) { return eqLogCell_(entry[f]); })];
+    if (row) {
+      values[0][13] = String(sheet.getRange(row, 14).getValue() || '');   // an edit never clears or sets Deleted
+    } else {
+      values[0][13] = '';
+      row = sheet.getLastRow() + 1;
+    }
+    sheet.getRange(row, 1, 1, EQ_LOG_COLS.length).setNumberFormat('@').setValues(values);
+    return { status: 'ok' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function eqLogDelete(id) {
+  if (!id) return { status: 'error', message: 'No id' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = eqLogSheet_();
+    var row = eqLogFindRow_(sheet, id);
+    if (row) sheet.getRange(row, 14).setValue(new Date().toISOString());
+    return { status: 'ok' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function eqLogFindRow_(sheet, id) {
+  var last = sheet.getLastRow();
+  if (last < 2) return 0;
+  var ids = sheet.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
+  return 0;
 }
