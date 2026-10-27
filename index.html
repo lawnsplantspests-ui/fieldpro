@@ -2496,11 +2496,13 @@ const EQUIPMENT = [
         {pn:'103-5221', d:'PTO switch', q:'1'},
         {pn:'116-5461', d:'Hour meter kit', flag:'Toro lists it unavailable', oem:'a clip-on inductive meter wrapped on a plug wire does the same job', q:'—'},
       ]},
-      { name:'Lap bars — dampers', dia:[
+      { name:'Lap bars — dampers & speed lever', dia:[
           ['toro-motion','Motion control (lap bars, dampers) — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/motion-control-assembly-21/'],
+          ['toro-decals','Maintenance, height-of-cut & Smart Speed decals — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/maintenance-hoc-and-smart-speed-decal-assembly-19/'],
         ], parts:[
         {pn:'138-7588', d:'Pro Control damper kit (both sides)', oem:'Toro accessory for 2011-and-after TimeCutters, about $121 for the pair. Install Form 3423-691: pods off (3 shoulder screws each), unclip the gas tank and swing it aside, top shoulder screw 50–100 in-lb, bottom 1/4" locknut', q:'1'},
         {pn:'131-0964', d:'Damper, lap bar', oem:'one per bar, about $92 each — the kit is cheaper for both. Worn if the bar pushes forward with little resistance, feels loose, or one side feels different (engine off)', q:'2'},
+        {pn:'136-4245', d:'Decal, Smart Speed (MyRide models)', oem:'missing on yours. About $6. Marks the blue speed lever\'s 3 notches: Trim (turtle, slowest) top, Tow middle, Mow (rabbit, fastest) bottom — manual p.13, 27–28. Tow for bagging', q:'1'},
       ]},
     ],
   },
@@ -5231,7 +5233,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-27-a';
+var APP_BUILD = '2026-10-27-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
