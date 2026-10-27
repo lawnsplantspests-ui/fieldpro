@@ -1941,6 +1941,20 @@ const EQUIPMENT = [
         {pn:'80440-REV', x:'135-9129', d:'Hydraulic hopper motor', oem:'Haldex 1300098', q:'1'},
         {pn:'80430-PV', x:'142-8082', d:'Hopper motor flow control valve', q:'1'},
       ]},
+      { name:'Hoses — replacement lengths', splits:[
+        ['Where these come from', 'Bulk lengths from the factory parts list, Z-Spray manual pp. 20–21. Per machine: 48 ft spray hose, 16.5 ft hydraulic, plus the 3/8" push-lock.', 'The list covers Z-Max, Intermediate and Junior together and its counts look like the Z-Max (2 tanks, 5 tips) — treat the lengths as a ceiling for an Intermediate and measure before buying. Routes below are traced from the manual\'s fitting sizes and manifold photo, not off the machine.'],
+        ['Spray hose', 'Barb + clamp — bulk hose cut to length works. Buy 10–15% extra.', 'Hose reel, if fitted: add 50 ft of 3/8" (100 ft of 1/4" on the long-reel option).'],
+        ['Hydraulic hose', 'The 100R16 and 100R1T lines are crimped assemblies — take the old ones to a hydraulic shop to copy. Push-lock pushes onto barbed fittings, no clamps.', ''],
+      ], parts:[
+        {pn:'60052', x:'135-7139', d:'Spray hose, 3/4" — the main supply line', oem:'Tank outlet → in-line strainer (60061) → pump inlet, then pump outlet → manifold inlet (60049 barb). All 3/4" barbs: 60018 at tank and strainer, 60015-A on the pump.', q:'8 ft'},
+        {pn:'60051', x:'135-7142', d:'Spray hose, 1/2" — boom feeds + agitation return', oem:'3 lines off the Directo valves (60027 barbs) to the left wing, middle and right wing booms; the middle boom splits to its 2 nozzles at the 1/2" barb tee 60028-A. Plus the return from under the throttle valve (60026 barb) back to the tank — that is the agitation line.', q:'30 ft'},
+        {pn:'60050', x:'135-5261', d:'Spray hose, 3/8" — hose reel feed', oem:'Hose reel chrome valve (60009 + 60042 barb) on the end of the manifold → hose reel. The reel\'s own 50 ft hose to the spot gun is extra.', q:'10 ft'},
+        {pn:'60045', x:'2412-129', d:'Hose clamp, 3/4"', oem:'supply line connections', q:'8'},
+        {pn:'60044', x:'135-8365', d:'Hose clamp, 3/8"–1/2"', oem:'boom, return and reel lines', q:'20'},
+        {pn:'R16-08', x:'142-1038', d:'Hydraulic hose, 1/2" SAE 100R16 — drive loop', oem:'High pressure: the 4 lines from the two hydro pumps to the two wheel motors (ends 80420 at the pumps, 80419 at the motors). Works out to about 19" each.', q:'6.5 ft'},
+        {pn:'R1T-04', x:'142-1039', d:'Hydraulic hose, 1/4" SAE 100R1T — hopper motor circuit', oem:'Aux port on the left pump (80432 / 80433) → hopper flow-control valve (80430-PV, 80429 fitting) → hopper spinner motor (80440-REV) and back. 14 × 1/4" female swivel ends OPB22712-04-04 on the list.', flag:'book says "10 ea" — almost surely 10 ft', q:'10 ft'},
+        {pn:'80410', x:'135-9065', d:'Hydraulic hose, 3/8" push-lock — low-pressure tank lines', oem:'Hydraulic tank (80424 elbows) → filter (80423 adapters) → pump inlets (80421 elbows, 80434 tee), plus return lines back to the tank. Gates 3/8 Python black, 300 PSI; 11 × 3/8" push-on swivels 80422 on the list.', flag:'length not in the Z-Spray book — measure', q:'—'},
+      ]},
       { name:'Wheels, casters & bearings', parts:[
         {pn:'80019-A', x:'135-5974', d:'Front caster wheel assembly, single bolt, 16 × 6.5 × 8', q:'2'},
         {pn:'80019-B', x:'135-5683', d:'Front wheel spacer', oem:'HSS-34', q:'2'},
@@ -4742,7 +4756,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-26-a';
+var APP_BUILD = '2026-10-26-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
