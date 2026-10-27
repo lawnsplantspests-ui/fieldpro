@@ -1863,6 +1863,7 @@ const EQ_SUPPLIERS = {
   jacks:   { name:"Jack's Small Engines", note:'P18 seeder diagrams — most parts show discontinued', url:'https://www.jackssmallengines.com/' },
   toro:    { name:'Toro',               note:'Parts page for your exact model + serial range; phone is off the serial decal', url:'https://www.toro.com/en/parts/partdetails?id=49139', phone:'1-866-216-6029' },
   partstree:{ name:'PartsTree',         note:'All 27 Toro diagrams for SN 404314200 and up, with prices', url:'https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/' },
+  partstreecub:{ name:'PartsTree',      note:'Cub Cadet 2155, SN 326006 & up — 42 diagrams, genuine Cub Cadet and Kohler (KH-) numbers', url:'https://www.partstree.com/models/2155-13c-244g100-cub-cadet-garden-tractor-sn-326006-above/' },
 };
 
 // Service facts shared by the two Z-Sprays and the Z-Plug
@@ -2497,6 +2498,95 @@ const EQUIPMENT = [
       ]},
     ],
   },
+
+  {
+    id:'cub-2155', name:'Cub Cadet 2155 Garden Tractor', serial:'2155 · serial not read yet', emoji:'🚜',
+    brand:'Cub Cadet', engine:'Kohler Command 15 HP single, 426 cc',
+    spec:'1996–99 2000 series · 42" 2-blade deck · shaft-drive hydrostatic · winter go-over 2026–27',
+    manual:'Cub Cadet 2155 Operator\'s Manual, 2000 series (maintenance chart p.48, lubrication table p.51, parts chart p.60)',
+    manualUrl:'https://www.manualslib.com/manual/33957/Cub-Cadet-2155.html',
+    suppliers:['partstreecub'],
+    service:[
+      ['Serial plate',     'Left side of the frame, under the running board. Model code reads 136-, 13A-, 13B- or 13C-244G100.'],
+      ['Engine oil',       'About 4 pints (2 qt) with filter. 10W-30 or 10W-40 above 32°F, 5W-20 or 5W-30 below. Filter every 100 hours or yearly.'],
+      ['Transmission',     'Hydro + transaxle, about 6 qt. The manual says Cub Cadet Drive System Oil only (737-3055 qt / 737-3054 gal). Check the level before each use; filter 923-3014 every 100 hours.'],
+      ['Spark plug',       'Gap 0.040".'],
+      ['Tires',            'Front 15x6-6 at 14 psi, rear 20x9-8 at 10 psi. Rear lug nuts 35 ft-lb.'],
+      ['Grease',           '251H EP or No. 2 lithium, at least two strokes per fitting.'],
+      ['Every use',        'Check engine oil and transmission oil — left off the schedule below so it doesn\'t always read overdue.'],
+      ['Capacities',       'Fuel 3 gal. Fuse 25 A. Battery 725-1706.'],
+    ],
+    warn:{
+      title:'Read two tags before ordering parts',
+      body:'Cub Cadet changed the deck, spindles, pedals and transmission controls at serial 359,001, and Kohler built this engine in two fuel-system specs. The parts below show both sides of each split.',
+      items:[
+        'Tractor serial plate (left frame rail, under the running board): 359,000 and below, or 359,001 and up? That decides blades and spindles.',
+        'Kohler tag on the engine shroud: spec 44508 or 44523? That decides carburetor parts.',
+        'The manual on file lists the 3-in-1 blade 759-3830, which matches the 359,001-and-up deck — so the manual may be the later edition.',
+        'The manual\'s dash shows an hour meter. If yours works, log a reading so the hour-based items can track.',
+      ],
+    },
+    groups:[
+      { name:'Winter go-over — the manual\'s adjustment pages', splits:[
+        ['Brakes',              'Brake adjustment — manual p.18'],
+        ['Wheel alignment',     'Toe-in — p.19'],
+        ['Hydrostatic neutral', 'If it creeps in neutral — p.20'],
+        ['Lift assist',         'Lift assist spring + control rod — p.21'],
+        ['Carburetor',          'Adjustments — p.22. Rebuild kits below.'],
+        ['Deck',                'Leveling and adjustments — pp.33–36; removal — pp.37–39'],
+        ['Battery',             'Clean, test, charge — p.30'],
+        ['Storage',             'Off-season storage — p.45'],
+      ]},
+      { name:'Engine — filters, plugs & fuel', dia:[
+          ['cub-air','Air intake & filtration — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/2155-13c-244g100-cub-cadet-garden-tractor-sn-326006-above/air-intake-and-filtration-4/'],
+          ['cub-oil','Oil pan & lubrication — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/2155-13c-244g100-cub-cadet-garden-tractor-sn-326006-above/oil-pan-and-lubrication-33/'],
+          ['cub-fuel','Fuel system, spec 44508 — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/2155-13c-244g100-cub-cadet-garden-tractor-sn-326006-above/fuel-system-spec-44508-21/'],
+        ], parts:[
+        {pn:'KH-12-050-08', d:'Oil filter', flag:'superseded to KH-12-050-01-S', oem:'Kohler 12 050 01', q:'1'},
+        {pn:'759-3547', d:'Air cleaner cartridge (paper)', flag:'superseded to KH-47-883-01-S1', q:'1'},
+        {pn:'KH-52-083-01', d:'Foam pre-cleaner', flag:'superseded to KH-47-883-01-S1', oem:'clean + re-oil every 10 h / monthly', q:'1'},
+        {pn:'759-3336', d:'Spark plug', flag:'superseded to Champion RC12YC', oem:'gap 0.040"', q:'1'},
+        {pn:'KH-24-050-02', d:'Fuel filter', flag:'superseded to 2405013S1C', q:'1'},
+        {pn:'KH-12-853-80', d:'Carburetor kit with gaskets (Walbro)', flag:'superseded to KH-12-853-139-S', oem:'listed under fuel system spec 44508 — check your spec and carb maker', q:'1'},
+        {pn:'KH-12-853-75', d:'Carburetor kit with gaskets (Nikki)', oem:'listed under fuel system spec 44508 — check your spec and carb maker', q:'1'},
+        {pn:'KH-12-559-01', d:'Fuel pump kit', flag:'superseded to KH-12-559-02-S', q:'1'},
+        {pn:'KH-41-403-09', d:'Rectifier-regulator', flag:'superseded to KH-25-403-37-S', oem:'the usual suspect if the battery won\'t stay charged', q:'1'},
+        {pn:'737-3030A', d:'Engine oil, Cub Cadet 10W-30', oem:'737-3049 for 5W-30 below 32°F', q:'4 pt'},
+      ]},
+      { name:'Hydrostatic drive', dia:[
+          ['cub-hydro','Hydro transmission — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/2155-13c-244g100-cub-cadet-garden-tractor-sn-326006-above/hydro-transmission-26/'],
+        ], parts:[
+        {pn:'923-3014', d:'Transmission oil filter', oem:'every 100 hours', q:'1'},
+        {pn:'737-3054', d:'Cub Cadet Drive System Oil, 1 gal', oem:'737-3055 is the quart; system holds about 6 qt', q:'6 qt'},
+        {pn:'727-3085', d:'Transmission dipstick', flag:'superseded to 927-3085', q:'1'},
+        {pn:'721-3020A', d:'Transmission oil seal', flag:'superseded to 921-3020A', q:'—'},
+      ]},
+      { name:'42" deck — belts, blades & spindles', dia:[
+          ['cub-spindle-old','42" spindles, SN 359,000 & below — PartsTree (opens at PartsTree)','https://www.partstree.com/models/2155-13c-244g100-cub-cadet-garden-tractor-sn-326006-above/42-spindle-assembly-sn-359000-and-below-2/'],
+          ['cub-spindle-new','42" spindles, SN 359,001 & up — PartsTree (opens at PartsTree)','https://www.partstree.com/models/2155-13c-244g100-cub-cadet-garden-tractor-sn-326006-above/42-spindle-assembly-sn-359001-and-above-3/'],
+        ], parts:[
+        {pn:'754-3055A', d:'PTO belt, tractor to deck — B-section, 112.4"', flag:'superseded to 954-3055A', oem:'both serial ranges', q:'1'},
+        {pn:'754-3073', d:'Spindle belt (deck blade belt) — A-section', flag:'superseded to 954-3073', oem:'both serial ranges', q:'1'},
+        {pn:'759-3830', d:'Blade, 3-in-1, 21.2"', flag:'SN 359,001 & up — superseded to 742-3033-0637', oem:'the blade the manual lists', q:'2'},
+        {pn:'759-3969', d:'Blade, low lift', flag:'SN 359,001 & up — superseded to 742-3039-0637', q:'2'},
+        {pn:'759-3824', d:'Blade, low lift, 21.2"', flag:'SN 359,000 & below — superseded to 742-3018-0637', q:'2'},
+        {pn:'759-3823', d:'Blade, bagging, 21.2"', flag:'SN 359,000 & below — superseded to 742P3017', q:'2'},
+        {pn:'918-3129', d:'Spindle assembly', flag:'SN 359,001 & up — superseded to 918-3129C', q:'2'},
+        {pn:'759-3665', d:'Spindle assembly, blade', flag:'SN 359,000 & below — superseded to 959-3665', q:'2'},
+        {pn:'756-0627', d:'Flat idler pulley, 3.5"', flag:'superseded to 756-0627D', q:'1'},
+        {pn:'756-3069', d:'Double pulley', flag:'superseded to 756-3114', q:'1'},
+        {pn:'734-0973', d:'Deck wheel, 5"', flag:'superseded to 734-06265', q:'—'},
+        {pn:'717-3385A', d:'PTO clutch assembly', flag:'superseded to 917-3385B', oem:'about $597 at PartsTree — rule out the belt and adjustment before buying', q:'1'},
+      ]},
+      { name:'Electrical & tires', parts:[
+        {pn:'725-1706', d:'Battery', q:'1'},
+        {pn:'—', d:'Fuse, 25 A auto type', q:'1'},
+        {pn:'759-3693', d:'Headlamp bulb', oem:'TractorData lists this as the spark plug — it isn\'t', q:'2'},
+        {pn:'—', d:'Front tire 15x6-6 (14 psi)', q:'2'},
+        {pn:'—', d:'Rear tire 20x9-8 (10 psi)', q:'2'},
+      ]},
+    ],
+  },
 ];
 
 let equipDetailId = null;
@@ -2600,6 +2690,25 @@ const EQ_MAINT = {
     {k:'check100',t:'Check spark plugs + in-line fuel filter', h:100, d:365},
     {k:'rep200',  t:'Replace spark plugs, fuel filter + paper element', h:200, d:730},
     {k:'storage', t:'Before storage: charge + disconnect battery, touch up paint', d:365},
+  ] },
+  'cub-2155': { src:'Cub Cadet 2155 operator\'s manual, maintenance chart (p.48) and lubrication table (p.51). "Three times a season" is counted as every 90 days, "twice a season" as every 135.', tasks:[
+    {k:'screens',  t:'Clean grille, engine air inlet, dash intake + side panel screens', h:10, d:30},
+    {k:'foam',     t:'Clean + re-oil foam pre-cleaner', h:10, d:30},
+    {k:'battery',  t:'Check battery terminals + case', h:10, d:30},
+    {k:'front',    t:'Grease front axle pivot bolt + steering knuckles', h:10, d:30},
+    {k:'deck',     t:'Grease deck spindles + spindle belt idler arm; lube foot + lift control pivots', h:10, d:30},
+    {k:'fins',     t:'Clean cooling fins + external surfaces', h:30, d:90},
+    {k:'steer',    t:'Grease steering gear housing + front wheel bearings', h:30, d:90},
+    {k:'pivotbar', t:'Pivot bar adjustment bolts + grease deck front gauge wheels', h:50, d:135},
+    {k:'oil',      t:'Engine oil + filter (4 pints, 10W-30)', h:100, d:365},
+    {k:'paper',    t:'Service air cleaner paper cartridge', h:100, d:365},
+    {k:'plug',     t:'Check spark plug (gap 0.040")', h:100, d:365},
+    {k:'transfilt',t:'Replace transmission oil filter (923-3014)', h:100},
+    {k:'storage',  t:'Before storage: drain fuel, check plug, grease front wheel bearings', d:365},
+    {k:'goover',   t:'Winter go-over: brakes, alignment, hydro neutral, lift assist, carb, deck level, battery (manual pp.18–39)', d:365},
+    {k:'fuelfilt', t:'Replace fuel filter'},
+    {k:'belts',    t:'Belts — PTO + spindle belt, check / replace'},
+    {k:'blades',   t:'Blades — sharpen / balance / replace'},
   ] },
 };
 const eqTasks = id => (EQ_MAINT[id] || { tasks:[] }).tasks;
@@ -5116,7 +5225,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-26-d';
+var APP_BUILD = '2026-10-26-e';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
