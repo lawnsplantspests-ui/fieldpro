@@ -1858,6 +1858,8 @@ const EQ_SUPPLIERS = {
   bobcat:  { name:'Bobcat / Ryan',      note:'Ryan Lawnaire is under Bobcat now',                url:'https://shop.bobcat.com/ryan-aerators-and-parts' },
   briggs:  { name:'Briggs & Stratton',  note:'Look up by model/type/code on the blower housing', url:'https://shop.briggsandstratton.com/pages/parts-lookup' },
   jacks:   { name:"Jack's Small Engines", note:'P18 seeder diagrams — most parts show discontinued', url:'https://www.jackssmallengines.com/' },
+  toro:    { name:'Toro',               note:'Parts page for your exact model + serial range; phone is off the serial decal', url:'https://www.toro.com/en/parts/partdetails?id=49139', phone:'1-866-216-6029' },
+  partstree:{ name:'PartsTree',         note:'All 27 Toro diagrams for SN 404314200 and up, with prices', url:'https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/' },
 };
 
 // Service facts shared by the two Z-Sprays and the Z-Plug
@@ -2383,6 +2385,101 @@ const EQUIPMENT = [
       ]},
     ],
   },
+
+  {
+    id:'toro-mx5075', name:'Toro TimeCutter MX 5075', serial:'74768 · SN 404757380', emoji:'🚜',
+    brand:'Toro', engine:'Toro 708cc V-twin (2P77F), 24.5 HP gross',
+    spec:'Built Feb 2019 · 50" fabricated deck, 3 blades · MyRide suspension · bought Oct 2026',
+    manual:'Form 3425-432 — covers 74768, SN 404314200 and up',
+    manualUrl:'https://www.toro.com/getpub/163665',
+    suppliers:['toro','partstree'],
+    service:[
+      ['Serial plate',    'Under the seat — lift the seat forward. Same spot as the in-line fuel filter and the battery.'],
+      ['Engine oil',      '2.4 L (81 fl oz) with filter, 10W-30 detergent. Change at 5 hours, then every 100 hours or yearly. Fill about 80%, then top to the Full mark.'],
+      ['Oil filter',      'Gasket to the engine, then 3/4 turn more.'],
+      ['Air cleaner',     'Foam: clean every 25 hours, replace every 100. Paper: tap clean every 100, replace every 200. Never wash the paper element.'],
+      ['Spark plugs',     'NGK BPR6ES or Champion RN9YC, gap 0.030". Check every 100 hours, replace every 200.'],
+      ['Fuel filter',     'In-line, under the seat. Check every 100 hours, replace every 200.'],
+      ['Tire pressure',   'Rear 13 psi (50" deck). Front casters: whatever is printed on the caster sidewall.'],
+      ['Blade bolt',      '35–65 ft-lb, cupped side of the curved washer toward the blade.'],
+      ['Grease',          'None. Toro\'s 25-hour grease points are for non-MyRide models only.'],
+      ['Fuses',           'F1 main 30 A, F2 charge circuit 25 A, blade type, under the control panel.'],
+      ['Pushing it',      'Bypass levers on the frame, both sides — forward through the keyhole to push, rearward to drive.'],
+      ['Transaxles',      'Toro 131-3640 LH / 131-3641 RH. No oil service in the operator\'s manual; Toro\'s spec page lists Hypr-Oil 500 / 20W-50 synthetic if they are ever serviced.'],
+    ],
+    warn:{
+      title:'Three ranges of 74768 — yours is the newest',
+      body:'Toro split this model into three serial ranges with different parts books: 400000000–402327411, 402327412–404314199, and 404314200 and up. Your 404757380 is in the last one. Every number below is from that range.',
+      items:[
+        'When a parts site asks for a serial range, pick 404314200 and up. The older operator\'s manual (3417-387) is the wrong one.',
+        'Bagging: Toro\'s match for this model is the 79398 twin bagger with front weight kit 131-7658 (both no longer sold). Check the tag on your bagger before ordering bagger parts. Toro says to follow its counterweight directions when bagging, so leave the front weight on.',
+        'No hour meter on yours, so the hours are unknown. Do the full service once now: oil + filter, both air elements, both plugs, fuel filter, sharpen and balance the blades, look over both belts. Then count hours from Oct 26, 2026.',
+        'Rear tires on yours read 20x10.00-10.',
+      ],
+    },
+    groups:[
+      { name:'Engine — filters, plugs & tune-up', dia:[
+          ['toro-air','Air intake & filtration — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/air-intake-and-filtration-assembly-2/'],
+          ['toro-crankcase','Crankcase, oil filter & drain — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/crankcase-and-crankshaft-assembly-9/'],
+          ['toro-fuel','Fuel system — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/fuel-system-assembly-13/'],
+        ], parts:[
+        {pn:'136-7848', d:'Oil filter', q:'1'},
+        {pn:'136-7806', d:'Air filter kit (paper element)', q:'1'},
+        {pn:'136-7804', d:'Air pre-filter (foam)', q:'1'},
+        {pn:'BPR6ES', d:'Spark plug, NGK', oem:'or Champion RN9YC — gap 0.030"', q:'2'},
+        {pn:'133-1563', d:'Fuel filter, in-line', flag:'superseded to 139-0717', q:'1'},
+        {pn:'127-9206', d:'Fuel pump', flag:'superseded to 139-0684', q:'1'},
+        {pn:'136-7840', d:'Carburetor replacement kit', q:'1'},
+        {pn:'127-9290', d:'Carburetor repair kit', q:'1'},
+        {pn:'127-9283', d:'Dipstick', q:'1'},
+        {pn:'133-9805', d:'Oil drain plug', q:'1'},
+        {pn:'127-9293', d:'Oil drain hose assembly', q:'1'},
+        {pn:'127-9215', d:'Breather filter', q:'1'},
+        {pn:'139-0603', d:'Engine assembly, 2P77F', q:'1'},
+        {pn:'130-6851', d:'Muffler', q:'1'},
+      ]},
+      { name:'50" deck — blades, belt & spindles', dia:[
+          ['toro-deck','50" deck assembly — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/50-inch-deck-assemlby-0/'],
+        ], parts:[
+        {pn:'115-5059-03', d:'Blade, high lift', flag:'superseded to 142-6453-S', q:'3'},
+        {pn:'130-0843', d:'Deck belt (V-belt)', flag:'superseded to 130-0843-SL', q:'1'},
+        {pn:'121-0751', d:'Spindle assembly', flag:'superseded to 139-3214', q:'3'},
+        {pn:'136-5441', d:'Spindle ball bearing', q:'—'},
+        {pn:'117-7268', d:'Spindle shaft', q:'3'},
+        {pn:'125-5575', d:'Spindle pulley', q:'—'},
+        {pn:'132-9420', d:'Idler pulley, flat', q:'1'},
+        {pn:'114-8540', d:'Idler arm', q:'1'},
+        {pn:'1-603414', d:'Idler extension spring', q:'1'},
+        {pn:'1-603299', d:'Anti-scalp roller', q:'—'},
+        {pn:'121-0739', d:'Discharge deflector', q:'1'},
+        {pn:'121-2983', d:'Deflector torsion spring', flag:'superseded to 138-7232', q:'1'},
+        {pn:'127-3410', d:'PTO clutch', q:'1'},
+        {pn:'130-6854', d:'Engine pulley', q:'1'},
+        {pn:'79024', d:'Recycler (mulching) kit, 50" TimeCutter MX/SWX', oem:'accessory, not on the machine', q:'—'},
+      ]},
+      { name:'Drive, wheels & electrical', dia:[
+          ['toro-drive','Hydro transaxle drive & rear wheels — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/hydro-transaxle-drive-and-rear-wheel-assembly-16/'],
+        ], parts:[
+        {pn:'130-6976', d:'Traction drive belt (V-belt)', flag:'superseded to 130-6976-SL', q:'1'},
+        {pn:'119-8822', d:'Drive idler pulley', q:'1'},
+        {pn:'131-5988', d:'Drive idler pulley, flat', q:'1'},
+        {pn:'131-3640', d:'Transaxle, left', q:'1'},
+        {pn:'131-3641', d:'Transaxle, right', q:'1'},
+        {pn:'133-9278', d:'Rear tire & wheel assembly', oem:'20x10.00-10 on yours', q:'2'},
+        {pn:'133-9293', d:'Rear tire only', q:'2'},
+        {pn:'105-4070', d:'Rear inner tube', q:'—'},
+        {pn:'133-4427', d:'Front caster tire & wheel assembly', q:'2'},
+        {pn:'125-5581', d:'Front caster tire only', q:'2'},
+        {pn:'136-4190', d:'Front caster wheel bearing', q:'—'},
+        {pn:'105-1692', d:'Battery', flag:'Toro lists it unavailable — buy by size off the old one', q:'1'},
+        {pn:'109103', d:'Fuse, blade, 30 A (main)', q:'1'},
+        {pn:'109102', d:'Fuse, blade, 25 A (charge)', q:'1'},
+        {pn:'63-8360', d:'Ignition key', q:'1'},
+        {pn:'103-5221', d:'PTO switch', q:'1'},
+        {pn:'116-5461', d:'Hour meter kit', flag:'Toro lists it unavailable', oem:'a clip-on inductive meter wrapped on a plug wire does the same job', q:'—'},
+      ]},
+    ],
+  },
 ];
 
 let equipDetailId = null;
@@ -2457,7 +2554,7 @@ function renderEquipment() {
   const s = equipSearch.trim().toLowerCase();
 
   // With a search term, this page becomes a parts counter: every matching
-  // part across all seven machines, with the machine it belongs to.
+  // part across every machine, with the machine it belongs to.
   if (s) {
     const hits = EQ_PART_INDEX.filter(r => r.hay.includes(s));
     const byMachine = {};
@@ -2465,7 +2562,7 @@ function renderEquipment() {
 
     el.innerHTML = `
       <h1 style="margin:0 0 4px">Equipment</h1>
-      <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px">Searching ${EQ_PART_INDEX.length} parts across all 7 machines.</p>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px">Searching ${EQ_PART_INDEX.length} parts across all ${EQUIPMENT.length} machines.</p>
       <div class="search-bar"><input id="eq-search" placeholder="Part number, belt, filter, bearing..." value="${escHtml(equipSearch)}" oninput="equipSearch=this.value;renderEquipment()"></div>
       <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">${hits.length} match${hits.length === 1 ? '' : 'es'}</p>
       ${Object.values(byMachine).map(b => `
@@ -2576,12 +2673,15 @@ function renderEquipmentDetail(el) {
 
     <div class="section-label" style="color:var(--accent)">Manual</div>
     <div class="card">
-      <div style="font-size:12px;color:var(--text-dim)">PDF on the shop PC:</div>
-      <div class="eq-oem" style="margin-top:4px;word-break:break-all">${escHtml(m.manualDir)}\\${escHtml(m.manual)}</div>
+      ${m.manualUrl ? `
+        <div style="font-size:12px;color:var(--text-dim)">${escHtml(m.manual)}</div>
+        <a class="btn secondary sm" style="margin-top:8px" href="${escHtml(m.manualUrl)}" target="_blank" rel="noopener">Operator's manual (PDF) ↗</a>` : `
+        <div style="font-size:12px;color:var(--text-dim)">PDF on the shop PC:</div>
+        <div class="eq-oem" style="margin-top:4px;word-break:break-all">${escHtml(m.manualDir)}\\${escHtml(m.manual)}</div>`}
     </div>
 
     <p style="font-size:11px;color:var(--text-muted);margin:14px 0 0;line-height:1.5">
-      Numbers transcribed from each machine's factory manual. On the L.T. Rich units the green number is Exmark/Z Turf's current catalog number — they renumbered everything after buying L.T. Rich. Engine parts are the engine maker's own numbers (Briggs, Kohler, Honda, Kawasaki); confirm against the model/type/code stamped on your engine.
+      Numbers transcribed from each machine's factory manual or parts catalog. On the L.T. Rich units the green number is Exmark/Z Turf's current catalog number — they renumbered everything after buying L.T. Rich. Engine parts are the engine maker's own numbers (Briggs, Kohler, Honda, Kawasaki, Toro); confirm against the model/type/code stamped on your engine.
     </p>
   `;
 }
@@ -4642,7 +4742,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-19-f';
+var APP_BUILD = '2026-10-26-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
