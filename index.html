@@ -2655,7 +2655,14 @@ function eqStatus(id, t) {
   const last = eqLive(id).filter(e => (e.tasks || '').split(',').includes(t.k)).sort(eqNewest)[0];
   if (!t.h && !t.d) return { st:'untracked', last };
   if (!last) return { st:'none' };
-  const today = schedToday(), cur = eqHours(id), lastH = eqNum(last.hours);
+  const today = schedToday(), cur = eqHours(id);
+  // No reading on the entry itself: use a meter reading logged the same day (the lowest, so it
+  // comes due a little early rather than late)
+  let lastH = eqNum(last.hours), sameDay = false;
+  if (lastH == null) {
+    eqLive(id).forEach(e => { const h = eqNum(e.hours); if (e.date === last.date && h != null && (lastH == null || h < lastH)) lastH = h; });
+    sameDay = lastH != null;
+  }
   let st = 'ok', bits = [];
   const worse = s => { if (s === 'over' || (s === 'soon' && st === 'ok')) st = s; };
   if (t.h && cur != null && lastH != null) {
@@ -2672,7 +2679,7 @@ function eqStatus(id, t) {
     } else if (st === 'ok' && !(t.h && lastH != null && cur != null)) st = 'off';
   }
   if (t.h && !t.d && (lastH == null || cur == null)) st = 'nohours';
-  return { st, last, bits };
+  return { st, last, lastH, sameDay, bits };
 }
 function eqMachineDue(id) {
   const out = { over:[], soon:[] };
@@ -2703,7 +2710,7 @@ function eqBookHtml(m) {
   hist.filter(e => (e.date || '').startsWith(yr)).forEach(e => { const n = eqNum(e.cost); if (n != null && spent[e.type] != null) spent[e.type] += n; });
   const taskRow = ({ t, s }) => {
     const [lab, col] = EQ_STATUS_UI[s.st];
-    const lastTxt = s.last ? `last ${fmtDateFull(s.last.date)}${eqNum(s.last.hours) != null ? ' at ' + eqNum(s.last.hours) + ' h' : ''}` : '';
+    const lastTxt = s.last ? `last ${fmtDateFull(s.last.date)}${s.lastH != null ? ' at ' + s.lastH + ' h' + (s.sameDay ? ' (that day\'s meter reading)' : '') : ''}` : '';
     return `<div class="eq-split" style="cursor:pointer" onclick="eqLogForm('${id}',null,'${t.k}')">
       <div class="eq-split-k">${escHtml(t.t)}<div class="eq-oem">${escHtml(eqEvery(t))}${t.note ? ' · ' + escHtml(t.note) : ''}</div></div>
       <div class="eq-split-v">${lab ? `<span style="color:${col};font-weight:700">${lab}</span>` : ''}${s.bits && s.bits.length ? ' · ' + escHtml(s.bits.join(' · ')) : ''}${lastTxt ? `<div class="eq-oem">${escHtml(lastTxt)}</div>` : ''}</div>
@@ -5109,7 +5116,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-26-c';
+var APP_BUILD = '2026-10-26-d';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
