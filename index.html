@@ -2424,7 +2424,7 @@ const EQUIPMENT = [
       ['Fuses',           'F1 main 30 A, F2 charge circuit 25 A, blade type, under the control panel.'],
       ['Pushing it',      'Bypass levers on the frame, both sides — forward through the keyhole to push, rearward to drive.'],
       ['Transaxles',      'Toro 131-3640 LH / 131-3641 RH. No oil service in the operator\'s manual; Toro\'s spec page lists Hypr-Oil 500 / 20W-50 synthetic if they are ever serviced.'],
-      ['Control-arm nut', 'Where the rod meets each wheel motor: a 5/16-24 lock nut (1/2" or 13 mm) on the stop stud squeezes the friction puck. 85–120 in-lb (Hydro-Gear BLN-52622, p.15). Loose or no puck = twitchy bars; too tight = bars may not spring back to neutral.'],
+      ['Control arms',    'Slop where the rod meets each wheel motor = worn top hole in the control arm and worn post on the rod mount. No bushing goes there. Control arm screw 230–310 in-lb. After a new arm, the mower must not creep with the bars in neutral — if it does, Hydro-Gear\'s neutral procedure is p.13 of BLN-52622 (wheels off the ground). The puck, washer and lock nut on the stop stud are shipping parts, not on an installed unit (p.39). No replacement interval for the arm, stop stud or bypass arm — replace when worn.'],
     ],
     warn:{
       title:'Three ranges of 74768 — yours is the newest',
@@ -2497,16 +2497,25 @@ const EQUIPMENT = [
         {pn:'103-5221', d:'PTO switch', q:'1'},
         {pn:'116-5461', d:'Hour meter kit', flag:'Toro lists it unavailable', oem:'a clip-on inductive meter wrapped on a plug wire does the same job', q:'—'},
       ]},
-      { name:'Lap bars — dampers, pucks & speed lever', dia:[
-          ['toro-lhtrans','LH transaxle (control arm, stop stud, friction puck) — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/lh-transaxle-assembly-no-131-3640-18/'],
-          ['toro-motion','Motion control (lap bars, dampers) — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/motion-control-assembly-21/'],
+      { name:'Lap bars & linkage — order list (Oct 27, 2026)', dia:[
+          ['toro-lhtrans','LH transaxle (control arm kit, stop stud) — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/lh-transaxle-assembly-no-131-3640-18/'],
+          ['toro-motion','Motion control (rods, rod mounts, spacers, dampers) — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/motion-control-assembly-21/'],
           ['toro-decals','Maintenance, height-of-cut & Smart Speed decals — PartsTree diagram (opens at PartsTree)','https://www.partstree.com/models/74768-mx-5075-toro-50-timecutter-zero-turn-mower-sn-404314200-999999999/maintenance-hoc-and-smart-speed-decal-assembly-19/'],
+        ], splits:[
+          ['Why', 'Bars twitchy, tires skid. The control arm on the wheel motor has an egg-shaped hole where the rod mount goes in.'],
+          ['Order now', 'About $59 for one side, $107 for both (PartsTree prices, Oct 27, 2026). Pick 74768, SN 404314200 and up. Only 2 control arm kits were in stock.'],
+          ['Before ordering the rest', 'Have someone hold a lap bar still and wiggle the rod at each end. Only buy the "only if worn" parts for a joint that moves.'],
         ], parts:[
-        {pn:'138-7588', d:'Pro Control damper kit (both sides)', oem:'Toro accessory for 2011-and-after TimeCutters, about $121 for the pair. Install Form 3423-691: pods off (3 shoulder screws each), unclip the gas tank and swing it aside, top shoulder screw 50–100 in-lb, bottom 1/4" locknut', q:'1'},
-        {pn:'131-0964', d:'Damper, lap bar', oem:'one per bar, about $92 each — the kit is cheaper for both. Worn if the bar pushes forward with little resistance, feels loose, or one side feels different (engine off)', q:'2'},
-        {pn:'112-9853', d:'Puck, friction — wheel motor control arm', oem:'about $9. Sits in the indent around the stop stud, between the control arm and the wheel motor; the nut squeezes it (85–120 in-lb). Hydro-Gear\'s drawing shows 2 per wheel motor, Toro\'s doesn\'t say — count the good side. Replace, don\'t reuse, once removed. Check these before buying dampers', q:'—'},
-        {pn:'104-2116', d:'Stud, control arm stop (wheel motor)', oem:'the "bolt" the control arm and puck ride on, one per wheel motor; about $43. Stud into the housing 125–160 in-lb; its lock nut 85–120 in-lb', q:'2'},
-        {pn:'136-4245', d:'Decal, Smart Speed (MyRide models)', oem:'missing on yours. About $6. Marks the blue speed lever\'s 3 notches: Trim (turtle, slowest) top, Tow middle, Mow (rabbit, fastest) bottom — manual p.13, 27–28. Tow for bagging', q:'1'},
+        {pn:'117-5362', d:'Control arm kit (Hydro-Gear part 44) — same number left and right', oem:'about $34 each. Replaces the arm with the egg-shaped hole. Screw 230–310 in-lb; check for creep in neutral after', flag:'Order now — 2 if the other side is worn too', q:'1–2'},
+        {pn:'138-7218', d:'Mount, hydro rod (swivel block on the rod end)', oem:'about $14 each; replaced 119-8842. Its post wears with the hole — new post in a new hole takes out the play', flag:'Order now — one per new arm', q:'1–2'},
+        {pn:'93-6079', d:'Spacer, nylon — front end of the rod', oem:'about $2.50. Cheap, replace while the cover is off', flag:'Order now', q:'2'},
+        {pn:'136-4245', d:'Decal, Smart Speed (MyRide models)', oem:'missing on yours. About $6. Marks the blue speed lever\'s 3 notches: Trim (turtle, slowest) top, Tow middle, Mow (rabbit, fastest) bottom — manual p.13, 27–28. Tow for bagging', flag:'Order now', q:'1'},
+        {pn:'256-156', d:'Bushing, flange — in the lap-bar arm (front end of the rod)', oem:'about $15; only 2 were in stock. Count them when the cover is off', flag:'Only if worn — wiggle test', q:'count'},
+        {pn:'121-1753', d:'Pin, hydro rod — front end of the rod', oem:'about $7', flag:'Only if worn — wiggle test', q:'1/side'},
+        {pn:'138-7588', d:'Pro Control damper kit (both sides)', oem:'Toro accessory for 2011-and-after TimeCutters, about $121 for the pair. Install Form 3423-691: pods off (3 shoulder screws each), unclip the gas tank and swing it aside, top shoulder screw 50–100 in-lb, bottom 1/4" locknut', flag:'Hold — only if the bars are still twitchy after the linkage is tight', q:'1'},
+        {pn:'131-0964', d:'Damper, lap bar', oem:'one per bar, about $92 each — the kit is cheaper for both. Worn if the bar pushes forward with little resistance, feels loose, or one side feels different (engine off)', flag:'Hold — buy the kit instead', q:'2'},
+        {pn:'104-2116', d:'Stud, control arm stop (wheel motor)', oem:'the stud the control arm\'s slot rides on, one per wheel motor; about $43. Replace only if grooved or loose. Torque into the housing 125–160 in-lb', q:'2'},
+        {pn:'112-9853', d:'Puck, friction — wheel motor control arm', oem:'shipping part: Hydro-Gear removes the puck, washer and lock nut once the wheel motor is in the machine (BLN-52622 p.39). Not having them is normal', flag:'not used on an installed unit — don\'t order', q:'—'},
       ]},
     ],
   },
@@ -5237,7 +5246,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-27-c';
+var APP_BUILD = '2026-10-27-d';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
