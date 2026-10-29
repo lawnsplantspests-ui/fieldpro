@@ -1645,7 +1645,7 @@ const MIX_RATES = [
  {ty:'fert',n:'Lebanon Pro 16-0-3',ai:'Fertilizer only',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular — record bags used.'},
  {ty:'fert',n:'Spring Valley Fertilizer',ai:'Fertilizer only',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular — record bags used.'},
  {ty:'fert',n:'Spring Valley 18-2-3',ai:'Fertilizer only',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular spreader.'},
- {ty:'fert',n:'High Bio Winterizer',ai:'High-K fertilizer',epa:'—',t:'Fertility',g:'4 lbs / 1000',notes:'Granular — record bags used.'},
+ {ty:'fert',n:'Lebanon Pro High Bio Winterizer 24-0-5',ai:'Fertilizer only (24-0-5)',epa:'—',t:'Fertility (Rd 7)',g:'3 lbs / 1000',notes:'Granular — record bags used. 3 lb = 0.72 lb total N / 1000 (PA cap 0.9 total, 0.7 available: check the slow-release N on the bag).'},
  {ty:'fert',n:'SV 12-0-0 + Prodiamine',ai:'Prodiamine 0.38%',epa:'Per bag label',t:'Annual grasses (pre-em)',g:'4 lbs / 1000',notes:'Pre-emergent crabgrass + fertilizer.'},
  {ty:'fert',n:'SV 13-0-5 + Dimension',ai:'Dithiopyr 0.13%',epa:'Per bag label',t:'Annual grasses (pre-em)',g:'4 lbs / 1000',notes:'Pre-emergent + fertilizer.'},
  {ty:'fert',n:'SV 15-0-3 Protego',ai:'Imidacloprid + Lambda-Cyhalothrin',epa:'Per bag label',t:'White grubs',g:'4 lbs / 1000',notes:'Water in within 24–48 hrs.',warn:1},
@@ -5246,7 +5246,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-27-d';
+var APP_BUILD = '2026-10-29-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
