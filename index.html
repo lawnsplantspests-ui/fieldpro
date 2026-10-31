@@ -1155,15 +1155,16 @@ function renderWorkboard() {
   let body = '';
   const tab = WB_TABS.find(t => t.key === wbTab) || WB_TABS[0];
   if (tab.key === 'today') {
-    body = todayRoutes.length ? todayRoutes.map(rt => {
+    wxEnsure();
+    body = rainUndoHtml() + (todayRoutes.length ? todayRoutes.map(rt => {
       const left = (rt.stops || []).filter(st => st.status !== 'completed').length;
       const stops = (rt.stops || []).filter(st => !q || (st.customerName || '').toLowerCase().includes(q));
-      return `<div class="card clickable" onclick="navigateTo('routes')" style="border-left:3px solid var(--accent)">
+      return todayWxHtml(rt) + `<div class="card clickable" onclick="navigateTo('routes')" style="border-left:3px solid var(--accent)">
         <div class="flex-between"><div style="font-weight:700;font-size:14px">${escHtml(rt.name)}</div><span class="badge" style="background:var(--accent-dim);color:var(--accent)">${left} of ${(rt.stops || []).length} left</span></div>
-        ${stops.map((st, k) => `<div style="font-size:13px;padding:5px 0;border-top:1px solid var(--border);${st.status === 'completed' ? 'color:var(--text-muted);text-decoration:line-through' : ''}">${k + 1}. ${escHtml(st.customerName)} <span style="color:var(--text-dim)">· ${escHtml(st.roundName || codeShort(st.code))}${st.eta ? ' · ' + st.eta : ''}</span></div>`).join('')}
+        ${stops.map((st, k) => `<div style="font-size:13px;padding:5px 0;border-top:1px solid var(--border);${st.status === 'completed' ? 'color:var(--text-muted);text-decoration:line-through' : ''}">${k + 1}. ${escHtml(st.customerName)} <span style="color:var(--text-dim)">· ${escHtml(st.roundName || codeShort(st.code))}${st.eta ? ' · ' + st.eta : ''}</span>${st.status !== 'completed' ? stopNoteHtml(st, 80) : ''}</div>`).join('')}
       </div>`;
     }).join('')
-      : `<div class="card"><p style="margin:0 0 8px;color:var(--text-dim)">No route for today.</p><button class="btn secondary sm" onclick="navigateTo('schedule')">Plan days of work</button></div>`;
+      : `<div class="card"><p style="margin:0 0 8px;color:var(--text-dim)">No route for today.</p><button class="btn secondary sm" onclick="navigateTo('schedule')">Plan days of work</button></div>`);
     body += eqTodayHtml();
     const lateAll = S.items.filter(i => i.status === 'late' && match(i)).sort(ord);
     if (lateAll.length) body += `<div class="section-label" style="color:var(--overdue)">⚠ Late anywhere (${lateAll.length})</div>${lateAll.slice(0, 10).map(row).join('')}${lateAll.length > 10 ? `<div style="font-size:12px;color:var(--text-dim)">…and ${lateAll.length - 10} more on the Late tab.</div>` : ''}`;
@@ -1318,7 +1319,7 @@ function renderCustomerDetail(el) {
   const addr = c.Address || c.address || '';
   const phone = c.Phone || c.phone || '';
   const email = c.Email || c.email || '';
-  const notes = c.propertyNotes || c.Notes || '';
+  const notes = custNotes(cid);
   const cpList = STATE.customerPrograms.filter(cp => cp.customerId === cid && !cp.kind);
 
   const measurements = [
@@ -3216,6 +3217,7 @@ function renderRoutes() {
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:14px">${escHtml(rt.name || fmtDateFull(rt.date))}</div>
             <div style="font-size:12px;color:var(--text-dim)">${total} stops${rt.backHome ? ' · home by ' + escHtml(rt.backHome) : ''}${isToday ? ' · Today' : ''}</div>
+            ${rt.date >= today && !allDone ? routeWxTag(rt) : ''}
           </div>
           <div style="text-align:right;flex-shrink:0">
             <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)">${fmtDate(rt.date)}</div>
@@ -3226,11 +3228,13 @@ function renderRoutes() {
       </div>`;
   };
   const pastLeft = past.reduce((n, r) => n + (r.stops || []).filter(s => s.status !== 'completed').length, 0);
+  wxEnsure();
   el.innerHTML = `
     <div class="flex-between mb-16">
       <h1 style="margin:0">Routes</h1>
       <div class="flex-row gap-6"><button class="btn secondary sm" onclick="navigateTo('schedule')">Plan days of work</button><button class="btn primary sm" onclick="showBuildRoute()">+ Build Route</button></div>
     </div>
+    ${rainUndoHtml()}
     ${todays.length ? `<div class="section-label" style="color:var(--warn)">Today</div>${todays.map(card).join('')}` : ''}
     <div class="section-label">Upcoming (${upcoming.length})</div>
     ${upcoming.length ? upcoming.map(card).join('') : '<div class="card"><p style="color:var(--text-dim);margin:0">No upcoming routes. Plan days of work from the Schedule.</p></div>'}
@@ -3267,9 +3271,11 @@ function renderRouteDetail(el) {
         <h1 style="margin:0">${escHtml(rt.name || fmtDateFull(rt.date))}</h1>
         <div style="font-size:13px;color:var(--text-dim)">${total} stops · ${completed} completed · ${escHtml(rt.serviceFilter||'Mixed')}${rt.miles ? ' · about ' + rt.miles + ' mi' : ''}${rt.leaveHome ? ' · leave ' + escHtml(rt.leaveHome) : ''}${rt.backHome ? ' · home by ' + escHtml(rt.backHome) : ''}</div>
         ${routeTimeSummary(rt)}
+        ${rt.date && rt.date >= schedToday() && completed < total ? wxLine(rt.date, routeItems(rt)) : ''}
       </div>
       <div class="flex-row gap-6" style="flex-wrap:wrap">
         ${routeMapsButtons(rt)}
+        ${rt.date && rt.date >= schedToday() && completed < total ? `<button class="btn secondary sm" onclick="showRainDay('${rt.id}')" title="Move what is left of this day">🌧 Rain day</button>` : ''}
         <button class="btn secondary sm" onclick="showCallAhead('route','${rt.id}')">💬 Texts</button>
         <button class="btn secondary sm" onclick="reorderRoute('${rt.id}',this)" title="Best driving order from where you are (or home), by real drive times">📍 Best order</button>
         <button class="btn secondary sm" onclick="routeAddStop('${rt.id}')">＋ Add stop</button>
@@ -3288,13 +3294,14 @@ function renderRouteDetail(el) {
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(s.customerName)}${sqftTag(routeStopSqft(s))}</div>
           <div style="font-size:12px;color:var(--text-dim)">${escHtml(s.address||'No address')}</div>
+          ${stopNoteHtml(s)}
           <div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px">${s.viaLog ? '✓ logged ' + fmtDate(s.completedDate) + ' · ' : ''}${s.eta ? escHtml(s.eta) + ' · ' : ''}${escHtml(s.roundName)} · ${escHtml(s.serviceType)}${s.workMin ? ' · ' + s.workMin + ' min' : ''}${s.driveMin ? ' · ' + s.driveMin + ' min drive' : ''}</div>
           ${bareOf(s.customerId) ? `<div style="font-size:11px;color:var(--warn);margin-top:2px">🟫 ${escHtml(bareText(bareOf(s.customerId)))}</div>` : ''}
           ${stopTimeHtml(rt, s)}${stopUnloggedHtml(rt, s)}
         </div>
         <div class="flex-row gap-6 stop-btns" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
           ${(s.status !== 'completed' ? (s.items || [{ code:s.code }]).filter(it => it.code && loggableCode(it.code)) : stopUnlogged(rt, s)).map(it => lppLogBtn(s.customerName, it.code, (s.items && s.items.length > 1) ? 'Log ' + codeShort(it.code).toLowerCase() : 'Log')).join('')}
-          ${s.status !== 'completed' ? smsStopBtn(rt.id, i, s) : ''}
+          ${s.status !== 'completed' ? callStopBtn(s) + smsStopBtn(rt.id, i, s) : ''}
           <button class="btn ghost sm" onclick="schedToggleBare('${s.customerId}')" title="${bareOf(s.customerId) ? 'Clear the bare spots note' : 'Mark bare spots / drought damage'}">🟫${bareOf(s.customerId) ? '✓' : ''}</button>
           ${s.status !== 'completed' ? `<button class="btn success sm" onclick="completeRouteStop('${rt.id}',${i})">✓ Done</button>` : `<button class="btn ghost sm" onclick="undoRouteStop('${rt.id}',${i})">Undo</button>`}
           ${s.status !== 'completed' && appleMapsUrl(s) ? `<a class="btn ghost sm" href="${escHtml(appleMapsUrl(s))}" target="_blank" rel="noopener" title="Apple Maps directions">🧭</a>` : ''}
@@ -3505,6 +3512,149 @@ function routeMoveStopTo(routeId, idx, targetId, date) {
   saveState(); closeModal();
   if (!STATE.routes.some(r => r.id === routeId)) detailRouteId = null;
   renderRoutes();
+}
+// ── rain day: one tap moves what is left of a day (the idea from GroundsRoute, fitted to planned days) ──
+// 'push': the stops left go to the next workday, a day already planned there moves to the workday after it, and so
+//         on until a free workday, so each planned day (and its zone) stays together and in order.
+// 'add':  the stops left go onto the next planned day after its own stops (then 📍 Best order fits them in).
+// Finished stops stay on the day they were done. The last rain day can be undone until a route changes again.
+const RAIN_UNDO_KEY = 'fieldpro_rainday_undo';
+const routeLeft = rt => (rt.stops || []).filter(s => s.status !== 'completed');
+const routeItems = rt => routeLeft(rt).flatMap(s => s.items || [{ code:s.code, period:s.period }]);
+const dayShort = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+function rainChain(rt) {
+  const sat = getPlanCfg().satOk, chain = [];
+  let from = rt.date, group = [rt];
+  for (let g = 0; g < 60; g++) {
+    const to = nextWorkday(addDays(from, 1), sat);
+    chain.push({ from, to, group });
+    const there = STATE.routes.filter(r => r.id !== rt.id && r.date === to && routeLeft(r).length);
+    if (!there.length) break;
+    from = to; group = there;
+  }
+  return chain;
+}
+function rainAddTarget(rt) {
+  const later = STATE.routes.filter(r => r.id !== rt.id && (r.date || '') > rt.date && routeLeft(r).length).sort((a, b) => a.date.localeCompare(b.date));
+  return later[0] || null;
+}
+// stops that would land after their treatment window closes
+function rainLate(moves) {
+  const end = {}; buildSchedule().items.forEach(i => { end[i.cid + '|' + i.code + '|' + i.period] = i.end; });
+  const out = [];
+  moves.forEach(([st, date]) => (st.items || [{ code:st.code, period:st.period }]).forEach(it => {
+    const e = end[st.customerId + '|' + it.code + '|' + it.period];
+    if (e && date > e) out.push(st.customerName + ' (' + (codeShort(it.code) || it.code) + ', window closed ' + fmtDate(e) + ')');
+  }));
+  return out;
+}
+function rainFlagsHtml(date, items) {
+  const f = wxFlags(date, items);
+  if (!f) return '<span style="color:var(--text-muted)">no forecast yet</span>';
+  return f.bad.concat(f.warn).length ? f.bad.map(x => wxBadge(x, 'bad')).join('') + f.warn.map(x => wxBadge(x, 'warn')).join('') : '<span style="color:var(--accent)">looks workable</span>';
+}
+function showRainDay(routeId) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt || !rt.date) return;
+  const left = routeLeft(rt); if (!left.length) { alert('Every stop on this day is done.'); return; }
+  const chain = rainChain(rt), first = chain[0], target = rainAddTarget(rt);
+  const n = left.length, stops = n + ' stop' + (n === 1 ? '' : 's');
+  const pushLines = chain.map((c, k) => `<div>• ${k ? escHtml(c.group.map(r => r.name || fmtDate(r.date)).join(' + ')) + ` (${dayShort(c.from)})` : 'The ' + stops + ' left'} → <strong>${dayShort(c.to)}</strong> ${rainFlagsHtml(c.to, k ? c.group.flatMap(routeItems) : routeItems(rt))}</div>`).join('');
+  const lateP = rainLate(left.map(st => [st, first.to]).concat(chain.slice(1).flatMap(c => c.group.flatMap(r => routeLeft(r).map(st => [st, c.to])))));
+  const addTo = target ? target.date : first.to;
+  const lateA = rainLate(left.map(st => [st, addTo]));
+  const warn = list => list.length ? `<div style="color:var(--overdue);margin-top:4px">⚠ ${list.length} would be late: ${escHtml(list.slice(0, 4).join('; '))}${list.length > 4 ? '…' : ''}</div>` : '';
+  showModal('🌧 Rain day: ' + escHtml(dayShort(rt.date)), `
+    <div style="font-size:13px;margin-bottom:10px">${wxLine(rt.date, routeItems(rt))}${stops} left${rt.stops.length > n ? ', ' + (rt.stops.length - n) + ' done (those stay on ' + dayShort(rt.date) + ')' : ''}.</div>
+    <div class="card" style="font-size:12px;line-height:1.7">
+      <div style="font-weight:700;font-size:14px;margin-bottom:2px">Push the schedule back a day</div>
+      <div style="color:var(--text-dim);margin-bottom:4px">Every planned day keeps its stops and order, and moves until a free workday${getPlanCfg().satOk ? '' : ' (Saturdays off, as in the planner)'}.</div>
+      ${pushLines}${warn(lateP)}
+      <button class="btn primary" style="width:100%;margin-top:8px" onclick="applyRainDay('${rt.id}','push')">Push ${chain.length} day${chain.length === 1 ? '' : 's'} back</button>
+    </div>
+    <div class="card" style="font-size:12px;line-height:1.7">
+      <div style="font-weight:700;font-size:14px;margin-bottom:2px">Add them to ${target ? 'the next planned day' : 'the next workday'}</div>
+      <div style="color:var(--text-dim);margin-bottom:4px">Good when only a few are left. ${target ? 'That day gets longer, so check it with 📍 Best order.' : 'Nothing is planned after this day.'}</div>
+      <div>• The ${stops} → <strong>${dayShort(addTo)}</strong>${target ? ' (' + escHtml(target.name || fmtDate(target.date)) + ', ' + routeLeft(target).length + ' stops already)' : ''} ${rainFlagsHtml(addTo, routeItems(rt))}</div>${warn(lateA)}
+      <button class="btn secondary" style="width:100%;margin-top:8px" onclick="applyRainDay('${rt.id}','add')">Add to ${escHtml(dayShort(addTo))}</button>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted)">You can undo this from Routes until a route changes again. Rain thresholds are guides: the product label decides.</div>`);
+}
+// a route named for its date ("Oct 14 — planned day") keeps a matching name when it moves
+function routeRedate(r, date) {
+  const was = fmtDate(r.date);
+  if (r.name && r.name.includes(was)) r.name = r.name.replace(was, fmtDate(date));
+  r.date = date;
+}
+function applyRainDay(routeId, mode) {
+  const rt = STATE.routes.find(r => r.id === routeId); if (!rt) return;
+  const before = JSON.stringify(STATE.routes), day = rt.date, left = routeLeft(rt);
+  if (!left.length) { closeModal(); return; }
+  const done = rt.stops.length - left.length;
+  // the stops left, as a day of their own on `date` (the whole route when nothing on it is done yet)
+  const splitOff = date => {
+    if (!done) { routeRedate(rt, date); return rt; }
+    rt.stops = rt.stops.filter(s => s.status === 'completed');
+    const nr = { id:uid(), name:fmtDate(date) + ' — planned day', date, serviceFilter:rt.serviceFilter || 'Mixed', createdAt:todayStr(), planned:true, stops:left };
+    left.forEach(st => { st.eta = ''; st.driveMin = null; });
+    STATE.routes.push(nr);
+    return nr;
+  };
+  let msg;
+  if (mode === 'push') {
+    const chain = rainChain(rt);
+    chain.slice(1).forEach(c => c.group.forEach(r => routeRedate(r, c.to)));   // the days after first, then this one
+    splitOff(chain[0].to);
+    msg = left.length + ' stop' + (left.length === 1 ? '' : 's') + ' moved to ' + dayShort(chain[0].to) + (chain.length > 1 ? ', and ' + (chain.length - 1) + ' later planned day' + (chain.length > 2 ? 's' : '') + ' each moved back one workday.' : '.');
+  } else {
+    let target = rainAddTarget(rt);
+    if (!target) { splitOff(nextWorkday(addDays(day, 1), getPlanCfg().satOk)); target = null; }
+    else {
+      rt.stops = rt.stops.filter(s => s.status === 'completed');
+      left.forEach(st => {
+        st.eta = ''; st.driveMin = null;
+        const same = target.stops.find(s => String(s.customerId) === String(st.customerId) && s.status !== 'completed');
+        if (same) {
+          const has = same.items || [{ code:same.code, period:same.period }], k = i => i.code + '|' + i.period;
+          const add = (st.items || [{ code:st.code, period:st.period }]).filter(i => !has.some(h => k(h) === k(i)));
+          if (add.length) { same.items = has.concat(add); same.roundName = (same.roundName ? same.roundName + ' + ' : '') + st.roundName; }
+        }
+        else target.stops.push(st);
+      });
+      if (rt.planned && !rt.stops.length) STATE.routes = STATE.routes.filter(r => r.id !== rt.id);
+    }
+    msg = left.length + ' stop' + (left.length === 1 ? '' : 's') + ' added to ' + (target ? dayShort(target.date) + '. Open that day and tap 📍 Best order to fit them in.' : dayShort(nextWorkday(addDays(day, 1), getPlanCfg().satOk)) + '.');
+  }
+  try { localStorage.setItem(RAIN_UNDO_KEY, JSON.stringify({ day, at:new Date().toISOString(), msg, before, after:JSON.stringify(STATE.routes) })); } catch(e) {}
+  saveState(); closeModal();
+  if (!STATE.routes.some(r => r.id === detailRouteId)) detailRouteId = null;
+  renderCurrentPage();
+  alert('🌧 Rain day ' + dayShort(day) + ': ' + msg);
+}
+function routeWxTag(rt) {
+  const f = wxFlags(rt.date, routeItems(rt)); if (!f || !(f.bad.length + f.warn.length)) return '';
+  return `<div style="margin-top:3px">${f.bad.map(x => wxBadge(x, 'bad')).join('')}${f.warn.map(x => wxBadge(x, 'warn')).join('')}</div>`;
+}
+// the Today board: when today's forecast is bad, say so above the route and offer the rain day
+function todayWxHtml(rt) {
+  if (!routeLeft(rt).length) return '';
+  const f = wxFlags(rt.date, routeItems(rt)); if (!f || !f.bad.length) return '';
+  return `<div class="card" style="border-left:3px solid var(--overdue);font-size:13px">
+    <div class="flex-between" style="gap:8px;flex-wrap:wrap"><strong>${escHtml(f.bad.join(', '))} today</strong><button class="btn secondary sm" onclick="showRainDay('${rt.id}')">🌧 Rain day</button></div>
+    ${wxLine(rt.date, routeItems(rt))}</div>`;
+}
+function rainUndoInfo() {
+  try { const u = JSON.parse(localStorage.getItem(RAIN_UNDO_KEY) || 'null'); return u && u.after === JSON.stringify(STATE.routes) ? u : null; } catch(e) { return null; }
+}
+function rainUndo() {
+  const u = rainUndoInfo(); if (!u) return;
+  if (!confirm('Undo the rain day for ' + dayShort(u.day) + '?\n\nYour routes go back to how they were before it.')) return;
+  STATE.routes = JSON.parse(u.before);
+  try { localStorage.removeItem(RAIN_UNDO_KEY); } catch(e) {}
+  saveState(); detailRouteId = null; renderCurrentPage();
+}
+function rainUndoHtml() {
+  const u = rainUndoInfo(); if (!u) return '';
+  return `<div class="card" style="font-size:12px;border-left:3px solid var(--warn);display:flex;gap:8px;align-items:center;justify-content:space-between"><span>🌧 Rain day ${escHtml(dayShort(u.day))}: ${escHtml(u.msg)}</span><button class="btn ghost sm" onclick="rainUndo()">Undo</button></div>`;
 }
 let routeAddQuery = '';
 function routeAddStop(routeId) { routeAddQuery = ''; showModal('Add a stop', '<div id="ras-body"></div>', true); routeAddRender(routeId); }
@@ -4953,7 +5103,7 @@ function wxEnsure() {
   const stale = !WX.fetchedAt || Date.now() - new Date(WX.fetchedAt).getTime() > 3 * 3600 * 1000;
   if (stale && !wxLoading && Date.now() - wxTriedAt > 5 * 60 * 1000) {
     wxTriedAt = Date.now();
-    loadWeather().then(() => { if (currentPage === 'schedule') renderSchedule(); });
+    loadWeather().then(() => { if (currentPage === 'schedule') renderSchedule(); else if (currentPage === 'routes' || (currentPage === 'workboard' && wbTab === 'today')) renderCurrentPage(); });
   }
 }
 
@@ -5060,6 +5210,16 @@ function smsTapStop(rid, i) {
   if (!phone) { alert('No phone number on file for ' + s.customerName + '.'); return; }
   s.textSent = schedToday(); saveState();
   window.location.href = smsHref(phone, smsBody(c, (s.items || [{ code:s.code }]).map(x => x.code).filter(Boolean), rt.date));
+}
+// what a stop needs at the curb: the customer's property notes and a call button (GroundsRoute-style stop card)
+function stopNoteHtml(s, max) {
+  let n = custNotes(s.customerId); if (!n) return '';
+  if (max && n.length > max) n = n.slice(0, max - 1) + '…';
+  return `<div style="font-size:12px;color:var(--warn);margin-top:2px;text-decoration:none">📝 ${escHtml(n)}</div>`;
+}
+function callStopBtn(s) {
+  const c = custById(s.customerId), ph = String((c && (c.Phone || c.phone)) || '').replace(/[^0-9+]/g, '');
+  return ph.replace(/\D/g, '').length >= 10 ? `<a class="btn ghost sm" href="tel:${escHtml(ph)}" title="Call ${escHtml(s.customerName)}">📞</a>` : '';
 }
 const smsStopBtn = (rid, i, s) => `<button class="btn ghost sm" onclick="smsTapStop('${rid}',${i})" title="Text a call-ahead message">${s.textSent ? '✓ ' : ''}💬</button>`;
 
@@ -5246,7 +5406,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-29-a';
+var APP_BUILD = '2026-10-30-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -6533,7 +6693,7 @@ function showCustomerForm(editId) {
       <div class="input-group"><label>Zip</label><input id="cf-zip" inputmode="numeric" value="${escHtml(c?.Zip||'')}"></div>
       <div></div>
     </div>
-    <div style="${note}">Name, address and the sizes below are saved to your customer list. Phone, email, trees, bare ground and notes are kept on this device only.</div>
+    <div style="${note}">Name, address and the sizes below are saved to your customer list, and property notes with your FieldPro data. Phone, email, trees and bare ground typed here are not saved to the sheet: the next sync puts back what the customer list has.</div>
     <div class="grid-2">
       <div class="input-group"><label>Phone</label><input id="cf-phone" value="${escHtml(c?.Phone||c?.phone||'')}"></div>
       <div class="input-group"><label>Email</label><input id="cf-email" value="${escHtml(c?.Email||c?.email||'')}"></div>
@@ -6547,7 +6707,7 @@ function showCustomerForm(editId) {
       <div class="input-group"><label>Pond/Aquatic (sq ft)</label><input type="number" id="cf-aquatic" value="${c?.SqFt_Aquatic||c?.pondArea||''}"></div>
       <div class="input-group"><label>Bare Ground (sq ft)</label><input type="number" id="cf-bare" value="${c?.bareGroundSqft||''}"></div>
     </div>
-    <div class="input-group"><label>Property Notes</label><textarea id="cf-notes" placeholder="Gate code, dog, special instructions...">${escHtml(c?.propertyNotes||c?.Notes||'')}</textarea></div>
+    <div class="input-group"><label>Property Notes</label><textarea id="cf-notes" placeholder="Gate code, dog, special instructions...">${escHtml(isEdit ? custNotes(editId) : '')}</textarea></div>
     <div class="flex-row gap-6" style="justify-content:flex-end">
       <button class="btn secondary" onclick="closeModal()">Cancel</button>
       <button class="btn primary" id="cf-save" onclick="saveCustomer('${editId||''}')">Save</button>
@@ -6594,6 +6754,7 @@ function saveCustomer(editId) {
     if (sqChanged) p = p.then(() => lppPost({ action:'updateCustomer', id:String(editId), name, sqFtLawn:sq.lawn, sqFtPHC:sq.phc, sqFtPest:sq.pest, sqFtAquatic:sq.aq })).then(() => { savedSq = true; });
     p.then(() => {
       Object.assign(old, fields());
+      setCustNotes(editId, v('cf-notes'));
       saveState(); closeModal(); renderCurrentPage();
       if (addrChanged) relocate(old);
     }).catch(e => {
@@ -6610,10 +6771,10 @@ function saveCustomer(editId) {
   let created = null;
   lppPost({ action:'addCustomer', name, sqFtLawn:sq.lawn, sqFtPHC:sq.phc, sqFtPest:sq.pest, sqFtAquatic:sq.aq })
     .then(r => { created = { ID:String(r.id), id:String(r.id), customerId:String(r.id), ...fields() }; return (addr.address || addr.city || addr.state || addr.zip) ? lppPost({ action:'updateCustomerAddress', id:String(r.id), ...addr }) : null; })
-    .then(() => { STATE.customers.push(created); saveState(); closeModal(); renderCurrentPage(); if (addr.address) relocate(created); })
+    .then(() => { STATE.customers.push(created); setCustNotes(created.ID, v('cf-notes')); saveState(); closeModal(); renderCurrentPage(); if (addr.address) relocate(created); })
     .catch(e => {
       busy(false);
-      if (created) { STATE.customers.push(created); saveState(); closeModal(); renderCurrentPage(); }
+      if (created) { STATE.customers.push(created); setCustNotes(created.ID, v('cf-notes')); saveState(); closeModal(); renderCurrentPage(); }
       alert('Could not save to the customer list: ' + ((e && e.message) || e) + (created ? '\n\nThe customer WAS added, but the address was not. Open them and add the address again.' : '\n\nNothing was added. Check your connection and try again.'));
     });
 }
@@ -7314,6 +7475,24 @@ function applyGeoToCustomers() {
     if (e && e.addr === fullAddress(c)) { c.Lat = e.lat; c.Lng = e.lng; c.GeoApprox = !!e.approx; c.GeoManual = !!e.manual; }
     else if (e) { delete c.Lat; delete c.Lng; delete c.GeoApprox; delete c.GeoManual; }   // address changed since it was located
   });
+}
+// Property notes (gate code, dog, where to park) are kept the same way, in one 'notes' record keyed by customer ID.
+// Before Oct 30 2026 they sat on the customer only, and the next load from the Customers tab (no notes column) wiped them.
+function notesRecord(create) {
+  let r = STATE.customerPrograms.find(cp => cp.kind === 'notes');
+  if (!r && create) { r = { id:uid(), kind:'notes', customerId:'_notes', programName:'Property notes', year:null, rounds:[], notes:{} }; STATE.customerPrograms.push(r); }
+  return r;
+}
+function custNotes(cid) {
+  const r = notesRecord(false), c = custById(cid);
+  return String((r && r.notes && r.notes[String(cid)]) || (c && (c.propertyNotes || c.Notes)) || '').trim();
+}
+function setCustNotes(cid, text) {
+  text = String(text || '').trim();
+  const r = notesRecord(false);
+  if (text === ((r && r.notes && r.notes[String(cid)]) || '')) return;
+  const rec = notesRecord(true); rec.notes = rec.notes || {};
+  if (text) rec.notes[String(cid)] = text; else delete rec.notes[String(cid)];
 }
 function haversineMi(a, b) {
   const R = 3958.8, rad = x => x * Math.PI / 180, dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
