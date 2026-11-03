@@ -1162,6 +1162,7 @@ function renderWorkboard() {
       return todayWxHtml(rt) + `<div class="card clickable" onclick="navigateTo('routes')" style="border-left:3px solid var(--accent)">
         <div class="flex-between"><div style="font-weight:700;font-size:14px">${escHtml(rt.name)}</div><span class="badge" style="background:var(--accent-dim);color:var(--accent)">${left} of ${(rt.stops || []).length} left</span></div>
         ${stops.map((st, k) => `<div style="font-size:13px;padding:5px 0;border-top:1px solid var(--border);${st.status === 'completed' ? 'color:var(--text-muted);text-decoration:line-through' : ''}">${k + 1}. ${escHtml(st.customerName)} <span style="color:var(--text-dim)">· ${escHtml(st.roundName || codeShort(st.code))}${st.eta ? ' · ' + st.eta : ''}</span>${st.status !== 'completed' ? stopNoteHtml(st, 80) : ''}</div>`).join('')}
+        ${dayProductsHtml(routeDayItems((rt.stops || []).filter(st => st.status !== 'completed')), true)}
       </div>`;
     }).join('')
       : `<div class="card"><p style="margin:0 0 8px;color:var(--text-dim)">No route for today.</p><button class="btn secondary sm" onclick="navigateTo('schedule')">Plan days of work</button></div>`);
@@ -3312,9 +3313,13 @@ function renderRouteDetail(el) {
     `).join('')}
     ${(() => {
       const left = sqftTotal((rt.stops || []).filter(s => s.status !== 'completed').map(routeStopSqft));
-      return `<div class="card" style="padding:4px 14px 10px">${sqftTotalHtml(sqftTotal((rt.stops || []).map(routeStopSqft)), completed && completed < total ? ' · <strong style="color:var(--text)">' + fmtSqft(left.sqft) + ' left</strong>' : '')}</div>`;
+      return `<div class="card" style="padding:4px 14px 10px">${sqftTotalHtml(sqftTotal((rt.stops || []).map(routeStopSqft)), completed && completed < total ? ' · <strong style="color:var(--text)">' + fmtSqft(left.sqft) + ' left</strong>' : '')}${dayProductsHtml(routeDayItems(rt.stops || []))}</div>`;
     })()}
   `;
+}
+// every piece of work on a route's stops, for the day's product lines
+function routeDayItems(stops) {
+  return stops.flatMap(s => (s.items && s.items.length ? s.items : [{ code:s.code }]).map(it => ({ code:it.code, name:s.customerName, sqft:custLawnSqft(s.customerId) })));
 }
 function routeStopSqft(s) {
   const lawn = (s.items && s.items.length ? s.items : [{ code:s.code }]).some(it => codeUsesSqft(it.code));
@@ -3967,7 +3972,7 @@ function renderSyncResults() {
 // nothing to tick off twice. Per-customer choices (which program, skipped rounds)
 // live in a small 'plan' record kept in customerPrograms.
 const LPP_LOG_API = 'https://script.google.com/macros/s/AKfycbxl5cWjUIxRvfbw3YBi9rKk_Q5bljH94ZvW3KqTxfNor8QCOb7w_QrjUMJpND8Bz4zA/exec';
-const TREATLOG_KEY = 'fieldpro_treatlog_v2';   // v2: entries carry sq ft, spray-mix gal, fertilizer lbs
+const TREATLOG_KEY = 'fieldpro_treatlog_v3';   // v2: entries carry sq ft, spray-mix gal, fertilizer lbs; v3: + the product the lbs are of
 
 // Pest control: first week of each of these months (1-12).
 const PEST_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
@@ -4052,6 +4057,71 @@ function sqftTotal(list) {
 function sqftTotalHtml(t, extra) {
   if (!t.lawns && !t.other) return '';
   return `<div style="font-size:12px;padding:8px 0 2px;border-top:2px solid var(--border);margin-top:2px;color:var(--text-dim)"><strong style="color:var(--text)">Total: ${t.lawns ? fmtSqft(t.sqft) + ' of lawn' : 'no lawn work'}</strong> · ${t.lawns} lawn stop${t.lawns === 1 ? '' : 's'}${t.other ? ' · ' + t.other + ' other stop' + (t.other === 1 ? '' : 's') + ' (pest, mosquito, tree &amp; shrub)' : ''}${t.missing ? ` · <span style="color:var(--warn)">${t.missing} lawn${t.missing === 1 ? '' : 's'} with no sq ft on file, not counted</span>` : ''}${extra || ''}</div>`;
+}
+// ── What each day needs from the shed ──
+// Devon (Nov 2 2026): the day's total sq ft is fine, but he also wants to know which product and how much of it each day
+// takes. One line per round: stops, lawn sq ft, and the granular product in pounds and 50 lb bags. The product and its
+// rate come from the LPP Log - the product last logged for that round and its usual lb per 1,000 sq ft - so a new bag
+// shows up as soon as one stop is logged with it. Lime is 5 lb (maintenance) or 12.5 lb (corrective) per 1,000, picked
+// at each stop: a customer's own last lime entry sets theirs, otherwise the day shows both ends.
+const BAG_LB = 50;   // all fertilizer comes in 50 lb bags (Devon, Oct 7 2026)
+const LIME_RATES = [5, 12.5];
+const DAY_ROUND_ORDER = ['1', '2A', '2B', '3', '4', '5', '6', '7', 'LIME', 'SEED'];
+let _rgr = null, _rgrAt = null;
+function roundGranular() {
+  if (_rgr && _rgrAt === TREATLOG.fetchedAt) return _rgr;
+  const by = {}, lime = {};
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => {
+    const c = /^Lawn Care\s*-\s*Lime/i.test(e.s) ? 'LIME' : svcCode(e.s);
+    if (!c || c === 'PEST' || !e.lb || !e.q || !e.lp) return;
+    const r = e.lb / e.q * 1000; if (!(r > 0.5 && r < 40)) return;   // a typo in the sq ft or the pounds
+    (by[c] = by[c] || []).push({ d:e.d, p:e.lp, r });
+    if (c === 'LIME' && (!lime[e.k] || e.d > lime[e.k].d)) lime[e.k] = { d:e.d, r };
+  }));
+  const med = a => { const s = a.slice().sort((x, y) => x - y), h = s.length >> 1; return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2; };
+  const rounds = {};
+  Object.keys(by).forEach(c => {
+    const list = by[c].sort((x, y) => y.d.localeCompare(x.d)), p = list[0].p, from = addDays(list[0].d, -365);
+    rounds[c] = { p, rate:Math.round(med(list.filter(x => nameKey(x.p) === nameKey(p) && x.d >= from).map(x => x.r)) * 10) / 10 };
+  });
+  _rgr = { rounds, lime }; _rgrAt = TREATLOG.fetchedAt;
+  return _rgr;
+}
+// items: [{ code, name, sqft }] for every piece of work on the day's stops. compact = the one-line Today card version.
+function dayProductsHtml(items, compact) {
+  const G = roundGranular(), by = {};
+  items.forEach(it => {
+    if (!codeUsesSqft(it.code)) return;
+    const b = by[it.code] = by[it.code] || { n:0, sqft:0, missing:0, lo:0, hi:0 };
+    b.n++;
+    if (!it.sqft) { b.missing++; return; }
+    b.sqft += it.sqft;
+    const own = it.code === 'LIME' && G.lime[nameKey(it.name)];
+    const lo = own ? own.r : it.code === 'LIME' ? LIME_RATES[0] : (G.rounds[it.code] || {}).rate;
+    const hi = own ? own.r : it.code === 'LIME' ? LIME_RATES[1] : lo;
+    if (lo) { b.lo += it.sqft * lo / 1000; b.hi += it.sqft * hi / 1000; }
+  });
+  const codes = Object.keys(by).sort((a, b) => DAY_ROUND_ORDER.indexOf(a) - DAY_ROUND_ORDER.indexOf(b));
+  if (!codes.length) return '';
+  const num = (lo, hi, f) => f(lo) === f(hi) ? f(lo) : f(lo) + '–' + f(hi);
+  const lbs = b => num(b.lo, b.hi, x => Math.round(x).toLocaleString()) + ' lb';
+  const bags = b => num(b.lo / BAG_LB, b.hi / BAG_LB, x => x.toFixed(1)) + ' bags';
+  const prod = c => (G.rounds[c] || {}).p || (c === 'LIME' ? 'lime' : '');
+  if (compact) {
+    const parts = codes.filter(c => by[c].hi).map(c => '<strong>' + bags(by[c]) + '</strong> ' + escHtml(prod(c)));
+    return parts.length ? `<div style="font-size:12px;color:var(--text-dim);padding:5px 0 0;border-top:1px solid var(--border)">🧺 ${parts.join(' · ')}</div>` : '';
+  }
+  const label = c => c === 'LIME' ? 'Lime' : c === 'SEED' ? 'Aeration & seed' : (SCHED_ROUNDS[c] || {}).label || codeShort(c);
+  const line = c => {
+    const b = by[c], r = G.rounds[c];
+    let amt = '';
+    if (b.hi) {
+      const how = c !== 'LIME' ? `at ${r.rate} lb/1,000` : b.lo === b.hi ? 'at their last lime rate' : `${LIME_RATES.join(' or ')} lb/1,000, picked at the stop`;
+      amt = ` → <strong style="color:var(--text)">${lbs(b)}</strong> ${escHtml(prod(c))} = ${bags(b)} <span style="color:var(--text-muted)">(${how})</span>`;
+    } else if (b.sqft && c !== 'SEED') amt = ' <span style="color:var(--text-muted)">· no granular logged for this round yet</span>';
+    return `<div style="padding:2px 0"><span style="color:var(--text);font-weight:600">${escHtml(label(c))}</span> · ${b.n} stop${b.n === 1 ? '' : 's'} · ${fmtSqft(b.sqft)}${b.missing ? ` <span style="color:var(--warn)">(+${b.missing} with no sq ft)</span>` : ''}${amt}</div>`;
+  };
+  return `<div style="font-size:12px;color:var(--text-dim);padding:2px 0 2px">${codes.map(line).join('')}</div>`;
 }
 const sqftTag = q => q.lawn ? ` <span style="font-size:12px;font-weight:700;color:${q.sqft ? 'var(--accent)' : 'var(--warn)'}">· ${q.sqft ? fmtSqft(q.sqft) : 'no sq ft'}</span>` : '';
 function codeShort(c) {
@@ -4153,7 +4223,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ── LPP Log loading ──
 function loadTreatLogCache() {
-  try { localStorage.removeItem('fieldpro_treatlog'); } catch(e) {}   // the pre-v2 cache
+  try { localStorage.removeItem('fieldpro_treatlog'); localStorage.removeItem('fieldpro_treatlog_v2'); } catch(e) {}   // older caches
   try { const raw = localStorage.getItem(TREATLOG_KEY); if (raw) TREATLOG = JSON.parse(raw); } catch(e) {}
 }
 function saveTreatLogCache() {
@@ -4184,7 +4254,15 @@ function slimLogEntry(e) {
   if (!o) return o;
   const js = logClockMin(e.jobStart), je = logClockMin(e.jobEnd);
   if (js != null) { o.js = js; if (je != null) o.je = je; }
+  if (o.lb) { const p = lbProduct(e); if (p) o.lp = p; }
   return o;
+}
+// the product the pounds are of: Product and Total Used list the products in the same order, joined by ' + '
+function lbProduct(e) {
+  const used = String(e.totalUsed || '').split(' + '), prods = String(e.product || '').split(' + ');
+  const i = used.findIndex(u => /[\d.]+\s*lbs?\b/i.test(u));
+  if (i < 0) return '';
+  return String((used.length === prods.length ? prods[i] : prods[0]) || '').replace(/\s*\(.*$/, '').trim();
 }
 function slimLogEntryBase(e) {
   const d = logDateToIso(e.date);
@@ -5406,7 +5484,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-10-30-a';
+var APP_BUILD = '2026-11-02-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -6323,6 +6401,7 @@ function plannerResultHtml(R) {
           </div></div>`;
       }).join('')}
       ${sqftTotalHtml(sqftTotal(d.rows.map(r => planStopSqft(r.s))))}
+      ${dayProductsHtml(d.rows.flatMap(r => r.s.items.map(i => ({ code:i.code, name:i.name, sqft:Number(i.sqft || r.s.items[0].sqft) || 0 }))))}
     </div>`).join('');
   const note = (R.tooLong.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">Too long for one day, so not planned: ${R.tooLong.map(s => escHtml(s.items[0].name)).join(', ')}</div>` : '')
     + (R.notPlanned.length ? `<div class="card" style="border-left:3px solid var(--warn);font-size:12px">${R.notPlanned.length} stops were not planned: they open too late, or there isn't room by the end of the season (last day ${fmtDate(R.limit)}). For example ${escHtml(R.notPlanned[0].name)}, opens ${fmtDate(R.notPlanned[0].avail || R.notPlanned[0].start)}.</div>` : '');
