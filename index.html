@@ -5221,11 +5221,26 @@ function smsBody(c, codes, date) {
   const t = getPlanCfg().smsTemplate || SMS_DEFAULT;
   return t.replace(/\{name\}/g, smsName(c) || 'there').replace(/\{service\}/g, smsServicePhrase(codes)).replace(/\{when\}/g, smsWhen(date));
 }
-function smsPhone(c) {
-  const d = String(c.Phone || c.phone || '').replace(/\D/g, '');
-  return d.length === 10 ? '+1' + d : (d.length === 11 && d[0] === '1' ? '+' + d : '');
+// Every number in the Phone cell. Devon (Nov 3 2026): a couple's cell can hold both, "7175550123, 7175550188",
+// and each one gets its own text. Any format works: (717) 555-1234, 717-555-1234, 7175551234, +17175551234.
+function smsPhones(c) {
+  const out = [];
+  String((c && (c.Phone || c.phone)) || '').split(/[,;\/&|]|\bor\b|\band\b/i).forEach(part => {
+    let d = part.replace(/\D/g, '');
+    if (d.length === 11 && d[0] === '1') d = d.slice(1);
+    if (d.length === 20) out.push(d.slice(0, 10), d.slice(10));   // two numbers with only spaces between
+    else if (d.length === 10) out.push(d);
+  });
+  return [...new Set(out)].map(d => '+1' + d);
 }
+function smsPhone(c) { return smsPhones(c)[0] || ''; }
+function fmtPhone(p) { const d = String(p).replace(/\D/g, '').slice(-10); return '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6); }
 const smsHref = (phone, body) => 'sms:' + phone + '?&body=' + encodeURIComponent(body);
+// no number on file: Devon emails or Facebook-messages them instead. Both addresses when the cell has two.
+function smsEmails(c) { return String((c && (c.Email || c.email)) || '').split(/[,;\s]+/).filter(e => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e)); }
+function smsMailHref(c, codes, date) {
+  return 'mailto:' + smsEmails(c).join(',') + '?subject=' + encodeURIComponent('Lawns Plants & Pests: scheduled ' + smsWhen(date)) + '&body=' + encodeURIComponent(smsBody(c, codes, date));
+}
 
 // rows for one planned day or one route: customer, work codes, date
 let smsRows = [], smsDate = '', smsSrc = null;
@@ -5243,15 +5258,19 @@ function showCallAhead(kind, key) {
   const tpl = getPlanCfg().smsTemplate || SMS_DEFAULT;
   const items = src.rows.map((r, i) => {
     const c = custById(r.cid); if (!c) return '';
-    const body = smsBody(c, r.codes, src.date), phone = smsPhone(c);
+    const body = smsBody(c, r.codes, src.date), phones = smsPhones(c);
+    const send = phones.length
+      ? phones.map((p, n) => `<button class="btn primary sm" onclick="smsTap(${i},${n})" title="Text ${escHtml(fmtPhone(p))}">💬 Text${phones.length > 1 ? ' …' + p.slice(-4) : ''}</button>`).join('')
+      : smsEmails(c).length ? `<button class="btn primary sm" onclick="smsEmail(${i})" title="${escHtml(smsEmails(c).join(', '))}">✉️ Email</button>`
+      : '<span class="badge" style="background:var(--bg-input);color:var(--text-muted)">No phone or email</span>';
     return `<div class="card" style="padding:10px 12px;margin-bottom:6px;${r.sent ? 'opacity:.6' : ''}">
       <div class="flex-between" style="gap:8px;flex-wrap:wrap"><div style="font-weight:700;font-size:13px">${r.sent ? '✓ ' : ''}${escHtml(c.Name || c.name)}</div>
-        <div class="flex-row gap-6">${phone ? `<button class="btn primary sm" onclick="smsTap(${i})">💬 Text</button>` : '<span class="badge" style="background:var(--bg-input);color:var(--text-muted)">No phone</span>'}
+        <div class="flex-row gap-6" style="flex-wrap:wrap">${send}
         <button class="btn ghost sm" onclick="smsCopy(${i})">Copy</button></div></div>
       <div style="font-size:12px;color:var(--text-dim);margin-top:4px;white-space:pre-line">${escHtml(body)}</div></div>`;
   }).join('');
   showModal('Call-ahead texts — ' + smsWhen(src.date), `
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Tap <strong>Text</strong> and your Messages app opens with this written. Read it, then send. Nothing is sent from here.</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Tap <strong>Text</strong> and your Messages app opens with this written. Read it, then send. Nothing is sent from here. Two numbers on file means two Text buttons, one per person. No number: <strong>Email</strong> opens your mail app, or <strong>Copy</strong> it for a Facebook message.</div>
     ${items || '<p style="color:var(--text-dim)">No stops.</p>'}
     <div class="section-label">Message</div>
     <textarea id="sms-tpl" rows="5" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:var(--font-body)">${escHtml(tpl)}</textarea>
@@ -5263,18 +5282,28 @@ function smsMark(i) {
   r.sent = true;
   if (r.ref) { if (smsSrc && smsSrc.kind === 'plan') r.ref.smsSent = true; else { r.ref.textSent = schedToday(); saveState(); } }
 }
-function smsTap(i) {
+function smsTap(i, n) {
   const r = smsRows[i]; if (!r) return;
   const c = custById(r.cid); if (!c) return;
+  const phone = smsPhones(c)[n || 0]; if (!phone) return;
   smsMark(i);
-  const href = smsHref(smsPhone(c), smsBody(c, r.codes, smsDate));
+  const href = smsHref(phone, smsBody(c, r.codes, smsDate));
   showCallAhead(smsSrc.kind, smsSrc.key);
   window.location.href = href;
 }
+function smsEmail(i) {
+  const r = smsRows[i]; const c = r && custById(r.cid); if (!c || !smsEmails(c).length) return;
+  smsMark(i);
+  const href = smsMailHref(c, r.codes, smsDate);
+  showCallAhead(smsSrc.kind, smsSrc.key);
+  window.location.href = href;
+}
+// with no number on file, Copy is how it goes out (a Facebook message), so it counts as sent
 function smsCopy(i) {
   const r = smsRows[i]; const c = r && custById(r.cid); if (!c) return;
   const body = smsBody(c, r.codes, smsDate);
-  (navigator.clipboard ? navigator.clipboard.writeText(body) : Promise.reject()).then(() => alert('Copied.')).catch(() => prompt('Copy this message:', body));
+  const done = () => { if (!smsPhones(c).length && !r.sent) { smsMark(i); showCallAhead(smsSrc.kind, smsSrc.key); } };
+  (navigator.clipboard ? navigator.clipboard.writeText(body) : Promise.reject()).then(() => { alert('Copied.'); done(); }).catch(() => { prompt('Copy this message:', body); done(); });
 }
 function smsSaveTemplate() {
   const t = (document.getElementById('sms-tpl') || {}).value || '';
@@ -5282,12 +5311,22 @@ function smsSaveTemplate() {
   showCallAhead(smsSrc.kind, smsSrc.key);
 }
 // one stop on a route
-function smsTapStop(rid, i) {
+// two numbers on file: ask which one (tap it, send, come back and tap 💬 again for the other)
+function smsTapStop(rid, i, n) {
   const rt = STATE.routes.find(x => x.id === rid), s = rt && rt.stops[i]; if (!s) return;
-  const c = custById(s.customerId); const phone = c && smsPhone(c);
-  if (!phone) { alert('No phone number on file for ' + s.customerName + '.'); return; }
+  const c = custById(s.customerId); if (!c) { alert('Customer not found.'); return; }
+  const phones = smsPhones(c), codes = (s.items || [{ code:s.code }]).map(x => x.code).filter(Boolean);
+  if (phones.length > 1 && n == null) {
+    showModal('Text ' + escHtml(s.customerName), `
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Two numbers on file. Tap one and send it, then come back and tap 💬 again for the other.</div>
+      <div class="flex-row gap-6" style="flex-wrap:wrap">${phones.map((p, k) => `<button class="btn primary" onclick="closeModal();smsTapStop('${rid}',${i},${k})">💬 ${escHtml(fmtPhone(p))}</button>`).join('')}</div>`);
+    return;
+  }
+  const phone = phones[n || 0];
+  if (!phone && smsEmails(c).length) { s.textSent = schedToday(); saveState(); window.location.href = smsMailHref(c, codes, rt.date); return; }
+  if (!phone) { alert('No phone or email on file for ' + s.customerName + '. Open 💬 Texts on the route and Copy the message for Facebook.'); return; }
   s.textSent = schedToday(); saveState();
-  window.location.href = smsHref(phone, smsBody(c, (s.items || [{ code:s.code }]).map(x => x.code).filter(Boolean), rt.date));
+  window.location.href = smsHref(phone, smsBody(c, codes, rt.date));
 }
 // what a stop needs at the curb: the customer's property notes and a call button (GroundsRoute-style stop card)
 function stopNoteHtml(s, max) {
@@ -5296,8 +5335,8 @@ function stopNoteHtml(s, max) {
   return `<div style="font-size:12px;color:var(--warn);margin-top:2px;text-decoration:none">📝 ${escHtml(n)}</div>`;
 }
 function callStopBtn(s) {
-  const c = custById(s.customerId), ph = String((c && (c.Phone || c.phone)) || '').replace(/[^0-9+]/g, '');
-  return ph.replace(/\D/g, '').length >= 10 ? `<a class="btn ghost sm" href="tel:${escHtml(ph)}" title="Call ${escHtml(s.customerName)}">📞</a>` : '';
+  const ph = smsPhone(custById(s.customerId));   // the first number when the cell has two
+  return ph ? `<a class="btn ghost sm" href="tel:${escHtml(ph)}" title="Call ${escHtml(s.customerName)}">📞</a>` : '';
 }
 const smsStopBtn = (rid, i, s) => `<button class="btn ghost sm" onclick="smsTapStop('${rid}',${i})" title="Text a call-ahead message">${s.textSent ? '✓ ' : ''}💬</button>`;
 
@@ -5484,7 +5523,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-02-a';
+var APP_BUILD = '2026-11-03-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
