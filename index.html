@@ -5544,7 +5544,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-04-b';
+var APP_BUILD = '2026-11-05-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -9085,7 +9085,7 @@ function doDelete(id,yr){if(!confirm('Delete '+yr+' sample?'))return;var n=activ
 
 // ── Reports ──
 function renderReportPage(){
-  var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px" class="no-print"><div class="page-title">Reports</div><button class="st-btn-green btn-sm" onclick="window.print()">🖨️ Print</button></div>'
+  var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px" class="no-print"><div class="page-title">Reports</div><div class="st-btn-row"><button class="st-btn-outline btn-sm" onclick="stPrintReport()">🖨️ Print</button><button class="st-btn-green btn-sm" id="st-share-btn" onclick="stSharePdf()" disabled>📤 Share PDF</button></div></div>'
     +'<div class="st-card no-print"><div class="sec-title">Select Customer</div><select class="form-input" id="rpt-c" onchange="renderRpt()"><option value="">— Select —</option>';
   customers.forEach(function(c){html+='<option value="'+esc(c.Name)+'">'+esc(c.Name)+'</option>';});
   html+='</select></div><div id="rpt-out"></div>';setApp(html);
@@ -9164,7 +9164,7 @@ function renderRpt(){
   var scoreColor=scorePct>=75?'#16a34a':(scorePct>=50?'#d97706':'#dc2626');
   var scoreLabel=scorePct>=75?'Good':(scorePct>=50?'Needs Improvement':'Needs Attention');
 
-  var h='<div style="background:white;color:#1a1a1a;border-radius:12px;padding:28px;font-family:sans-serif;line-height:1.5;max-width:800px">';
+  var h='<div data-st-report style="background:white;color:#1a1a1a;border-radius:12px;padding:28px;font-family:sans-serif;line-height:1.5;max-width:800px">';
 
   // ── Header ──
   h+='<div style="display:flex;justify-content:space-between;border-bottom:3px solid #2d5a1b;padding-bottom:16px;margin-bottom:20px;flex-wrap:wrap;gap:10px">'
@@ -9490,6 +9490,56 @@ function renderRpt(){
     +'</div></div>';
 
   out.innerHTML=h;
+  stPrepPdf();
+}
+
+// ── Print / share the report ──
+// window.print() on the whole app does nothing in the iPhone home-screen app (and printed FieldPro's menus too),
+// so Print opens the report as its own page, and Share PDF makes a real PDF up front so the share sheet opens on tap.
+var stPdf={key:null,blob:null,name:'',busy:false};
+function stReportDoc(){var el=document.getElementById('rpt-out');return el&&el.firstElementChild&&el.querySelector('[data-st-report]')?el.firstElementChild:null;}
+function stReportFile(){var n=(document.getElementById('rpt-c')||{}).value||'Customer';return 'Soil Report - '+n.replace(/[\\/:*?"<>|]+/g,'').trim()+'.pdf';}
+function stPrintReport(){
+  var d=stReportDoc();if(!d){stNotify('Pick a customer first.','inf');return;}
+  var w=window.open('','_blank');if(!w){stNotify('Allow pop-ups for FieldPro to print.','err');return;}
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(stReportFile().replace(/\.pdf$/,''))+'</title>'
+    +'<style>@page{margin:12mm}body{margin:0;padding:12px;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>'
+    +d.outerHTML+'<script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script></body></html>');
+  w.document.close();
+}
+function stLoadHtml2pdf(){
+  if(window.html2pdf)return Promise.resolve();
+  return new Promise(function(res,rej){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';s.onload=res;s.onerror=function(){rej(new Error('could not load the PDF maker (no internet?)'));};document.head.appendChild(s);});
+}
+function stPrepPdf(){
+  var d=stReportDoc(),btn=document.getElementById('st-share-btn');if(!btn)return;
+  if(!d){btn.disabled=true;btn.textContent='📤 Share PDF';return;}
+  var key=stReportFile()+'|'+Date.now();stPdf={key:key,blob:null,name:stReportFile(),busy:true};
+  btn.disabled=true;btn.textContent='⏳ Making PDF…';
+  var wrap=null;
+  stLoadHtml2pdf().then(function(){
+    var clone=d.cloneNode(true);clone.style.borderRadius='0';clone.style.maxWidth='none';clone.style.width='760px';
+    wrap=document.createElement('div');wrap.style.cssText='position:fixed;left:-10000px;top:0;width:760px;background:#fff';wrap.appendChild(clone);document.body.appendChild(wrap);
+    return html2pdf().set({margin:[10,10,12,10],filename:stPdf.name,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'letter',orientation:'portrait'},pagebreak:{mode:['avoid-all','css']}}).from(clone).outputPdf('blob');
+  }).then(function(blob){
+    if(wrap)wrap.remove();if(stPdf.key!==key)return;
+    stPdf.blob=blob;stPdf.busy=false;var b=document.getElementById('st-share-btn');if(b){b.disabled=false;b.textContent='📤 Share PDF';}
+  },function(err){
+    if(wrap)wrap.remove();if(stPdf.key!==key)return;
+    stPdf.busy=false;var b=document.getElementById('st-share-btn');if(b){b.disabled=false;b.textContent='📤 Share PDF (try again)';}
+    stNotify('PDF not made: '+(err&&err.message||err),'err',6000);
+  });
+}
+function stSharePdf(){
+  if(!stPdf.blob){if(!stPdf.busy)stPrepPdf();return;}
+  var file=new File([stPdf.blob],stPdf.name,{type:'application/pdf'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    navigator.share({files:[file],title:stPdf.name.replace(/\.pdf$/,'')}).catch(function(e){if(!e||e.name!=='AbortError')stDownloadPdf();});
+  }else stDownloadPdf();
+}
+function stDownloadPdf(){
+  var a=document.createElement('a');a.href=URL.createObjectURL(stPdf.blob);a.download=stPdf.name;document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},4000);
 }
 
 
