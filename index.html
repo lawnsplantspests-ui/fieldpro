@@ -5153,12 +5153,23 @@ function wxFlags(date, items) {
 // 'bad' | 'warn' | 'ok' | null (no forecast for that date)
 function wxRating(date, items) { const f = wxFlags(date, items); return f ? (f.bad.length ? 'bad' : f.warn.length ? 'warn' : 'ok') : null; }
 const wxBadge = (txt, kind) => `<span class="badge" style="background:${kind === 'bad' ? 'var(--danger-bg)' : 'var(--warn-bg)'};color:${kind === 'bad' ? 'var(--overdue)' : 'var(--warn)'}">${escHtml(txt)}</span>`;
+// when the rain is expected, 5 AM - 8 PM: "5–9 AM, 4–5 PM" (each hour's figure is the rain in the hour before it)
+function wxRainTimes(date) {
+  const D = WX.days && WX.days[date]; if (!D) return '';
+  const hr = h => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM'), spells = [];
+  let cur = null;
+  for (let h = 5; h <= 20; h++) {
+    const v = D.h[h], wet = v && v[1] >= 0.01;
+    if (wet) { if (cur && cur.to === h - 1) { cur.to = h; cur.inch += v[1]; } else spells.push(cur = { from:h - 1, to:h, inch:v[1] }); }
+  }
+  return spells.map(s => (s.from < 12) === (s.to < 12) ? (s.from % 12 || 12) + '–' + hr(s.to) : hr(s.from) + '–' + hr(s.to)).join(', ');
+}
 function wxLine(date, items) {
   const f = wxFlags(date, items);
   if (!f) return `<div style="font-size:11px;color:var(--text-muted);margin:2px 0 4px">No forecast for this day yet${wxError ? ' (' + escHtml(wxError) + ')' : ''}.</div>`;
-  const w = f.w;
+  const w = f.w, when = wxRainTimes(date);
   return `<div style="font-size:12px;color:var(--text-dim);margin:2px 0 6px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <span>🌡 ${Math.round(w.hi)}° / ${Math.round(w.lo)}°F</span><span>🌧 ${Math.round(w.pop)}%${w.rainIn >= 0.01 ? ' · ' + w.rainIn.toFixed(2) + '"' : ''}</span><span>💨 ${Math.round(w.wind)} mph</span><span>🌱 soil ${w.soil == null ? '—' : Math.round(w.soil) + '°F'}</span>
+    <span>🌡 ${Math.round(w.hi)}° / ${Math.round(w.lo)}°F</span><span>🌧 ${Math.round(w.pop)}%${w.rainIn >= 0.01 ? ' · ' + w.rainIn.toFixed(2) + '"' : ''}${when ? ' · rain ' + when : ''}</span><span>💨 ${Math.round(w.wind)} mph</span><span>🌱 soil ${w.soil == null ? '—' : Math.round(w.soil) + '°F'}</span>
     ${f.bad.map(x => wxBadge(x, 'bad')).join('')}${f.warn.map(x => wxBadge(x, 'warn')).join('')}</div>`;
 }
 // the Schedule page strip: the next 7 days and where the soil temperature is heading
@@ -5533,7 +5544,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-04-a';
+var APP_BUILD = '2026-11-04-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -5826,7 +5837,7 @@ function renderNearMe() {
 // Builds days that fit between the first stop and the end of the day, using real road drive
 // times between stops, an estimate of the work time at each stop, and (optionally) the drive home.
 // Lawn time is measured from Devon's 2026 log (real-time days): about 32 min at the stop + 0.8 min per 1,000 sq ft
-const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, passBy:3, curbSide:true, clockwise:true, skipBadWeather:true, mileWeight:0.5, attempts:6, satOk:false, base:null, rainBuffer:5, sprayFillMin:12, tankGal:18, fertFillMin:3, hopperLb:220 };
+const PLAN_DEFAULTS = { start:'09:00', end:'17:00', returnHome:true, lawnSetup:32, lawnPerK:0.8, pestMin:25, seedSetup:30, seedPerK:3.75, mosqMin:30, tsMin:45, maxDetour:20, passBy:3, curbSide:true, clockwise:true, mileWeight:0.5, attempts:6, satOk:false, base:null, rainBuffer:5, sprayFillMin:12, tankGal:18, fertFillMin:3, hopperLb:220 };
 // Rain buffer: lawn rounds and aeration & seed are planned to finish this many workdays before their window closes,
 // so rain days (about 5 in a typical spring, Devon doesn't work them) don't push anyone past the deadline.
 // Pest, mosquito and tree & shrub are left out: their windows are monthly and flexible.
@@ -5884,7 +5895,7 @@ function renderPlanner() {
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">${plannerTimes(cfg).timed ? '' : `An 8,000 sq ft lawn works out to about ${Math.round(cfg.lawnSetup + cfg.lawnPerK * 8)} minutes at the stop. `}Rain days: lawn rounds and aeration &amp; seed are planned to finish ${cfg.rainBuffer} workday${cfg.rainBuffer === 1 ? '' : 's'} before their window closes (a typical spring loses about 5 weekdays to rain).</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-return" ${cfg.returnHome ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> The drive home counts — be back by the time above</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-sat" ${cfg.satOk ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Include Saturdays</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px"><input type="checkbox" id="pl-wx" ${cfg.skipBadWeather !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Skip days the forecast says are too wet, windy or snowy (within the 16-day forecast)</label>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Weather never takes a day out of the plan: rainy, windy or hot days stay in with the forecast and a warning on the day.</div>
       <div class="section-label">Safe, efficient driving</div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pl-curb" ${cfg.curbSide !== false ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--accent)"> Pull up with the house on the passenger side (no crossing the road with the hose, no left turn into the driveway)</label>
       <div class="flex-row gap-10" style="flex-wrap:wrap;align-items:center;margin-bottom:8px">
@@ -5937,7 +5948,7 @@ function planSaveCfg() {
     useTimed:document.getElementById('pl-timed') ? document.getElementById('pl-timed').checked : true,
     passBy:v('pl-passby') === '' ? PLAN_DEFAULTS.passBy : Math.max(0, Math.min(15, Number(v('pl-passby')) || 0)),
     curbSide:document.getElementById('pl-curb') ? document.getElementById('pl-curb').checked : true, clockwise:document.getElementById('pl-cw') ? document.getElementById('pl-cw').checked : true,
-    returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked, skipBadWeather:document.getElementById('pl-wx') ? document.getElementById('pl-wx').checked : true,
+    returnHome:document.getElementById('pl-return').checked, satOk:document.getElementById('pl-sat').checked,
   };
   if (base && base.addr !== addr) patch.base = addr ? { addr, lat:null, lng:null } : null;   // address changed: needs finding again
   else if (!base && addr) patch.base = { addr, lat:null, lng:null };
@@ -6137,13 +6148,12 @@ async function planBuild() {
 
     // one complete attempt at laying out the days; different modes/jitter explore different layouts
     const maxDetour = cfg.maxDetour == null ? PLAN_DEFAULTS.maxDetour : cfg.maxDetour;
-    const skipBadWx = cfg.skipBadWeather !== false;
+    // Devon (Nov 4 2026): weather never skips a day (he can't take a day off for 0.1" of rain); the day shows the forecast instead
     const attempt = (mode, jitter, rnd) => {
-      let left = usable.slice(), days = [], tooLong = [], date = startDate, wxSkipped = [];
+      let left = usable.slice(), days = [], tooLong = [], date = startDate;
       // ---- stage 1: fill each day, one after another ----
       for (let guard = 0; left.length && guard < 60; guard++) {
         date = nextWorkday(date, cfg.satOk);
-        if (skipBadWx) for (let g2 = 0; g2 < 30 && wxRating(date) === 'bad'; g2++) { wxSkipped.push(date); date = nextWorkday(addDays(date, 1), cfg.satOk); }
         if (date > seasonLimit(+date.slice(0, 4))) break;
         const open = left.filter(i => openOn(i, date) && (!isLawnItem(i) || gapOkAt(i.cid, date, days, -1)));
         if (!open.length) { date = addDays(date, 1); continue; }
@@ -6310,7 +6320,7 @@ async function planBuild() {
       moved += pulled;
       days = days.filter(d => d.stops.length);
       const cost = days.reduce((t, d) => t + dayCost(d.stops, d.date), 0);
-      return { days, tooLong, left, moved, driveBefore, cost, wxSkipped, pulled };
+      return { days, tooLong, left, moved, driveBefore, cost, pulled };
     };
 
     // try several layouts and keep the one that drives the least (the same inputs always give the same answer)
@@ -6323,13 +6333,12 @@ async function planBuild() {
       const r = attempt(tries[k][0], tries[k][1], rnd);
       if (!best || r.left.length < best.left.length || (r.left.length === best.left.length && r.cost < best.cost - 0.5)) best = r;
     }
-    let { days, tooLong, left, moved, driveBefore, wxSkipped, pulled } = best;
+    let { days, tooLong, left, moved, driveBefore, pulled } = best;
     days.sort((x, y) => x.date.localeCompare(y.date));
     // pull the days up to the earliest workdays they are allowed on
     let nextDate = startDate;
     days.forEach(d => {
       let cand = nextWorkday(nextDate, cfg.satOk);
-      if (skipBadWx) for (let g = 0; g < 30 && wxRating(cand) === 'bad'; g++) cand = nextWorkday(addDays(cand, 1), cfg.satOk);   // never pull work onto a day it is skipping for weather
       if (cand < d.date && zp(d.stops, cand) <= zp(d.stops, d.date) && d.stops.every(s => s.items.every(i => openOn(i, cand)) && (!s.items.some(isLawnItem) || gapOkAt(s.cid, cand, days, days.indexOf(d))))) d.date = cand;
       nextDate = addDays(d.date, 1);
     });
@@ -6339,10 +6348,9 @@ async function planBuild() {
     const inPlan = new Set(usable.map(i => i.cid + '|' + i.code + '|' + i.period));
     const extra = buildSchedule().items.filter(i => !inPlan.has(i.cid + '|' + i.code + '|' + i.period) && ['due', 'late', 'soon', 'later'].includes(i.status) && custPoint(i.cid))
       .map(i => ({ i, p:custPoint(i.cid) }));
-    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, pulled, passBy:cfg.passBy == null ? PLAN_DEFAULTS.passBy : cfg.passBy, _extra:extra, driveBefore, driveAfter, tries:tries.length, wxSkipped, _ctx:ctx, _Mi:Mi, rainBuf, bufEnd, satOk:!!cfg.satOk,
+    plannerResult = { days:out, source, hasBase, ret, tooLong, notPlanned:left, endMin, moved, pulled, passBy:cfg.passBy == null ? PLAN_DEFAULTS.passBy : cfg.passBy, _extra:extra, driveBefore, driveAfter, tries:tries.length, _ctx:ctx, _Mi:Mi, rainBuf, bufEnd, satOk:!!cfg.satOk,
       limit:seasonLimit(+(plannerStart || schedToday()).slice(0, 4)), miles:Math.round(out.reduce((t, d) => t + d.miles, 0)) };
     plannerMsg = (source === 'road' ? 'Drive times and distances are real road figures.' : source === 'mixed' ? 'Some drive times are estimates (the road service was partly unreachable).' : 'The road service was unreachable, so drive times are straight-line estimates (about 30 mph). Run it again for real times.')
-      + (wxSkipped.length ? ' Left out ' + wxSkipped.map(d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' (' + ((wxFlags(d) || { bad:[] }).bad[0] || 'weather') + ')').join(', ') + '.' : '')
       + ' Best of ' + tries.length + ' layouts: ' + out.length + ' days, about ' + Math.round(driveAfter / 60 * 10) / 10 + ' hours and ' + plannerResult.miles + ' miles of driving.'
       + (pulled ? ' ' + pulled + ' stop' + (pulled === 1 ? ' was' : 's were') + ' moved onto a day that drives right past ' + (pulled === 1 ? 'it' : 'them') + '.' : '');
   } catch (e) { plannerMsg = 'Could not build the plan: ' + escHtml(e.message || String(e)); }
