@@ -5544,7 +5544,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-05-a';
+var APP_BUILD = '2026-11-05-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
@@ -9085,7 +9085,7 @@ function doDelete(id,yr){if(!confirm('Delete '+yr+' sample?'))return;var n=activ
 
 // ── Reports ──
 function renderReportPage(){
-  var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px" class="no-print"><div class="page-title">Reports</div><div class="st-btn-row"><button class="st-btn-outline btn-sm" onclick="stPrintReport()">🖨️ Print</button><button class="st-btn-green btn-sm" id="st-share-btn" onclick="stSharePdf()" disabled>📤 Share PDF</button></div></div>'
+  var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px" class="no-print"><div class="page-title">Reports</div><div class="st-btn-row" style="margin-top:0"><button class="st-btn-outline btn-sm" onclick="stPrintReport()">🖨️ Print</button><button class="st-btn-green btn-sm" id="st-share-btn" onclick="stSharePdf()" disabled>📤 Share PDF</button></div></div>'
     +'<div class="st-card no-print"><div class="sec-title">Select Customer</div><select class="form-input" id="rpt-c" onchange="renderRpt()"><option value="">— Select —</option>';
   customers.forEach(function(c){html+='<option value="'+esc(c.Name)+'">'+esc(c.Name)+'</option>';});
   html+='</select></div><div id="rpt-out"></div>';setApp(html);
