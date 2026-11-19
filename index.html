@@ -1342,6 +1342,7 @@ function renderCustomerDetail(el) {
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px">📍 ${locStatus(c)}</div>
       </div>
       <div class="flex-row gap-6">
+        ${isInactive(cid) ? '' : `<button class="btn primary sm" onclick="showScheduleWork('${cid}')">📅 Schedule work</button>`}
         <button class="btn secondary sm" onclick="showLocationEditor('${cid}')">📍 Location</button>
         <button class="btn secondary sm" onclick="showCustomerForm('${cid}')">Edit</button>
         <button class="btn ${isInactive(cid) ? 'primary' : 'secondary'} sm" onclick="schedSetActive('${cid}',${isInactive(cid)})">${isInactive(cid) ? 'Reactivate' : 'Mark inactive'}</button>
@@ -4039,7 +4040,7 @@ const SERVICES = {
 // work that scales with the lawn's size: lawn rounds, aeration & seed, lime (not pest, mosquito or tree & shrub)
 function codeUsesSqft(c) {
   c = String(c || '');
-  if (!c || c === 'PEST' || c === 'BAIT' || c === 'ADES') return false;
+  if (!c || c === 'PEST' || c === 'BAIT' || c === 'ADES' || c === 'JOB') return false;
   if (c === 'LIME' || c === 'SEED') return true;
   return !Object.keys(SERVICES).some(k => c === k || (c.startsWith(k) && /^\d+$/.test(c.slice(k.length))));
 }
@@ -4125,6 +4126,7 @@ function dayProductsHtml(items, compact) {
 }
 const sqftTag = q => q.lawn ? ` <span style="font-size:12px;font-weight:700;color:${q.sqft ? 'var(--accent)' : 'var(--warn)'}">· ${q.sqft ? fmtSqft(q.sqft) : 'no sq ft'}</span>` : '';
 function codeShort(c) {
+  if (c === 'JOB') return 'Extra visit';
   if (c === 'PEST') return 'Pest';
   if (c === 'SEED') return 'Seed';
   if (c === 'BAIT') return 'Bait stations';
@@ -4937,6 +4939,104 @@ async function buildRouteFromSchedule(btn) {
   renderRoutes();
 }
 
+// ── Schedule work from the customer screen ──
+// Any of the customer's work this year (open, missed or skipped), plus a one-off visit that isn't on the schedule at
+// all (a callback, a redo, a spot spray, an extra round), goes onto a route for the day you pick: that day's route if
+// there is one (joined to the customer's stop if they're already on it), else a new route. A one-off job uses the
+// service's own code so the LPP Log still closes it, or JOB for anything else.
+let swState = null;
+const SW_JOBS = [['6','Lawn round (pick the round below)'],['PEST','Pest control'],['MOSQ','Mosquito spray'],['BAIT','Mosquito bait stations'],
+  ['TS','Tree & shrub'],['ADES','Anti-desiccant'],['LIME','Lime'],['SEED','Aeration & seed'],['JOB','Other (callback, spot spray, inspection…)']];
+const SW_ROUNDS = ['1','2A','2B','3','4','5','6','7'], SW_TS = ['1','2','3','4','5','6','7'];
+function custOnRoutes(cid) {
+  const out = [];
+  STATE.routes.forEach(rt => (rt.stops || []).forEach((st, idx) => {
+    if (String(st.customerId) === String(cid) && st.status !== 'completed' && (!rt.date || rt.date >= schedToday())) out.push({ rt, st, idx });
+  }));
+  return out.sort((a, b) => (a.rt.date || '9').localeCompare(b.rt.date || '9'));
+}
+function custUpcomingHtml(cid) {
+  const on = custOnRoutes(cid); if (!on.length) return '';
+  return `<div style="font-size:12px;margin-bottom:8px;padding:6px 8px;background:var(--bg-input);border-radius:6px"><strong>On routes:</strong> ${on.map(o =>
+    `<a href="#" onclick="detailRouteId='${o.rt.id}';navigateTo('routes');detailRouteId='${o.rt.id}';renderRoutes();return false" style="color:var(--accent)">${escHtml(o.rt.date ? dayShort(o.rt.date) : (o.rt.name || 'Route'))}</a> — ${escHtml(o.st.roundName || codeShort(o.st.code))}`).join(' · ')}</div>`;
+}
+function showScheduleWork(cid) {
+  cid = String(cid);
+  const row = buildSchedule().rows.find(r => r.cid === cid), onRt = new Set(custOnRoutes(cid).flatMap(o => (o.st.items || [{ code:o.st.code, period:o.st.period }]).map(it => it.code + '|' + it.period)));
+  const avail = row ? row.rounds.filter(r => ['late','due','consider','soon','later','missed','skipped'].includes(r.status)) : [];
+  const sel = {}; avail.forEach(r => { const k = r.code + '|' + r.period; if ((r.status === 'due' || r.status === 'late') && !onRt.has(k)) sel[k] = true; });
+  const t = schedToday(), when = new Date().getHours() >= 15 ? nextWorkday(addDays(t, 1), getPlanCfg().satOk) : t;
+  swState = { cid, sel, onRt, job:'', round:'6', ts:'1', note:'', date:when, routeId:'' };
+  showModal('Schedule work — ' + (custById(cid) || {}).Name, '<div id="sw-body"></div>', true);
+  swRender();
+}
+function swRender() {
+  const box = document.getElementById('sw-body'); if (!box || !swState) return;
+  const S = swState, row = buildSchedule().rows.find(r => r.cid === S.cid);
+  const avail = row ? row.rounds.filter(r => ['late','due','consider','soon','later','missed','skipped'].includes(r.status)).sort((a, b) => (a.avail || a.start || '').localeCompare(b.avail || b.start || '')) : [];
+  const routes = STATE.routes.filter(r => r.date === S.date);
+  if (S.routeId && !routes.some(r => r.id === S.routeId)) S.routeId = '';
+  if (!S.routeId && routes.length) S.routeId = routes[0].id;
+  const opt = (v, l, cur) => `<option value="${escHtml(v)}" ${v === cur ? 'selected' : ''}>${escHtml(l)}</option>`;
+  box.innerHTML = `
+    <div class="section-label" style="margin-top:0">Work on the schedule</div>
+    ${avail.length ? avail.map(r => { const k = r.code + '|' + r.period; return `<label class="flex-row gap-10" style="padding:6px 0;border-top:1px solid var(--border);cursor:pointer;align-items:flex-start">
+      <input type="checkbox" ${S.sel[k] ? 'checked' : ''} onchange="swState.sel['${k}']=this.checked" style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);flex-shrink:0">
+      <div style="flex:1"><div style="font-size:13px;font-weight:600">${escHtml(r.label)} ${schedBadge(r.status)}</div>
+      <div style="font-size:11px;color:var(--text-muted)">${schedWhen(r)}${S.onRt.has(k) ? ' · <span style="color:var(--warn)">already on a route</span>' : ''}</div></div></label>`; }).join('')
+      : '<div style="font-size:12px;color:var(--text-dim)">Nothing open on the schedule for this customer.</div>'}
+    <div class="section-label">Something that isn't on the schedule</div>
+    <div class="flex-row gap-6" style="flex-wrap:wrap;align-items:center">
+      <select onchange="swState.job=this.value;swRender()" style="padding:8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">
+        ${opt('', '— none —', S.job)}${SW_JOBS.map(j => opt(j[0], j[1], S.job)).join('')}</select>
+      ${S.job === '6' ? `<select onchange="swState.round=this.value" style="padding:8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">${SW_ROUNDS.map(c => opt(c, SCHED_ROUNDS[c].label, S.round)).join('')}</select>` : ''}
+      ${S.job === 'TS' ? `<select onchange="swState.ts=this.value" style="padding:8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">${SERVICES.TS.rounds.map(r => opt(r.code, r.name, S.ts)).join('')}</select>` : ''}
+    </div>
+    ${S.job ? `<input value="${escHtml(S.note)}" oninput="swState.note=this.value" placeholder="What's it for? e.g. callback for weeds in front bed" style="width:100%;margin-top:6px;padding:8px 10px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">` : ''}
+    <div class="section-label">When</div>
+    <div class="flex-row gap-6" style="flex-wrap:wrap;align-items:center">
+      <input type="date" value="${escHtml(S.date)}" onchange="swState.date=this.value;swState.routeId='';swRender()" style="padding:8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">
+      <select onchange="swState.routeId=this.value" style="padding:8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:6px">
+        ${routes.map(r => opt(r.id, (r.name || 'Route') + ' · ' + (r.stops || []).length + ' stop' + ((r.stops || []).length === 1 ? '' : 's'), S.routeId)).join('')}${opt('new', 'New route for ' + (S.date ? dayShort(S.date) : 'that day'), routes.length ? S.routeId : 'new')}</select>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${routes.length ? 'Joins that day\'s route (the same stop if they\'re already on it).' : 'No route that day yet: a new one is made.'}</div>
+    <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:12px">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="swApply()">📅 Schedule</button>
+    </div>`;
+}
+function swApply() {
+  const S = swState; if (!S) return;
+  if (!S.date) { alert('Pick a day.'); return; }
+  const c = custById(S.cid); if (!c) return;
+  const row = buildSchedule().rows.find(r => r.cid === S.cid);
+  const picked = (row ? row.rounds : []).filter(r => S.sel[r.code + '|' + r.period]);
+  const items = picked.map(r => ({ code:r.code, period:r.period, manual:!!r.manual, label:r.label, svc:r.svc }));
+  if (S.job) {
+    const code = S.job === '6' ? S.round : S.job === 'TS' ? 'TS' + S.ts : S.job;
+    const base = S.job === '6' ? SCHED_ROUNDS[code].label : S.job === 'TS' ? SERVICES.TS.label + ' — ' + (SERVICES.TS.rounds.find(r => r.code === S.ts) || {}).name
+      : S.job === 'JOB' ? 'Extra visit' : (SERVICES[code] ? SERVICES[code].label : SCHED_ROUNDS[code] ? SCHED_ROUNDS[code].label : codeShort(code));
+    const svc = S.job === '6' ? SCHED_ROUNDS[code].svc : S.job === 'TS' ? SERVICES.TS.svc : SERVICES[code] ? SERVICES[code].svc : code === 'SEED' ? 'Aeration & Seed' : 'Service visit';
+    // loggable work closes when it's logged in the LPP Log; anything else is marked done on the route
+    items.push({ code, period:'X' + uid(), manual:!loggableCode(code), label:base + (S.note.trim() ? ': ' + S.note.trim() : ''), svc, extra:true });
+  }
+  if (!items.length) { alert('Tick something on the schedule, or pick something that isn\'t on it.'); return; }
+  let rt = S.routeId && S.routeId !== 'new' ? STATE.routes.find(r => r.id === S.routeId) : null;
+  if (!rt) { rt = { id:uid(), name:fmtDate(S.date) + ' Route', date:S.date, serviceFilter:'Mixed', createdAt:todayStr(), stops:[] }; STATE.routes.push(rt); }
+  const its = items.map(i => ({ code:i.code, period:i.period, manual:i.manual }));
+  const labels = items.map(i => i.label).join(' + ');
+  const same = (rt.stops || []).find(st => String(st.customerId) === S.cid && st.status !== 'completed');
+  if (same) { same.items = (same.items || [{ code:same.code, period:same.period }]).concat(its); same.roundName = (same.roundName ? same.roundName + ' + ' : '') + labels; }
+  else rt.stops.push({ customerId:S.cid, customerName:c.Name || c.name, address:[c.Address, c.City, c.State, c.Zip].filter(Boolean).join(', '), cpId:null, roundIdx:null,
+    roundName:labels, serviceType:items[0].svc, status:'pending', code:its[0].code, period:its[0].period, items:its });
+  saveState();
+  const msg = items.length + ' item' + (items.length === 1 ? '' : 's') + ' on ' + (rt.name || dayShort(rt.date));
+  document.getElementById('sw-body').innerHTML = `<p style="font-size:14px">✓ Scheduled: ${escHtml(labels)}<br><span style="color:var(--text-dim)">${escHtml(msg)}</span></p>
+    <div class="flex-row gap-6" style="justify-content:flex-end"><button class="btn secondary" onclick="closeModal();renderCurrentPage()">Done</button>
+    <button class="btn primary" onclick="closeModal();detailRouteId='${rt.id}';navigateTo('routes');detailRouteId='${rt.id}';renderRoutes()">Open route</button></div>`;
+  swState = null;
+}
+
 // ── the card on each customer ──
 function schedCustomerCard(cid) {
   if (isInactive(cid)) return `<div class="card mb-16" style="border-left:3px solid var(--warn)"><div style="font-size:13px"><strong>Inactive</strong> — not on the Schedule, the planner or routes. History, settings and the map pin are kept.</div><div style="margin-top:8px"><button class="btn primary sm" onclick="schedSetActive('${cid}',true)">Reactivate</button></div></div>`;
@@ -4964,7 +5064,8 @@ function schedCustomerCard(cid) {
         ? `<strong>Next:</strong> ${escHtml(row.next.label)} · ${schedBadge(row.next.status)} <span style="color:var(--text-dim)">${schedWhen(row.next)}</span>`
         : `<span style="color:var(--text-dim)">${row.track && row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'Lawn program starts in ' + row.trackFrom + '.' : row.track ? 'Nothing else scheduled this season.' : 'No lawn program set.'}</span>`}</div>
       ${(offerSoilEnsure(), soilLine(row.c))}
-      ${row.sqLawn > 0 || row.track ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
+      ${custUpcomingHtml(cid)}
+      ${true ? `<div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px">
         ${trackBtn('full','Full program')}${trackBtn('std','Maintenance program')}${trackBtn('none','No lawn rounds')}${row.myRounds ? '<span class="badge" style="background:var(--accent-dim);color:var(--accent);align-self:center">Custom</span>' : ''}${row.track ? `<button class="btn ${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'primary' : 'secondary'} sm" onclick="schedToggleStartNextYear('${cid}')" title="Nothing is scheduled until next year">${row.trackFrom && Number(Y) < Number(row.trackFrom) ? 'Starts ' + row.trackFrom + ' — undo' : 'Starts next year'}</button>` : ''}
         <span style="font-size:11px;color:var(--text-muted)">${row.trackSource === 'history' ? 'picked from what was logged' : row.trackSource === 'set' ? 'set by you' : ''}</span></div>
       <div class="flex-row gap-6" style="flex-wrap:wrap;margin-bottom:6px;align-items:center">
@@ -5212,6 +5313,7 @@ function wxEnsure() {
 const SMS_DEFAULT = 'Hey {name}!\n\nI have you scheduled for your {service} for {when}. Any questions let me know.';
 const SMS_TS_MIXED = 'tree and shrub round {n} treatment';
 const SMS_SERVICE = {
+  JOB:'service visit',
   '1':'round 1 fertilizer', '2A':'round 2 pre-emergent and weed control', '2B':'round 2 pre-emergent and weed control', '3':'round 3 weed and feed',
   '4':'round 4 grub control', '5':'round 5 insect and weed control', '5A':'round 5 insect control', '5B':'round 5 grassy weed control',
   '5C':'round 5 insect and grassy weed control', '6':'round 6 fall weed and feed', '7':'round 7 winterizer',
@@ -5544,7 +5646,7 @@ function renderOffers() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-05-b';
+var APP_BUILD = '2026-11-18-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
