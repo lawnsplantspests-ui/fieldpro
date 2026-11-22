@@ -460,6 +460,7 @@ a.btn{text-decoration:none}
       <div id="page-mixrates" class="page"></div>
       <div id="page-logs" class="page"></div>
       <div id="page-equipment" class="page"></div>
+      <div id="page-costs" class="page"></div>
     </main>
   </div>
 </div>
@@ -854,6 +855,7 @@ const NAV_MORE = [
   { key:'products',  label:'Products',   emoji:'🧪' },
   { key:'equipment', label:'Equipment',  emoji:'🚜' },
   { key:'mixrates',  label:'Mix Rates',  emoji:'💧' },
+  { key:'costs',     label:'Costs',      emoji:'💲' },
   { key:'soil',      label:'Soil',       emoji:'🧪' },
   { key:'history',   label:'History',    emoji:'📜' },
 ];
@@ -958,6 +960,7 @@ function renderCurrentPage() {
       case 'library': renderLibrary(); break;
       case 'logs': renderLogs(); break;
       case 'equipment': renderEquipment(); break;
+      case 'costs': renderCosts(); break;
     }
     // Render any pending bait station maps
     if (window._pendingBaitMap) {
@@ -3973,7 +3976,7 @@ function renderSyncResults() {
 // nothing to tick off twice. Per-customer choices (which program, skipped rounds)
 // live in a small 'plan' record kept in customerPrograms.
 const LPP_LOG_API = 'https://script.google.com/macros/s/AKfycbxl5cWjUIxRvfbw3YBi9rKk_Q5bljH94ZvW3KqTxfNor8QCOb7w_QrjUMJpND8Bz4zA/exec';
-const TREATLOG_KEY = 'fieldpro_treatlog_v3';   // v2: entries carry sq ft, spray-mix gal, fertilizer lbs; v3: + the product the lbs are of
+const TREATLOG_KEY = 'fieldpro_treatlog_v4';   // v2: entries carry sq ft, spray-mix gal, fertilizer lbs; v3: + the product the lbs are of; v4: + every product and amount (u), for the Costs page
 
 // Pest control: first week of each of these months (1-12).
 const PEST_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
@@ -4225,7 +4228,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ── LPP Log loading ──
 function loadTreatLogCache() {
-  try { localStorage.removeItem('fieldpro_treatlog'); localStorage.removeItem('fieldpro_treatlog_v2'); } catch(e) {}   // older caches
+  try { localStorage.removeItem('fieldpro_treatlog'); localStorage.removeItem('fieldpro_treatlog_v2'); localStorage.removeItem('fieldpro_treatlog_v3'); } catch(e) {}   // older caches
   try { const raw = localStorage.getItem(TREATLOG_KEY); if (raw) TREATLOG = JSON.parse(raw); } catch(e) {}
 }
 function saveTreatLogCache() {
@@ -4257,6 +4260,7 @@ function slimLogEntry(e) {
   const js = logClockMin(e.jobStart), je = logClockMin(e.jobEnd);
   if (js != null) { o.js = js; if (je != null) o.je = je; }
   if (o.lb) { const p = lbProduct(e); if (p) o.lp = p; }
+  const u = costParts(e); if (u.length) o.u = u;
   return o;
 }
 // the product the pounds are of: Product and Total Used list the products in the same order, joined by ' + '
@@ -5643,10 +5647,476 @@ function renderOffers() {
       <div class="flex-row gap-6" style="justify-content:flex-end;margin-top:8px"><button class="btn secondary sm" onclick="offerSaveTemplates()">Save messages</button></div></div>`}`;
 }
 
+// ══════════ COSTS ══════════
+// What the work costs in product: Devon's prices (the 'costs' record) x the amounts in the LPP Log's Total Used.
+// Per round, per 1,000 sq ft, per spray tank, and against what was charged: QuickBooks prices come from a
+// "Sales by Customer Detail" export picked on this page. They are kept in the private sheet ('sales' record), never
+// in this public file. Nothing here writes to the LPP Log. (Built Nov 22 2026, after Devon looked at TurfVision.)
+let costYear = null, costTab = 'rounds', costOpen = null, costEdit = null, costMsg = '', costPending = null, costShowAll = false;
+function costRecord(create) {
+  let r = STATE.customerPrograms.find(cp => cp.kind === 'costs');
+  if (!r && create) { r = { id:uid(), kind:'costs', customerId:'_costs', programName:'Product costs', year:null, rounds:[], items:[] }; STATE.customerPrograms.push(r); }
+  if (r && !Array.isArray(r.items)) r.items = [];
+  return r;
+}
+function salesRecord(create) {
+  let r = STATE.customerPrograms.find(cp => cp.kind === 'sales');
+  if (!r && create) { r = { id:uid(), kind:'sales', customerId:'_sales', programName:'QuickBooks sales', year:null, rounds:[] }; STATE.customerPrograms.push(r); }
+  return r;
+}
+const costUnit = u => {
+  u = String(u || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+  if (/^lbs?$/.test(u)) return 'lb';
+  if (u === 'fl oz' || u === 'floz') return 'fl oz';
+  if (u === 'oz') return 'oz';
+  if (/^gal/.test(u)) return 'gal';
+  return u;
+};
+// amount in the log's unit -> the price's unit (null when they can't be compared)
+function costConvert(amt, from, to) {
+  from = costUnit(from); to = costUnit(to);
+  if (from === to) return amt;
+  if ((from === 'oz' && to === 'fl oz') || (from === 'fl oz' && to === 'oz' )) return amt;   // liquids are sometimes logged as plain "oz"
+  if (from === 'gal' && (to === 'fl oz' || to === 'oz')) return amt * 128;
+  if ((from === 'fl oz' || from === 'oz') && to === 'gal') return amt / 128;
+  if (from === 'lb' && to === 'oz') return amt * 16;
+  if (from === 'oz' && to === 'lb') return amt / 16;
+  return null;
+}
+// every product and amount in a log entry: Product and Total Used list them in the same order, joined by ' + '
+function costParts(e) {
+  const used = String(e.totalUsed || '').split(' + ').map(x => x.trim()).filter(Boolean);
+  const prods = String(e.product || '').split(' + ').map(x => x.trim()).filter(Boolean);
+  const out = [];
+  used.forEach((x, i) => {
+    const m = /^([\d.]+)\s*(lbs?|fl\.?\s*oz|oz|gal(?:lons?)?)\b/i.exec(x);
+    if (!m || !(+m[1] > 0)) return;
+    const p = used.length === prods.length ? prods[i] : prods.length === 1 ? prods[0] : '(unclear) ' + prods.join(' + ');
+    out.push([String(p || '').slice(0, 90), +m[1], costUnit(m[2])]);
+  });
+  return out;
+}
+const costItemPer = it => +it.perUnit > 0 ? +it.perUnit : (+it.packPrice > 0 && +it.packQty > 0 ? it.packPrice / it.packQty : null);
+function costItemFor(name, items) {
+  const n = String(name || '').toLowerCase();
+  let best = null;
+  items.forEach(it => { const m = String(it.match || '').toLowerCase().trim(); if (m && n.startsWith(m) && (!best || m.length > best.match.length)) best = it; });
+  return best;
+}
+const costShortName = p => String(p || '').replace(/\s*[(—].*$/, '').replace(/\s+-\s+Backpack$/i, '').trim() || String(p || '');
+function costOfEntry(e, items) {
+  let cost = 0, liq = 0; const missing = [], lines = [];
+  (e.u || []).forEach(([p, a, un]) => {
+    const it = costItemFor(p, items), per = it ? costItemPer(it) : null, q = it && per != null ? costConvert(a, un, it.unit) : null;
+    if (q == null) { missing.push({ p, a, un }); return; }
+    const c = q * per; cost += c;
+    const wet = costUnit(un) === 'gal' || costUnit(un) === 'fl oz' || (costUnit(un) === 'oz' && costUnit(it.unit) !== 'oz' && costUnit(it.unit) !== 'lb');
+    if (wet) liq += c;
+    lines.push({ it, a, un, c });
+  });
+  return { cost, liq, missing, lines, n:(e.u || []).length };
+}
+// which bucket a log service goes in
+function costGroupOfLog(s) {
+  s = String(s || '');
+  if (/Lawn Care\s*-\s*Lime/i.test(s)) return 'Lime';
+  if (/Aerat|Seed/i.test(s)) return 'Aeration & seed';
+  const c = svcCode(s);
+  if (c === 'PEST') return 'Perimeter pest';
+  if (c) return 'Rd ' + (c[0] === '2' ? '2' : c);
+  if (/^Mosquito/i.test(s)) return 'Mosquito';
+  if (/^PHC/i.test(s)) return 'Tree & shrub';
+  if (/Yellow Jacket|Wasp|Hornet|Bee|Stinging/i.test(s)) return 'Stinging insects';
+  if (/^Aquatic|Pond|Algae/i.test(s)) return 'Aquatics';
+  return 'Other';
+}
+// which bucket a QuickBooks product/service goes in (item names like "Lawn Care:Round 4 - May/Jun", "Home Foundation:Round 2 - May")
+function costGroupOfQb(item) {
+  const s = String(item || '');
+  if (/Lime/i.test(s)) return 'Lime';
+  if (/Aerat|Seed/i.test(s)) return 'Aeration & seed';
+  if (/Soil Sample|Soil Test/i.test(s)) return 'Soil tests';
+  if (/^Home Foundation|Perimeter|Pest Control/i.test(s)) return 'Perimeter pest';
+  if (/^Mosquito/i.test(s)) return 'Mosquito';
+  if (/^Tree\s*&\s*Shrub|PHC/i.test(s)) return 'Tree & shrub';
+  if (/Wasp|Hornet|Yellow|Bee|Stinging/i.test(s)) return 'Stinging insects';
+  if (/Pond|Aquatic|Algae/i.test(s)) return 'Aquatics';
+  const m = /^Lawn Care:\s*(?:Round|Rd)\s*(\d+)/i.exec(s);
+  if (m) return 'Rd ' + (m[1] === '8' && /winteri/i.test(s) ? '7' : m[1]);
+  return 'Other';
+}
+const COST_GROUP_ORDER = ['Rd 1','Rd 2','Rd 3','Rd 4','Rd 5','Rd 6','Rd 7','Rd 8','Lime','Aeration & seed','Perimeter pest','Mosquito','Tree & shrub','Stinging insects','Aquatics','Soil tests','Other'];
+const costGroupSort = (a, b) => { const i = COST_GROUP_ORDER.indexOf(a), j = COST_GROUP_ORDER.indexOf(b); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j) || a.localeCompare(b); };
+const costPerK = g => /^Rd |^Lime|^Aeration/.test(g);
+function costMoney(n, cents) {
+  if (n == null || isNaN(n)) return '—';
+  const neg = n < 0; n = Math.abs(n);
+  const d = cents || n < 100 ? 2 : 0;
+  return (neg ? '−$' : '$') + n.toLocaleString(undefined, { minimumFractionDigits:d, maximumFractionDigits:d });
+}
+// minutes on site per entry, from the job timer: one visit's minutes are split across the services logged in it
+function costEntryMinutes(list) {
+  const by = {};
+  list.forEach(e => { if (e.js != null) (by[e.k + '|' + e.d] = by[e.k + '|' + e.d] || []).push(e); });
+  const out = new Map();
+  Object.values(by).forEach(es => {
+    es.sort((x, y) => x.js - y.js);
+    let v = null; const visits = [];
+    es.forEach(e => {
+      if (!v || (v.end != null && e.js > v.end)) visits.push(v = { start:e.js, end:null, es:[] });
+      v.es.push(e); if (e.je != null && e.je >= e.js) v.end = v.end == null ? e.je : Math.max(v.end, e.je);
+    });
+    visits.forEach(v => { if (v.end == null || v.end - v.start > 240) return; const m = (v.end - v.start) / v.es.length; v.es.forEach(e => out.set(e, m)); });
+  });
+  return out;
+}
+// everything the page shows for one year (from/to limit the dates, for the comparison with QuickBooks)
+function costCrunch(year, from, to) {
+  const rec = costRecord(false), items = (rec && rec.items) || [];
+  const list = [];
+  Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.d.slice(0, 4) === String(year) && (!from || e.d >= from) && (!to || e.d <= to)) list.push(e); }));
+  const mins = costEntryMinutes(list);
+  const G = {}, C = {}, missing = {};
+  const grp = k => G[k] = G[k] || { g:k, jobs:0, priced:0, partial:0, none:0, cost:0, pCost:0, sq:0, sqCost:0, liq:0, gal:0, tMin:0, tJobs:0, svcs:{}, prods:{}, miss:{} };
+  list.forEach(e => {
+    const k = costGroupOfLog(e.s), g = grp(k), r = costOfEntry(e, items), m = mins.get(e);
+    g.jobs++; g.cost += r.cost;
+    if (!r.n) g.none++; else if (r.missing.length) g.partial++; else { g.priced++; g.pCost += r.cost; }
+    if (r.n && !r.missing.length && e.q > 0) { g.sq += e.q; g.sqCost += r.cost; }
+    if (r.liq > 0 && e.g > 0 && !r.missing.length) { g.liq += r.liq; g.gal += e.g; }
+    if (m != null) { g.tMin += m; g.tJobs++; }
+    const sv = g.svcs[e.s] = g.svcs[e.s] || { jobs:0, cost:0, priced:0 }; sv.jobs++; sv.cost += r.cost; if (r.n && !r.missing.length) sv.priced++;
+    r.lines.forEach(l => { const key = l.it.label || l.it.match; const pr = g.prods[key] = g.prods[key] || { amt:0, un:l.it.unit, cost:0, jobs:0 }; const q = costConvert(l.a, l.un, l.it.unit); pr.amt += q || 0; pr.cost += l.c; pr.jobs++; });
+    r.missing.forEach(x => {
+      const nm = costShortName(x.p), mm = missing[nm] = missing[nm] || { name:nm, full:x.p, jobs:0, amt:{}, groups:{} };
+      mm.jobs++; mm.amt[x.un] = (mm.amt[x.un] || 0) + x.a; mm.groups[k] = 1; g.miss[nm] = 1;
+    });
+    const c = C[e.k] = C[e.k] || { k:e.k, c:e.c, jobs:0, cost:0, partial:0, tMin:0, tJobs:0, groups:{}, groupsT:{} };
+    c.jobs++; c.cost += r.cost; if (r.missing.length) c.partial++; c.groups[k] = (c.groups[k] || 0) + 1;
+    if (m != null) { c.tMin += m; c.tJobs++; c.groupsT[k] = (c.groupsT[k] || 0) + 1; }
+  });
+  return { list, G, C, missing, items };
+}
+// QuickBooks lines for a year as {group: amount}, {customerKey: amount}
+function costSales(year) {
+  const r = salesRecord(false);
+  if (!r || !Array.isArray(r.lines)) return null;
+  const G = {}, C = {}, items = {}; let total = 0, n = 0, from = null, to = null;
+  r.lines.forEach(([d, ci, ii, amt]) => {
+    if (String(d).slice(0, 4) !== String(year)) return;
+    const item = r.items[ii], cust = r.custs[ci], g = costGroupOfQb(item);
+    G[g] = (G[g] || 0) + amt; const k = nameKey(cust); C[k] = C[k] || { c:cust, amt:0, groups:{} }; C[k].amt += amt; C[k].groups[g] = (C[k].groups[g] || 0) + amt;
+    const it = items[item] = items[item] || { g, amt:0, n:0 }; it.amt += amt; it.n++;
+    total += amt; n++; if (!from || d < from) from = d; if (!to || d > to) to = d;
+  });
+  return n ? { G, C, items, total, n, from, to, file:r.file, importedAt:r.importedAt } : null;
+}
+
+function renderCosts() {
+  const el = document.getElementById('page-costs'); if (!el) return;
+  if (!TREATLOG.fetchedAt && !treatLogLoading && apiLoaded) refreshTreatLog();
+  const thisYear = new Date().getFullYear();
+  if (!costYear) costYear = thisYear;
+  const years = [thisYear, thisYear - 1];
+  const hasParts = Object.values(TREATLOG.tabs).some(a => a.some(e => e.u));
+  const tabs = [['rounds','Cost by round'],['margin','Cost vs price'],['prices','Prices']];
+  let body = '';
+  if (!TREATLOG.fetchedAt || (!hasParts && treatLogLoading)) body = `<div class="card"><p style="color:var(--text-dim)">${treatLogLoading ? '⏳ Reading the LPP Log…' : treatLogError ? 'Could not read the LPP Log: ' + escHtml(treatLogError) : 'The LPP Log has not been read yet.'}</p></div>`;
+  else if (costTab === 'rounds') body = costRoundsHtml();
+  else if (costTab === 'margin') body = costMarginHtml();
+  else body = costPricesHtml();
+  el.innerHTML = `
+    <h1>Costs</h1>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">What your work costs in product, from the amounts in the LPP Log and the prices on the <strong>Prices</strong> tab. Fuel, insurance and equipment are not counted.</p>
+    <div class="filter-pills">${tabs.map(([k, l]) => `<button class="${costTab === k ? 'active' : ''}" onclick="costTab='${k}';costOpen=null;renderCosts()">${l}</button>`).join('')}</div>
+    <div class="filter-pills" style="margin-top:-4px">${years.map(y => `<button class="${costYear === y ? 'active' : ''}" onclick="costYear=${y};costOpen=null;renderCosts()">${y}</button>`).join('')}${treatLogLoading ? '<span style="font-size:11px;color:var(--text-muted);align-self:center">⏳ updating…</span>' : ''}</div>
+    ${body}`;
+}
+const COST_TD = 'padding:6px 6px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap';
+const COST_TDL = 'padding:6px 6px;border-bottom:1px solid var(--border);text-align:left';
+const COST_TH = 'padding:6px 6px;border-bottom:2px solid var(--border);text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);white-space:nowrap';
+const costTable = (head, rows) => `<div class="tbl-wrap" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr>${head.map((h, i) => `<th style="${COST_TH}${i ? '' : ';text-align:left'}">${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+
+function costRoundsHtml() {
+  const cfg = getPlanCfg(), tank = +cfg.tankGal || 18;
+  const X = costCrunch(costYear), groups = Object.values(X.G).sort((a, b) => costGroupSort(a.g, b.g));
+  if (!X.list.length) return '<div class="card"><p style="color:var(--text-dim)">Nothing in the LPP Log for ' + costYear + ' yet.</p></div>';
+  const total = groups.reduce((s, g) => s + g.cost, 0), jobs = groups.reduce((s, g) => s + g.jobs, 0);
+  const part = groups.reduce((s, g) => s + g.partial, 0), nMiss = Object.keys(X.missing).length;
+  const rows = groups.map(g => {
+    const perJob = g.priced ? g.pCost / g.priced : null;   // jobs with every product priced
+    const perK = costPerK(g.g) && g.sq > 0 ? g.sqCost / g.sq * 1000 : null;
+    const zspray = /^Rd |^Lime/.test(g.g), perTank = g.gal > 0 && zspray ? g.liq / g.gal * tank : null, perGal = g.gal > 0 ? g.liq / g.gal : null;
+    const open = costOpen === g.g;
+    let detail = '';
+    if (open) {
+      const prods = Object.entries(g.prods).sort((a, b) => b[1].cost - a[1].cost);
+      const svcs = Object.entries(g.svcs).sort((a, b) => b[1].jobs - a[1].jobs);
+      detail = `<tr><td colspan="7" style="padding:8px 6px 12px;border-bottom:1px solid var(--border);background:var(--bg-input);white-space:normal"><div style="position:sticky;left:6px;max-width:330px">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Product used</div>
+        ${prods.length ? prods.map(([n, p]) => `<div style="font-size:12px;white-space:normal">${escHtml(n)}: <strong>${costMoney(p.cost)}</strong> <span style="color:var(--text-dim)">(${(+p.amt.toFixed(1)).toLocaleString()} ${escHtml(p.un)})</span></div>`).join('') : '<div style="font-size:12px;color:var(--text-dim)">No priced product.</div>'}
+        ${Object.keys(g.miss).length ? `<div style="font-size:12px;color:var(--warn);margin-top:4px">No price yet: ${Object.keys(g.miss).map(escHtml).join(', ')}</div>` : ''}
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin:8px 0 4px">Services in the log</div>
+        ${svcs.map(([n, v]) => `<div style="font-size:12px;white-space:normal">${escHtml(n)}: ${v.jobs} job${v.jobs === 1 ? '' : 's'}, ${costMoney(v.cost)}</div>`).join('')}
+        ${g.tJobs ? `<div style="font-size:12px;color:var(--text-dim);margin-top:6px">Job timer: ${Math.round(g.tMin / g.tJobs)} min on site per job (${g.tJobs} timed job${g.tJobs === 1 ? '' : 's'}).</div>` : ''}
+        ${perGal != null ? `<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Spray: ${costMoney(perGal, true)} of product per gallon of mix, ${(+g.gal.toFixed(1)).toLocaleString()} gal in all.</div>` : ''}
+      </div></td></tr>`;
+    }
+    const flag = g.partial ? ` <span title="${g.partial} job(s) have a product with no price" style="color:var(--warn)">*</span>` : '';
+    return `<tr onclick="costOpen=${open ? 'null' : `'${g.g}'`};renderCosts()" style="cursor:pointer">
+      <td style="${COST_TDL};font-weight:600">${open ? '▾' : '▸'} ${escHtml(g.g)}${flag}</td>
+      <td style="${COST_TD}">${g.jobs}</td>
+      <td style="${COST_TD}">${costMoney(g.cost)}</td>
+      <td style="${COST_TD}">${perJob != null ? costMoney(perJob, true) : '—'}</td>
+      <td style="${COST_TD}">${perK != null ? costMoney(perK, true) : '—'}</td>
+      <td style="${COST_TD}">${perTank != null ? costMoney(perTank, true) : perGal != null ? '<span style="color:var(--text-dim)">' + costMoney(perGal, true) + '/gal</span>' : '—'}</td>
+      <td style="${COST_TD}">${g.tJobs ? Math.round(g.tMin / g.tJobs) + ' min' : '—'}</td></tr>${detail}`;
+  }).join('');
+  return `
+    <div class="card mb-8" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Product, ${costYear}</div><div style="font-size:22px;font-weight:800">${costMoney(total)}</div></div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Jobs logged</div><div style="font-size:22px;font-weight:800">${jobs.toLocaleString()}</div></div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Jobs missing a price</div><div style="font-size:22px;font-weight:800;color:${part ? 'var(--warn)' : 'inherit'}">${part}</div></div>
+    </div>
+    ${nMiss ? `<div class="eq-callout"><div class="eq-callout-title">${nMiss} product${nMiss === 1 ? '' : 's'} with no price</div><p>Jobs marked <span style="color:var(--warn)">*</span> leave those products out, so their totals are low. Add the prices on the <a href="#" onclick="costTab='prices';renderCosts();return false" style="color:var(--accent)">Prices</a> tab.</p></div>` : ''}
+    <div class="card">
+      ${costTable(['Round','Jobs','Product','Per job','Per 1K sq ft','Per tank','On site'], rows)}
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5">On a phone, swipe the table sideways for more columns. Tap a row for the products and services in it. <strong>Per 1,000 sq ft</strong> uses the lawn size logged with each job. <strong>Per tank</strong> is the liquid product in a full ${tank} gal Z-Spray tank of mix (the planner's tank size); lawn rounds that don't record gallons are worked out from the 3-way amount. Backpack work shows the cost per gallon of mix instead. <strong>Per job</strong> counts only jobs with every product priced. <strong>On site</strong> is the LPP Log job timer, used since Oct 3 2026.</div>
+    </div>`;
+}
+
+function costMarginHtml() {
+  const cfg = getPlanCfg(), rate = +cfg.costRate || 0;
+  const S = costSales(costYear);
+  const rateBox = `<div class="card mb-8"><div class="flex-between" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <div style="font-size:13px;min-width:0;flex:1">Your time is worth <strong>$</strong><input id="cost-rate" type="number" inputmode="decimal" min="0" step="1" value="${rate || ''}" placeholder="0" style="width:70px;margin:0 4px;padding:4px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px"> an hour
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Your own number, to put a dollar value on time on site. Leave it at 0 to leave time out.</div></div>
+      <button class="btn secondary sm" onclick="costSaveRate()">Save</button></div></div>`;
+  if (!S) return rateBox + `<div class="card"><p style="color:var(--text-dim);margin-bottom:8px">No QuickBooks prices for ${costYear} yet. Comparing costs with what you charge needs your QuickBooks <strong>Sales by Customer Detail</strong> report.</p>
+    <button class="btn primary sm" onclick="costTab='prices';renderCosts();setTimeout(()=>{const x=document.getElementById('cost-qb');if(x)x.scrollIntoView({behavior:'smooth'})},50)">How to bring it in</button></div>`;
+  const X = costCrunch(costYear, S.from, S.to);
+  const keys = new Set(Object.keys(X.G).concat(Object.keys(S.G)));
+  // minutes per job for each group, from the timed jobs (used for the jobs that weren't timed)
+  const avgMin = {}; Object.values(X.G).forEach(g => { if (g.tJobs >= 3) avgMin[g.g] = g.tMin / g.tJobs; });
+  const timeOf = (g, jobs, tMin, tJobs) => { const a = avgMin[g]; if (tJobs >= jobs) return { min:tMin, est:false }; if (a == null) return tJobs ? { min:tMin / tJobs * jobs, est:true } : null; return { min:tMin + a * (jobs - tJobs), est:true }; };
+  let tRev = 0, tCost = 0, tTime = 0, anyEst = false, anyPartial = false;
+  const rows = Array.from(keys).sort(costGroupSort).map(k => {
+    const g = X.G[k] || { jobs:0, cost:0, partial:0, tMin:0, tJobs:0 }, rev = S.G[k] || 0;
+    const tm = g.jobs ? timeOf(k, g.jobs, g.tMin, g.tJobs) : null, tCostV = tm && rate ? tm.min / 60 * rate : 0;
+    const left = rev - g.cost - tCostV;
+    tRev += rev; tCost += g.cost; tTime += tCostV; if (tm && tm.est && rate) anyEst = true; if (g.partial) anyPartial = true;
+    return `<tr><td style="${COST_TDL};font-weight:600">${escHtml(k)}${g.partial ? ' <span style="color:var(--warn)">*</span>' : ''}</td>
+      <td style="${COST_TD}">${g.jobs}</td><td style="${COST_TD}">${rev ? costMoney(rev) : '—'}</td><td style="${COST_TD}">${costMoney(g.cost)}</td>
+      ${rate ? `<td style="${COST_TD}">${tm ? costMoney(tCostV) + (tm.est ? '<span style="color:var(--text-muted)">~</span>' : '') : '—'}</td>` : ''}
+      <td style="${COST_TD};font-weight:700;color:${rev && left < 0 ? 'var(--danger)' : 'inherit'}">${rev ? costMoney(left) : '—'}</td>
+      <td style="${COST_TD}">${rev > 0 ? Math.round(left / rev * 100) + '%' : '—'}</td></tr>`;
+  }).join('');
+  const head = ['Round / service','Jobs','Charged','Product'].concat(rate ? ['Your time'] : []).concat(['Left over','Kept']);
+  const tLeft = tRev - tCost - tTime;
+  // customers: worst first by what's left per visit
+  const avgAll = Object.values(X.G).reduce((a, g) => a + g.tMin, 0) / Math.max(1, Object.values(X.G).reduce((a, g) => a + g.tJobs, 0));
+  const custRows = Object.values(X.C).map(c => {
+    const s = S.C[c.k]; if (!s) return null;
+    let tmin = c.tMin, est = false;
+    Object.entries(c.groups).forEach(([g, n]) => { const left = n - (c.groupsT[g] || 0); if (left > 0) { est = true; tmin += (avgMin[g] != null ? avgMin[g] : avgAll) * left; } });
+    const tc = rate ? tmin / 60 * rate : 0, left = s.amt - c.cost - tc;
+    return { c, s, tmin, est, tc, left, perHr:tmin > 0 ? (s.amt - c.cost) / (tmin / 60) : null };
+  }).filter(Boolean).sort((a, b) => (a.perHr == null ? 1e9 : a.perHr) - (b.perHr == null ? 1e9 : b.perHr));
+  const noQb = Object.values(X.C).filter(c => !S.C[c.k]).length;
+  const noLog = Object.keys(S.C).filter(k => !X.C[k]);
+  const shown = costShowAll ? custRows : custRows.slice(0, 25);
+  costCustKeys = shown.map(r => r.c.k);
+  const cRows = shown.map((r, i) => `<tr><td style="${COST_TDL}"><span style="cursor:pointer;text-decoration:underline;text-decoration-color:var(--border)" onclick="costOpenCustomer(${i})">${escHtml(r.c.c)}</span>${r.c.partial ? ' <span style="color:var(--warn)">*</span>' : ''}</td>
+      <td style="${COST_TD}">${r.c.jobs}</td><td style="${COST_TD}">${costMoney(r.s.amt)}</td><td style="${COST_TD}">${costMoney(r.c.cost)}</td>
+      <td style="${COST_TD}">${r.tmin ? Math.round(r.tmin) + ' min' + (r.est ? '<span style="color:var(--text-muted)">~</span>' : '') : '—'}</td>
+      <td style="${COST_TD};font-weight:700">${r.perHr != null ? costMoney(r.perHr) : '—'}</td></tr>`).join('');
+  return rateBox + `
+    <div class="card mb-8" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Charged</div><div style="font-size:20px;font-weight:800">${costMoney(tRev)}</div></div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Product</div><div style="font-size:20px;font-weight:800">${costMoney(tCost)}</div></div>
+      ${rate ? `<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Your time${anyEst ? ' (est.)' : ''}</div><div style="font-size:20px;font-weight:800">${costMoney(tTime)}</div></div>` : ''}
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Left over</div><div style="font-size:20px;font-weight:800">${costMoney(tLeft)}</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Compared ${fmtDate(S.from)} to ${fmtDate(S.to)} ${costYear}, the dates your QuickBooks file covers. "Charged" is the line amounts from QuickBooks, before sales tax. "Left over" is what's left after product${rate ? ' and your time' : ''}: not profit, because fuel, insurance, equipment and other costs aren't in it.</div>
+    <div class="card mb-8">
+      ${costTable(head, rows + `<tr><td style="${COST_TDL};font-weight:800">Total</td><td style="${COST_TD}"></td><td style="${COST_TD};font-weight:800">${costMoney(tRev)}</td><td style="${COST_TD};font-weight:800">${costMoney(tCost)}</td>${rate ? `<td style="${COST_TD};font-weight:800">${costMoney(tTime)}</td>` : ''}<td style="${COST_TD};font-weight:800">${costMoney(tLeft)}</td><td style="${COST_TD}">${tRev > 0 ? Math.round(tLeft / tRev * 100) + '%' : ''}</td></tr>`)}
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5">Rounds are matched by name: QuickBooks "Lawn Care:Round 4" goes with the log's Rd 4 (Rd 2A and 2B are both Rd 2). Check the matching on the Prices tab.${anyPartial ? ' <span style="color:var(--warn)">*</span> = some product has no price yet, so product is low there.' : ''}${anyEst ? ' <span>~</span> = time estimated from the timed jobs of the same kind (the timer started Oct 3 2026).' : ''}${rate ? ' Your time shows — for work with no timed jobs yet, so it is left out of the total.' : ''}</div>
+    </div>
+    <div class="section-label">Customers, lowest earning per hour first</div>
+    <div class="card">
+      ${custRows.length ? costTable(['Customer','Jobs','Charged','Product','On site','Per hour'], cRows) : '<p style="color:var(--text-dim)">No customer names matched between QuickBooks and the LPP Log.</p>'}
+      ${custRows.length > 25 && !costShowAll ? `<div style="text-align:center;margin:8px 0"><button class="btn secondary sm" onclick="costShowAll=true;renderCosts()">Show all ${custRows.length}</button></div>` : ''}
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5"><strong>Per hour</strong> = (charged − product) ÷ hours on site, so drive time isn't in it. ${noQb ? noQb + ' customer' + (noQb === 1 ? '' : 's') + ' in the log had no QuickBooks sales in these dates. ' : ''}${noLog.length ? noLog.length + ' QuickBooks customer' + (noLog.length === 1 ? '' : 's') + ' had no matching LPP Log name (soil tests, other work, or a different spelling).' : ''}</div>
+    </div>`;
+}
+function costSaveRate() {
+  const v = +((document.getElementById('cost-rate') || {}).value || 0);
+  if (!(v >= 0) || v > 1000) { alert('Enter a dollar amount per hour.'); return; }
+  savePlanCfg({ costRate:v }); renderCosts();
+}
+let costCustKeys = [], costMissNames = [];
+function costOpenCustomer(i) {
+  const k = costCustKeys[i];
+  const c = STATE.customers.find(x => nameKey(x.Name || x.name) === k);
+  if (!c) { alert('That name is in the LPP Log but not in your FieldPro customers.'); return; }
+  const cid = custIdStr(c); navigateTo('customers'); detailCustomerId = cid; renderCustomers();
+}
+
+function costPricesHtml() {
+  const rec = costRecord(false), items = ((rec && rec.items) || []).slice().sort((a, b) => String(a.label || a.match).localeCompare(String(b.label || b.match)));
+  const X = costCrunch(costYear), miss = Object.values(X.missing).sort((a, b) => b.jobs - a.jobs);
+  costMissNames = miss.map(m => ({ name:m.name, unit:Object.keys(m.amt)[0] || 'lb' }));
+  const S = salesRecord(false);
+  const form = costEdit ? costEditForm() : '';
+  const itemRows = items.map(it => {
+    const per = costItemPer(it), idx = rec.items.indexOf(it);
+    return `<tr><td style="${COST_TDL}"><div style="font-weight:600">${escHtml(it.label || it.match)}</div><div style="font-size:11px;color:var(--text-muted)">${escHtml(it.pack || '')}${it.source ? ' · ' + escHtml(it.source) : ''}${it.notLogged ? ' · not in the LPP Log' : ''}</div></td>
+      <td style="${COST_TD}">${+it.packPrice > 0 ? costMoney(+it.packPrice, true) : '—'}</td>
+      <td style="${COST_TD}">${per != null ? '$' + per.toFixed(per < 1 ? 3 : 2) + ' / ' + escHtml(it.unit || '') : '—'}</td>
+      <td style="${COST_TD}"><button class="btn ghost sm" onclick="costEdit={i:${idx}};renderCosts()">Edit</button></td></tr>`;
+  }).join('');
+  const missRows = miss.map((m, i) => `<div class="flex-between" style="gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0"><div style="font-size:13px;font-weight:600">${escHtml(m.name)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${m.jobs} job${m.jobs === 1 ? '' : 's'} in ${costYear} · ${Object.entries(m.amt).map(([u, a]) => (+a.toFixed(1)).toLocaleString() + ' ' + escHtml(u)).join(' + ')} · ${Object.keys(m.groups).map(escHtml).join(', ')}</div></div>
+      <button class="btn primary sm" onclick="costEdit={newName:costMissNames[${i}].name,unit:costMissNames[${i}].unit};renderCosts();window.scrollTo(0,0)">Add price</button></div>`).join('');
+  let qb = '';
+  if (costPending) {
+    const P = costPending;
+    qb = `<div class="eq-callout" style="border-left-color:var(--accent)"><div class="eq-callout-title">Check before saving: ${escHtml(P.file)}</div>
+      <p>${P.lines.length.toLocaleString()} sales lines, ${costMoney(P.total)} in all, ${fmtDate(P.from)} ${P.from.slice(0, 4)} to ${fmtDate(P.to)} ${P.to.slice(0, 4)}. ${P.custs.length} customers, ${P.matched} of them match a name in the LPP Log.${S && S.lines ? ' This replaces the QuickBooks file brought in ' + fmtDate(S.importedAt) + '.' : ''}</p>
+      <ul>${P.topItems.map(([n, v]) => `<li>${escHtml(n)}: ${costMoney(v.amt)} (${v.n}) → <strong>${escHtml(costGroupOfQb(n))}</strong></li>`).join('')}</ul>
+      <div class="flex-row gap-6" style="margin-top:10px"><button class="btn primary sm" onclick="costSaveImport()">Save to FieldPro</button><button class="btn ghost sm" onclick="costPending=null;costMsg='';renderCosts()">Cancel</button></div></div>`;
+  }
+  const curQb = S && S.lines ? (() => {
+    const all = {}; S.lines.forEach(([d, ci, ii, amt]) => { const n = S.items[ii]; const v = all[n] = all[n] || { amt:0, n:0 }; v.amt += amt; v.n++; });
+    const list = Object.entries(all).sort((a, b) => costGroupSort(costGroupOfQb(a[0]), costGroupOfQb(b[0])) || b[1].amt - a[1].amt);
+    return `<p style="font-size:13px;margin-bottom:6px">Brought in ${fmtDate(S.importedAt)} from <strong>${escHtml(S.file || 'QuickBooks')}</strong>: ${S.lines.length.toLocaleString()} lines, ${fmtDate(S.from)} ${String(S.from).slice(0, 4)} to ${fmtDate(S.to)} ${String(S.to).slice(0, 4)}.</p>
+      <details><summary style="font-size:12px;color:var(--accent);cursor:pointer">Which round each QuickBooks item counts as (${list.length})</summary>
+      ${list.map(([n, v]) => `<div class="flex-between" style="font-size:12px;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)"><span>${escHtml(n)}</span><span style="white-space:nowrap">${costMoney(v.amt)} → <strong>${escHtml(costGroupOfQb(n))}</strong></span></div>`).join('')}</details>`;
+  })() : '<p style="font-size:13px;color:var(--text-dim);margin-bottom:6px">No QuickBooks file brought in yet.</p>';
+  return `${form}
+    ${miss.length ? `<div class="section-label">In the LPP Log with no price (${costYear})</div><div class="card mb-8">${missRows}</div>` : ''}
+    <div class="section-label">Your prices</div>
+    <div class="card mb-8">
+      ${items.length ? costTable(['Product','Pack price','Per unit',''], itemRows) : '<p style="color:var(--text-dim)">No prices yet.</p>'}
+      ${rec && rec.updated ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Last changed ${fmtDate(rec.updated)} ${String(rec.updated).slice(0, 4)}.${rec.note ? ' ' + escHtml(rec.note) : ''}</div>` : ''}
+      <div style="margin-top:8px"><button class="btn secondary sm" onclick="costEdit={newName:''};renderCosts();window.scrollTo(0,0)">+ Add a price</button></div>
+    </div>
+    <div class="section-label" id="cost-qb">What you charge (QuickBooks)</div>
+    <div class="card">
+      ${curQb}
+      ${qb}
+      ${costMsg ? `<p style="font-size:12px;color:var(--warn);margin:6px 0">${escHtml(costMsg)}</p>` : ''}
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin:8px 0">In QuickBooks: <strong>Reports</strong> → search <strong>Sales by Customer Detail</strong> → set the dates (for example this year) → <strong>Export</strong> → <strong>Export to Excel</strong>. Then pick that file here. It's read on this phone and saved only to your private FieldPro sheet. Nothing is sent to QuickBooks.</div>
+      <label class="btn primary sm" style="cursor:pointer">📄 Pick the QuickBooks file<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="costImportFile(this)"></label>
+    </div>`;
+}
+const costAttr = s => escHtml(String(s == null ? '' : s)).replace(/"/g, '&quot;');
+function costEditForm() {
+  const rec = costRecord(false), E = costEdit, it = E.i != null && rec ? rec.items[E.i] : null;
+  const v = it || { match:E.newName || '', label:E.newName || '', packPrice:'', packQty:'', unit:E.unit || 'lb' };
+  const units = ['lb','oz','fl oz','gal'];
+  const inp = 'width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;box-sizing:border-box';
+  return `<div class="card mb-8" style="border-top:3px solid var(--accent)">
+    <div style="font-weight:700;margin-bottom:8px">${it ? 'Change price' : 'Add a price'}</div>
+    <div class="input-group"><label>Product name in the LPP Log starts with</label><input id="ce-match" style="${inp}" value="${costAttr(v.match)}" placeholder="e.g. Lebanon Pro High Bio Winterizer"></div>
+    <div class="input-group"><label>Name to show</label><input id="ce-label" style="${inp}" value="${costAttr(v.label)}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div class="input-group"><label>Price you pay ($)</label><input id="ce-price" type="number" inputmode="decimal" step="0.01" min="0" style="${inp}" value="${v.packPrice !== '' && v.packPrice != null ? +v.packPrice : ''}"></div>
+      <div class="input-group"><label>For how much</label><input id="ce-qty" type="number" inputmode="decimal" step="any" min="0" style="${inp}" value="${v.packQty !== '' && v.packQty != null ? +v.packQty : ''}" placeholder="50"></div>
+      <div class="input-group"><label>Unit</label><select id="ce-unit" style="${inp}">${units.map(u => `<option ${costUnit(v.unit) === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
+    </div>
+    <div class="input-group"><label>Pack (optional)</label><input id="ce-pack" style="${inp}" value="${costAttr(v.pack)}" placeholder="e.g. 50 lb bag, 2.5 gal jug"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Example: a 50 lb bag for $17.65 = price 17.65, for 50, lb. A 2.5 gal jug = 320 fl oz (or 2.5 gal).</div>
+    <div class="flex-row gap-6"><button class="btn primary sm" onclick="costSaveItem()">Save</button><button class="btn ghost sm" onclick="costEdit=null;renderCosts()">Cancel</button></div>
+  </div>`;
+}
+function costSaveItem() {
+  const g = id => (document.getElementById(id) || {}).value || '';
+  const match = g('ce-match').trim(), label = g('ce-label').trim() || match, price = +g('ce-price'), qty = +g('ce-qty'), unit = g('ce-unit'), pack = g('ce-pack').trim();
+  if (!match) { alert('Type how the product name starts in the LPP Log.'); return; }
+  if (!(price > 0) || !(qty > 0)) { alert('Enter the price and how much it buys.'); return; }
+  const rec = costRecord(true), today = schedToday();
+  let it = costEdit && costEdit.i != null ? rec.items[costEdit.i] : null;
+  if (!it) { it = {}; rec.items.push(it); }
+  if (it.packPrice != null && +it.packPrice !== price) it.packPriceOld = +it.packPrice;
+  Object.assign(it, { match, label, pack:pack || (qty + ' ' + unit), packPrice:price, packQty:qty, unit, perUnit:+(price / qty).toFixed(5), source:'Devon, typed in FieldPro ' + today });
+  delete it.packPriceLow;   // a typed price replaces the old bulk range
+  rec.updated = today;
+  costEdit = null; saveState(); renderCosts();
+}
+
+// ── QuickBooks "Sales by Customer Detail" export ──
+function costLoadXlsx() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = res; s.onerror = () => rej(new Error('could not load the spreadsheet reader (no internet?)')); document.head.appendChild(s); });
+}
+function costCellIso(v) {
+  if (v instanceof Date && !isNaN(v)) return isoLocal(v);
+  if (typeof v === 'number' && v > 30000 && v < 80000) { const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000); return d.toISOString().slice(0, 10); }
+  return logDateToIso(v);
+}
+const costNum = v => typeof v === 'number' ? v : +String(v || '').replace(/[$,\s]/g, '').replace(/^\((.*)\)$/, '-$1');
+function parseQbSales(rows) {
+  const norm = v => String(v == null ? '' : v).trim().toLowerCase();
+  let h = -1;
+  for (let i = 0; i < Math.min(rows.length, 40); i++) { const r = rows[i].map(norm); if (r.some(x => /product\/service/.test(x)) && r.includes('amount')) { h = i; break; } }
+  if (h < 0) throw new Error("this doesn't look like a Sales by Customer Detail report (no Product/Service and Amount columns)");
+  const H = rows[h].map(norm), col = re => H.findIndex(x => re.test(x));
+  const cD = col(/^(transaction )?date$/), cT = col(/transaction type/), cI = col(/product\/service/), cA = H.indexOf('amount'), cC = col(/^(customer|customer full name|name)$/);
+  if (cD < 0) throw new Error('no Date column found');
+  const lines = []; let cur = '';
+  for (let i = h + 1; i < rows.length; i++) {
+    const r = rows[i], d = costCellIso(r[cD]);
+    if (!d) {
+      const first = r.map(x => String(x == null ? '' : x).trim()).find(Boolean) || '';
+      if (first && !/^total\b/i.test(first) && r.filter(x => String(x == null ? '' : x).trim()).length === 1) cur = first;
+      continue;
+    }
+    const type = cT >= 0 ? String(r[cT] || '') : '', item = String(r[cI] || '').trim(), amt = costNum(r[cA]);
+    if (!item || isNaN(amt) || !amt) continue;
+    if (/payment|deposit|journal|estimate/i.test(type)) continue;
+    const cust = (cC >= 0 && String(r[cC] || '').trim()) || cur;
+    if (!cust) continue;
+    lines.push({ d, cust, item, amt });
+  }
+  if (!lines.length) throw new Error('no sales lines found under the headings');
+  return lines;
+}
+function costImportFile(inp) {
+  const f = inp.files && inp.files[0]; inp.value = '';
+  if (!f) return;
+  costMsg = 'Reading ' + f.name + '…'; costPending = null; renderCosts();
+  costLoadXlsx().then(() => f.arrayBuffer()).then(buf => {
+    const wb = XLSX.read(buf, { type:'array', cellDates:true });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, raw:true, defval:'' });
+    const lines = parseQbSales(rows);
+    const custs = [], items = [], ci = {}, ii = {}, byItem = {}; let total = 0, from = null, to = null;
+    const packed = lines.map(l => {
+      if (ci[l.cust] == null) { ci[l.cust] = custs.length; custs.push(l.cust); }
+      if (ii[l.item] == null) { ii[l.item] = items.length; items.push(l.item); }
+      const v = byItem[l.item] = byItem[l.item] || { amt:0, n:0 }; v.amt += l.amt; v.n++;
+      total += l.amt; if (!from || l.d < from) from = l.d; if (!to || l.d > to) to = l.d;
+      return [l.d, ci[l.cust], ii[l.item], Math.round(l.amt * 100) / 100];
+    });
+    const logKeys = new Set(); Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => logKeys.add(e.k)));
+    const matched = custs.filter(c => logKeys.has(nameKey(c))).length;
+    costPending = { file:f.name, lines:packed, custs, items, total, from, to, matched, topItems:Object.entries(byItem).sort((a, b) => b[1].amt - a[1].amt).slice(0, 12) };
+    costMsg = '';
+  }).catch(e => { costMsg = 'Could not read that file: ' + ((e && e.message) || e); costPending = null; })
+    .then(() => renderCosts());
+}
+function costSaveImport() {
+  const P = costPending; if (!P) return;
+  const r = salesRecord(true);
+  Object.assign(r, { file:P.file, importedAt:schedToday(), from:P.from, to:P.to, custs:P.custs, items:P.items, lines:P.lines });
+  costPending = null; costMsg = ''; saveState(); costTab = 'margin'; renderCosts();
+}
+
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-18-a';
+var APP_BUILD = '2026-11-22-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
