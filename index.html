@@ -3976,7 +3976,7 @@ function renderSyncResults() {
 // nothing to tick off twice. Per-customer choices (which program, skipped rounds)
 // live in a small 'plan' record kept in customerPrograms.
 const LPP_LOG_API = 'https://script.google.com/macros/s/AKfycbxl5cWjUIxRvfbw3YBi9rKk_Q5bljH94ZvW3KqTxfNor8QCOb7w_QrjUMJpND8Bz4zA/exec';
-const TREATLOG_KEY = 'fieldpro_treatlog_v4';   // v2: entries carry sq ft, spray-mix gal, fertilizer lbs; v3: + the product the lbs are of; v4: + every product and amount (u), for the Costs page
+const TREATLOG_KEY = 'fieldpro_treatlog_v5';   // v2: entries carry sq ft, spray-mix gal, fertilizer lbs; v3: + the product the lbs are of; v4: + every product and amount (u), for the Costs page; v5: spray-mix-only gallons flagged, counts (stations, sachets) kept
 
 // Pest control: first week of each of these months (1-12).
 const PEST_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
@@ -4228,7 +4228,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ── LPP Log loading ──
 function loadTreatLogCache() {
-  try { localStorage.removeItem('fieldpro_treatlog'); localStorage.removeItem('fieldpro_treatlog_v2'); localStorage.removeItem('fieldpro_treatlog_v3'); } catch(e) {}   // older caches
+  try { localStorage.removeItem('fieldpro_treatlog'); localStorage.removeItem('fieldpro_treatlog_v2'); localStorage.removeItem('fieldpro_treatlog_v3'); localStorage.removeItem('fieldpro_treatlog_v4'); } catch(e) {}   // older caches
   try { const raw = localStorage.getItem(TREATLOG_KEY); if (raw) TREATLOG = JSON.parse(raw); } catch(e) {}
 }
 function saveTreatLogCache() {
@@ -5670,6 +5670,7 @@ const costUnit = u => {
   if (u === 'fl oz' || u === 'floz') return 'fl oz';
   if (u === 'oz') return 'oz';
   if (/^gal/.test(u)) return 'gal';
+  if (/^(each|ea|stations?|sachets?|cans?|packets?|tablets?|baits?)$/.test(u)) return 'each';
   return u;
 };
 // amount in the log's unit -> the price's unit (null when they can't be compared)
@@ -5689,10 +5690,14 @@ function costParts(e) {
   const prods = String(e.product || '').split(' + ').map(x => x.trim()).filter(Boolean);
   const out = [];
   used.forEach((x, i) => {
-    const m = /^([\d.]+)\s*(lbs?|fl\.?\s*oz|oz|gal(?:lons?)?)\b/i.exec(x);
+    const m = /^([\d.]+)\s*(lbs?|fl\.?\s*oz|oz|gal(?:lons?)?|each|ea|stations?|sachets?|cans?|packets?|tablets?|baits?)\b/i.exec(x);
     if (!m || !(+m[1] > 0)) return;
     const p = used.length === prods.length ? prods[i] : prods.length === 1 ? prods[0] : '(unclear) ' + prods.join(' + ');
-    out.push([String(p || '').slice(0, 90), +m[1], costUnit(m[2])]);
+    const un = costUnit(m[2]), part = [String(p || '').slice(0, 90), +m[1], un];
+    // some liquid entries record the gallons of finished spray mix, not the product in it (e.g. permethrin
+    // "0.34 gal" at a rate of "0.34 gal / 1000 sqft"): that can't be priced as product
+    if (un === 'gal' && /gal\s*\/\s*1,?000\s*sq/i.test(String(e.rate || '')) && !/oz/i.test(String(e.rate || ''))) part.push('mix');
+    out.push(part);
   });
   return out;
 }
@@ -5706,7 +5711,9 @@ function costItemFor(name, items) {
 const costShortName = p => String(p || '').replace(/\s*[(—].*$/, '').replace(/\s+-\s+Backpack$/i, '').trim() || String(p || '');
 function costOfEntry(e, items) {
   let cost = 0, liq = 0; const missing = [], lines = [];
-  (e.u || []).forEach(([p, a, un]) => {
+  let mix = 0;
+  (e.u || []).forEach(([p, a, un, flag]) => {
+    if (flag === 'mix') { mix++; return; }
     const it = costItemFor(p, items), per = it ? costItemPer(it) : null, q = it && per != null ? costConvert(a, un, it.unit) : null;
     if (q == null) { missing.push({ p, a, un }); return; }
     const c = q * per; cost += c;
@@ -5714,7 +5721,7 @@ function costOfEntry(e, items) {
     if (wet) liq += c;
     lines.push({ it, a, un, c });
   });
-  return { cost, liq, missing, lines, n:(e.u || []).length };
+  return { cost, liq, missing:missing.concat(mix ? [{ mix:true }] : []), mixOnly:mix, lines, n:(e.u || []).length };
 }
 // which bucket a log service goes in
 function costGroupOfLog(s) {
@@ -5787,7 +5794,9 @@ function costCrunch(year, from, to) {
     if (m != null) { g.tMin += m; g.tJobs++; }
     const sv = g.svcs[e.s] = g.svcs[e.s] || { jobs:0, cost:0, priced:0 }; sv.jobs++; sv.cost += r.cost; if (r.n && !r.missing.length) sv.priced++;
     r.lines.forEach(l => { const key = l.it.label || l.it.match; const pr = g.prods[key] = g.prods[key] || { amt:0, un:l.it.unit, cost:0, jobs:0 }; const q = costConvert(l.a, l.un, l.it.unit); pr.amt += q || 0; pr.cost += l.c; pr.jobs++; });
+    if (r.mixOnly) g.mixOnly = (g.mixOnly || 0) + 1;
     r.missing.forEach(x => {
+      if (x.mix) return;
       const nm = costShortName(x.p), mm = missing[nm] = missing[nm] || { name:nm, full:x.p, jobs:0, amt:{}, groups:{} };
       mm.jobs++; mm.amt[x.un] = (mm.amt[x.un] || 0) + x.a; mm.groups[k] = 1; g.miss[nm] = 1;
     });
@@ -5795,7 +5804,7 @@ function costCrunch(year, from, to) {
     c.jobs++; c.cost += r.cost; if (r.missing.length) c.partial++; c.groups[k] = (c.groups[k] || 0) + 1;
     if (m != null) { c.tMin += m; c.tJobs++; c.groupsT[k] = (c.groupsT[k] || 0) + 1; }
   });
-  return { list, G, C, missing, items };
+  return { list, G, C, missing, items, mixOnly:Object.values(G).reduce((a, g) => a + (g.mixOnly || 0), 0) };
 }
 // QuickBooks lines for a year as {group: amount}, {customerKey: amount}
 function costSales(year) {
@@ -5879,6 +5888,7 @@ function costRoundsHtml() {
       <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Jobs missing a price</div><div style="font-size:22px;font-weight:800;color:${part ? 'var(--warn)' : 'inherit'}">${part}</div></div>
     </div>
     ${nMiss ? `<div class="eq-callout"><div class="eq-callout-title">${nMiss} product${nMiss === 1 ? '' : 's'} with no price</div><p>Jobs marked <span style="color:var(--warn)">*</span> leave those products out, so their totals are low. Add the prices on the <a href="#" onclick="costTab='prices';renderCosts();return false" style="color:var(--accent)">Prices</a> tab.</p></div>` : ''}
+    ${X.mixOnly ? `<div class="eq-callout"><div class="eq-callout-title">${X.mixOnly} job${X.mixOnly === 1 ? '' : 's'} with only spray-mix gallons</div><p>These log the gallons of finished mix (for example permethrin "0.34 gal"), not how much product went in, so their product cost can't be worked out. They're marked <span style="color:var(--warn)">*</span>.</p></div>` : ''}
     <div class="card">
       ${costTable(['Round','Jobs','Product','Per job','Per 1K sq ft','Per tank','On site'], rows)}
       <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5">On a phone, swipe the table sideways for more columns. Tap a row for the products and services in it. <strong>Per 1,000 sq ft</strong> uses the lawn size logged with each job. <strong>Per tank</strong> is the liquid product in a full ${tank} gal Z-Spray tank of mix (the planner's tank size); lawn rounds that don't record gallons are worked out from the 3-way amount. Backpack work shows the cost per gallon of mix instead. <strong>Per job</strong> counts only jobs with every product priced. <strong>On site</strong> is the LPP Log job timer, used since Oct 3 2026.</div>
@@ -6015,7 +6025,7 @@ const costAttr = s => escHtml(String(s == null ? '' : s)).replace(/"/g, '&quot;'
 function costEditForm() {
   const rec = costRecord(false), E = costEdit, it = E.i != null && rec ? rec.items[E.i] : null;
   const v = it || { match:E.newName || '', label:E.newName || '', packPrice:'', packQty:'', unit:E.unit || 'lb' };
-  const units = ['lb','oz','fl oz','gal'];
+  const units = ['lb','oz','fl oz','gal','each'];
   const inp = 'width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;box-sizing:border-box';
   return `<div class="card mb-8" style="border-top:3px solid var(--accent)">
     <div style="font-weight:700;margin-bottom:8px">${it ? 'Change price' : 'Add a price'}</div>
@@ -6027,7 +6037,7 @@ function costEditForm() {
       <div class="input-group"><label>Unit</label><select id="ce-unit" style="${inp}">${units.map(u => `<option ${costUnit(v.unit) === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
     </div>
     <div class="input-group"><label>Pack (optional)</label><input id="ce-pack" style="${inp}" value="${costAttr(v.pack)}" placeholder="e.g. 50 lb bag, 2.5 gal jug"></div>
-    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Example: a 50 lb bag for $17.65 = price 17.65, for 50, lb. A 2.5 gal jug = 320 fl oz (or 2.5 gal).</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Example: a 50 lb bag for $17.65 = price 17.65, for 50, lb. A 2.5 gal jug = 320 fl oz (or 2.5 gal). Bait sachets or stations: use each.</div>
     <div class="flex-row gap-6"><button class="btn primary sm" onclick="costSaveItem()">Save</button><button class="btn ghost sm" onclick="costEdit=null;renderCosts()">Cancel</button></div>
   </div>`;
 }
@@ -6116,7 +6126,7 @@ function costSaveImport() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-22-a';
+var APP_BUILD = '2026-11-23-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
