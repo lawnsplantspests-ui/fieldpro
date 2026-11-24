@@ -6037,20 +6037,21 @@ function costEditForm() {
       <div class="input-group"><label>Unit</label><select id="ce-unit" style="${inp}">${units.map(u => `<option ${costUnit(v.unit) === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div>
     </div>
     <div class="input-group"><label>Pack (optional)</label><input id="ce-pack" style="${inp}" value="${costAttr(v.pack)}" placeholder="e.g. 50 lb bag, 2.5 gal jug"></div>
+    <div class="input-group"><label>Where the price is from (optional)</label><input id="ce-src" style="${inp}" value="" placeholder="e.g. Leiby's invoice 17143, May 2026"></div>
     <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Example: a 50 lb bag for $17.65 = price 17.65, for 50, lb. A 2.5 gal jug = 320 fl oz (or 2.5 gal). Bait sachets or stations: use each.</div>
     <div class="flex-row gap-6"><button class="btn primary sm" onclick="costSaveItem()">Save</button><button class="btn ghost sm" onclick="costEdit=null;renderCosts()">Cancel</button></div>
   </div>`;
 }
 function costSaveItem() {
   const g = id => (document.getElementById(id) || {}).value || '';
-  const match = g('ce-match').trim(), label = g('ce-label').trim() || match, price = +g('ce-price'), qty = +g('ce-qty'), unit = g('ce-unit'), pack = g('ce-pack').trim();
+  const match = g('ce-match').trim(), label = g('ce-label').trim() || match, price = +g('ce-price'), qty = +g('ce-qty'), unit = g('ce-unit'), pack = g('ce-pack').trim(), src = g('ce-src').trim();
   if (!match) { alert('Type how the product name starts in the LPP Log.'); return; }
   if (!(price > 0) || !(qty > 0)) { alert('Enter the price and how much it buys.'); return; }
   const rec = costRecord(true), today = schedToday();
   let it = costEdit && costEdit.i != null ? rec.items[costEdit.i] : null;
   if (!it) { it = {}; rec.items.push(it); }
   if (it.packPrice != null && +it.packPrice !== price) it.packPriceOld = +it.packPrice;
-  Object.assign(it, { match, label, pack:pack || (qty + ' ' + unit), packPrice:price, packQty:qty, unit, perUnit:+(price / qty).toFixed(5), source:'Devon, typed in FieldPro ' + today });
+  Object.assign(it, { match, label, pack:pack || (qty + ' ' + unit), packPrice:price, packQty:qty, unit, perUnit:+(price / qty).toFixed(5), source:(src ? src + '; ' : '') + 'entered in FieldPro ' + today });
   delete it.packPriceLow;   // a typed price replaces the old bulk range
   rec.updated = today;
   costEdit = null; saveState(); renderCosts();
@@ -6126,7 +6127,7 @@ function costSaveImport() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-23-a';
+var APP_BUILD = '2026-11-23-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
