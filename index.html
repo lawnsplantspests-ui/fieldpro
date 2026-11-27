@@ -5878,7 +5878,7 @@ function costRoundsHtml() {
     if (open) {
       const prods = Object.entries(g.prods).sort((a, b) => b[1].cost - a[1].cost);
       const svcs = Object.entries(g.svcs).sort((a, b) => b[1].jobs - a[1].jobs);
-      detail = `<tr><td colspan="7" style="padding:8px 6px 12px;border-bottom:1px solid var(--border);background:var(--bg-input);white-space:normal"><div style="position:sticky;left:6px;max-width:330px">
+      detail = `<tr><td colspan="6" style="padding:8px 6px 12px;border-bottom:1px solid var(--border);background:var(--bg-input);white-space:normal"><div style="position:sticky;left:6px;max-width:330px">
         <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Product used</div>
         ${prods.length ? prods.map(([n, p]) => `<div style="font-size:12px;white-space:normal">${escHtml(n)}: <strong>${costMoney(p.cost)}</strong> <span style="color:var(--text-dim)">(${(+p.amt.toFixed(1)).toLocaleString()} ${escHtml(p.un)})</span></div>`).join('') : '<div style="font-size:12px;color:var(--text-dim)">No priced product.</div>'}
         ${Object.keys(g.miss).length ? `<div style="font-size:12px;color:var(--warn);margin-top:4px">No price yet: ${Object.keys(g.miss).map(escHtml).join(', ')}</div>` : ''}
@@ -5893,8 +5893,7 @@ function costRoundsHtml() {
       <td style="${COST_TDL};font-weight:600">${open ? '▾' : '▸'} ${escHtml(g.g)}${flag}</td>
       <td style="${COST_TD}">${g.jobs}</td>
       <td style="${COST_TD}">${costMoney(g.cost)}</td>
-      <td style="${COST_TD}">${perJob != null ? costMoney(perJob, true) : '—'}</td>
-      <td style="${COST_TD}">${perK != null ? costMoney(perK, true) : '—'}</td>
+      <td style="${COST_TD}">${costPerK(g.g) ? (perK != null ? costMoney(perK, true) + ' / 1K' : '—') : perJob != null ? '<span style="color:var(--text-dim)">' + costMoney(perJob, true) + ' / visit</span>' : '—'}</td>
       <td style="${COST_TD}">${perTank != null ? costMoney(perTank, true) : perGal != null ? '<span style="color:var(--text-dim)">' + costMoney(perGal, true) + '/gal</span>' : '—'}</td>
       <td style="${COST_TD}">${g.tJobs ? Math.round(g.tMin / g.tJobs) + ' min' : '—'}</td></tr>${detail}`;
   }).join('');
@@ -5907,8 +5906,8 @@ function costRoundsHtml() {
     ${nMiss ? `<div class="eq-callout"><div class="eq-callout-title">${nMiss} product${nMiss === 1 ? '' : 's'} with no price</div><p>Jobs marked <span style="color:var(--warn)">*</span> leave those products out, so their totals are low. Add the prices on the <a href="#" onclick="costTab='prices';renderCosts();return false" style="color:var(--accent)">Prices</a> tab.</p></div>` : ''}
     ${X.mixOnly ? `<div class="eq-callout"><div class="eq-callout-title">${X.mixOnly} job${X.mixOnly === 1 ? '' : 's'} with only spray-mix gallons</div><p>These log the gallons of finished mix (for example permethrin "0.34 gal"), not how much product went in, so their product cost can't be worked out. They're marked <span style="color:var(--warn)">*</span>.</p></div>` : ''}
     <div class="card">
-      ${costTable(['Round','Jobs','Product','Per job','Per 1K sq ft','Per tank','On site'], rows)}
-      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5">On a phone, swipe the table sideways for more columns. Tap a row for the products and services in it. <strong>Per 1,000 sq ft</strong> uses the lawn size logged with each job. <strong>Per tank</strong> is the liquid product in a full ${tank} gal Z-Spray tank of mix (the planner's tank size); lawn rounds that don't record gallons are worked out from the 3-way amount. Backpack work shows the cost per gallon of mix instead. <strong>Per job</strong> counts only jobs with every product priced. <strong>On site</strong> is the LPP Log job timer, used since Oct 3 2026.</div>
+      ${costTable(['Round','Jobs','Product','Per 1K sq ft','Per tank','On site'], rows)}
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5">On a phone, swipe the table sideways for more columns. Tap a row for the products and services in it. <strong>Per 1,000 sq ft</strong> uses the lawn size logged with each job; work with no lawn size (pest, mosquito, stinging insects) shows the cost per visit instead. <strong>Per tank</strong> is the liquid product in a full ${tank} gal Z-Spray tank of mix (the planner's tank size); lawn rounds that don't record gallons are worked out from the 3-way amount. Backpack work shows the cost per gallon of mix instead. Per visit counts only jobs with every product priced. <strong>On site</strong> is the LPP Log job timer, used since Oct 3 2026.</div>
     </div>`;
 }
 
@@ -6149,7 +6148,7 @@ function costSaveImport() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-26-a';
+var APP_BUILD = '2026-11-26-b';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
