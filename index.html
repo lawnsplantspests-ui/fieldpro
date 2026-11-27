@@ -5723,6 +5723,20 @@ function costOfEntry(e, items) {
   });
   return { cost, liq, missing:missing.concat(mix ? [{ mix:true }] : []), mixOnly:mix, lines, n:(e.u || []).length };
 }
+// spray adjuvant (LI 700 / Gulf Stream, Devon Nov 26 2026: about 3 oz per Z-Spray tank). Priced at the average
+// per-oz of the items marked adjuvant; null when no oz/tank or no adjuvant price is set
+function costAdjuvant(rec, items) {
+  const oz = rec ? +rec.adjOzPerTank : 0, tank = +getPlanCfg().tankGal || 18;
+  const pers = (items || []).filter(it => it.adjuvant).map(it => { const per = costItemPer(it), q = per != null ? costConvert(1, 'fl oz', it.unit) : null; return q != null ? per * q : null; }).filter(x => x > 0);
+  if (!(oz > 0) || !pers.length) return null;
+  const perOz = pers.reduce((a, b) => a + b, 0) / pers.length;
+  return { oz, tank, perOz, n:pers.length, it:{ label:'Spray adjuvant (' + oz + ' oz per tank, estimate)', unit:'fl oz' } };
+}
+function costSaveAdj() {
+  const v = +((document.getElementById('cost-adj') || {}).value || 0);
+  if (!(v >= 0) || v > 64) { alert('Enter ounces of adjuvant per tank.'); return; }
+  const rec = costRecord(true); rec.adjOzPerTank = v; rec.updated = schedToday(); saveState(); renderCosts();
+}
 // which bucket a log service goes in
 function costGroupOfLog(s) {
   s = String(s || '');
@@ -5783,10 +5797,13 @@ function costCrunch(year, from, to) {
   const list = [];
   Object.values(TREATLOG.tabs).forEach(a => a.forEach(e => { if (e.d.slice(0, 4) === String(year) && (!from || e.d >= from) && (!to || e.d <= to)) list.push(e); }));
   const mins = costEntryMinutes(list);
+  const adj = costAdjuvant(rec, items);
   const G = {}, C = {}, missing = {};
   const grp = k => G[k] = G[k] || { g:k, jobs:0, priced:0, partial:0, none:0, cost:0, pCost:0, sq:0, sqCost:0, liq:0, gal:0, tMin:0, tJobs:0, svcs:{}, prods:{}, miss:{} };
   list.forEach(e => {
     const k = costGroupOfLog(e.s), g = grp(k), r = costOfEntry(e, items), m = mins.get(e);
+    // spray adjuvant isn't in the LPP Log: add oz per Z-Spray tank from the gallons of mix (lawn rounds only)
+    if (adj && e.g > 0 && /^Rd /.test(k)) { const oz = e.g / adj.tank * adj.oz, c = oz * adj.perOz; r.cost += c; r.liq += c; r.lines.push({ it:adj.it, a:oz, un:'fl oz', c }); }
     g.jobs++; g.cost += r.cost;
     if (!r.n) g.none++; else if (r.missing.length) g.partial++; else { g.priced++; g.pCost += r.cost; }
     if (r.n && !r.missing.length && e.q > 0) { g.sq += e.q; g.sqCost += r.cost; }
@@ -5976,11 +5993,11 @@ function costPricesHtml() {
   const rec = costRecord(false), items = ((rec && rec.items) || []).slice().sort((a, b) => String(a.label || a.match).localeCompare(String(b.label || b.match)));
   const X = costCrunch(costYear), miss = Object.values(X.missing).sort((a, b) => b.jobs - a.jobs);
   costMissNames = miss.map(m => ({ name:m.name, unit:Object.keys(m.amt)[0] || 'lb' }));
-  const S = salesRecord(false);
+  const S = salesRecord(false), adjI = costAdjuvant(rec, (rec && rec.items) || []);
   const form = costEdit ? costEditForm() : '';
   const itemRows = items.map(it => {
     const per = costItemPer(it), idx = rec.items.indexOf(it);
-    return `<tr><td style="${COST_TDL}"><div style="font-weight:600">${escHtml(it.label || it.match)}</div><div style="font-size:11px;color:var(--text-muted)">${escHtml(it.pack || '')}${it.source ? ' · ' + escHtml(it.source) : ''}${it.notLogged ? ' · not in the LPP Log' : ''}</div></td>
+    return `<tr><td style="${COST_TDL}"><div style="font-weight:600">${escHtml(it.label || it.match)}</div><div style="font-size:11px;color:var(--text-muted)">${escHtml(it.pack || '')}${it.source ? ' · ' + escHtml(it.source) : ''}${it.adjuvant ? ' · spray adjuvant, counted per tank below' : it.notLogged ? ' · not in the LPP Log' : ''}</div></td>
       <td style="${COST_TD}">${+it.packPrice > 0 ? costMoney(+it.packPrice, true) : '—'}</td>
       <td style="${COST_TD}">${per != null ? '$' + per.toFixed(per < 1 ? 3 : 2) + ' / ' + escHtml(it.unit || '') : '—'}</td>
       <td style="${COST_TD}"><button class="btn ghost sm" onclick="costEdit={i:${idx}};renderCosts()">Edit</button></td></tr>`;
@@ -6011,6 +6028,11 @@ function costPricesHtml() {
       ${items.length ? costTable(['Product','Pack price','Per unit',''], itemRows) : '<p style="color:var(--text-dim)">No prices yet.</p>'}
       ${rec && rec.updated ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Last changed ${fmtDate(rec.updated)} ${String(rec.updated).slice(0, 4)}.${rec.note ? ' ' + escHtml(rec.note) : ''}</div>` : ''}
       <div style="margin-top:8px"><button class="btn secondary sm" onclick="costEdit={newName:''};renderCosts();window.scrollTo(0,0)">+ Add a price</button></div>
+    </div>
+    <div class="section-label">Spray adjuvant (not in the LPP Log)</div>
+    <div class="card mb-8">
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">Added to lawn-round spray jobs from the gallons of mix: ounces per ${+getPlanCfg().tankGal || 18} gal Z-Spray tank${adjI ? `, at ${costMoney(adjI.perOz, true)} an oz (average of ${adjI.n} adjuvant price${adjI.n === 1 ? '' : 's'}) = <strong>${costMoney(adjI.oz * adjI.perOz, true)} a tank</strong>` : ''}. 0 turns it off.</div>
+      <div class="flex-row gap-6" style="align-items:center"><input id="cost-adj" type="number" inputmode="decimal" step="0.5" min="0" value="${rec && rec.adjOzPerTank != null ? +rec.adjOzPerTank : ''}" style="width:80px;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text)"><span style="font-size:13px">oz per tank</span><button class="btn primary sm" onclick="costSaveAdj()">Save</button></div>
     </div>
     <div class="section-label" id="cost-qb">What you charge (QuickBooks)</div>
     <div class="card">
@@ -6127,7 +6149,7 @@ function costSaveImport() {
 // ══════════ VERSION CHECK ══════════
 // Is a newer copy of this page on the server than the one this phone is running? Checked on open, when the app comes back to the front, and every 20 minutes.
 // Bump APP_BUILD whenever the page is changed.
-var APP_BUILD = '2026-11-23-b';
+var APP_BUILD = '2026-11-26-a';
 setTimeout(() => { const v = document.getElementById('appVer'); if (v) v.textContent = 'v' + APP_BUILD; }, 0);
 function checkForUpdate() {
   try {
